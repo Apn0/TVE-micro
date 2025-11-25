@@ -7,6 +7,7 @@ import copy
 
 from flask import Flask, request, jsonify
 
+import atexit
 from hardware import HardwareInterface
 from safety import SafetyMonitor
 from logger import DataLogger
@@ -89,11 +90,7 @@ sys_config = load_config()
 # sensor_config expects int keys for channels
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
 
-hal = HardwareInterface(
-    sys_config["pins"],
-    sensor_config=sensor_cfg,
-    adc_config=sys_config.get("adc"),
-)
+hal: HardwareInterface | None = None
 
 safety = SafetyMonitor()
 logger = DataLogger()
@@ -115,14 +112,26 @@ state = {
 }
 
 state_lock = threading.Lock()
+_control_thread: threading.Thread | None = None
+_control_stop = threading.Event()
 
 app = Flask(__name__)
+
+
+def _ensure_hal_started():
+    if hal is None:
+        return False, (jsonify({"success": False, "msg": "HAL_NOT_INITIALIZED"}), 503)
+    return True, None
 
 def control_loop():
     """Background loop to keep temps fresh and optionally log."""
     poll_interval = sys_config.get("temp_settings", {}).get("poll_interval", 0.25)
 
-    while True:
+    while not _control_stop.is_set():
+        if hal is None:
+            _control_stop.wait(poll_interval)
+            continue
+
         temps = hal.get_temps()
 
         # Update shared state
@@ -185,14 +194,62 @@ def control_loop():
             # Ignore logging errors so the control loop keeps running
             pass
 
-        time.sleep(poll_interval)
+        _control_stop.wait(poll_interval)
 
 def start_background_threads():
-    threading.Thread(target=control_loop, daemon=True).start()
+    global _control_thread
+    if _control_thread is not None and _control_thread.is_alive():
+        return
+    _control_stop.clear()
+    _control_thread = threading.Thread(target=control_loop, daemon=True)
+    _control_thread.start()
+
+
+def startup():
+    global hal
+    if hal is not None:
+        return
+
+    hal_instance = HardwareInterface(
+        sys_config["pins"],
+        sensor_config=sensor_cfg,
+        adc_config=sys_config.get("adc"),
+    )
+    hal = hal_instance
+    start_background_threads()
+
+
+def shutdown():
+    _control_stop.set()
+    if _control_thread is not None:
+        _control_thread.join(timeout=2.0)
+
+    if hal is not None:
+        try:
+            hal.set_heater_duty("z1", 0.0)
+            hal.set_heater_duty("z2", 0.0)
+            hal.set_motor_rpm("main", 0.0)
+            hal.set_motor_rpm("feed", 0.0)
+            hal.set_relay("fan", False)
+            hal.set_relay("pump", False)
+        except Exception:
+            pass
+        try:
+            hal.shutdown()
+        except Exception:
+            pass
+    globals()["hal"] = None
+    globals()["_control_thread"] = None
+
+
+atexit.register(shutdown)
 
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
+    ok, resp = _ensure_hal_started()
+    if not ok:
+        return resp
     with state_lock:
         snapshot_state = dict(state)
     return jsonify({
@@ -207,6 +264,9 @@ def api_data():
     For now it returns a single snapshot; frontend stops getting 404.
     Extend later to return full history from DataLogger if needed.
     """
+    ok, resp = _ensure_hal_started()
+    if not ok:
+        return resp
     now = time.time()
     temps = hal.get_temps()
     with state_lock:
@@ -238,6 +298,10 @@ def control():
     req = data.get("value", {}) or {}
 
     global state, sys_config
+
+    ok, resp = _ensure_hal_started()
+    if not ok:
+        return resp
 
     # Short-circuit commands while an alarm is active, except for clearing it
     with state_lock:
@@ -428,5 +492,5 @@ def control():
 if __name__ == "__main__":
     debug = True
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        start_background_threads()
+        startup()
     app.run(host="0.0.0.0", port=5000, debug=debug)
