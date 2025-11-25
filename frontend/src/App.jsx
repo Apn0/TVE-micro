@@ -28,6 +28,15 @@ export const styles = {
   statusBar: { position: "absolute", bottom: 0, left: 0, right: 0, background: "#111", borderTop: "1px solid #333", padding: "6px 16px", fontSize: "0.8em", display: "flex", justifyContent: "space-between", alignItems: "center", color: "#aaa" },
   row: { display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #333" },
   manualBanner: { background: "#f39c12", color: "black", padding: "10px", fontWeight: "bold", marginBottom: "20px", borderRadius: "4px" },
+
+  // DIP switch visualizer
+  dipBlock: { background: "#c0392b", padding: "10px", borderRadius: 4, display: "inline-flex", gap: 5, border: "2px solid #fff" },
+  dipLabel: { color: "white", fontSize: "0.7em", textAlign: "center", marginBottom: 2 },
+  dipSwitch: { width: 20, height: 40, background: "#ecf0f1", position: "relative", borderRadius: 2 },
+  dipKnob: (s) => ({
+    width: 16, height: 16, background: "#2c3e50", position: "absolute",
+    left: 2, top: s ? 22 : 2, transition: "top 0.2s", borderRadius: 2
+  }),
 };
 
 // Components
