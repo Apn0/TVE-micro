@@ -287,16 +287,19 @@ def control():
         with state_lock:
             temps_snapshot = dict(state.get("temps", {}))
 
-        allowed, reason = safety.guard_motor_temp(temps_snapshot)
-        if not allowed:
-            hal.set_motor_rpm("main", 0.0)
-            hal.set_motor_rpm("feed", 0.0)
-            with state_lock:
-                state["status"] = "ALARM"
-                state["alarm_msg"] = reason
-                state["motors"]["main"] = 0.0
-                state["motors"]["feed"] = 0.0
-            return jsonify({"success": False, "msg": reason})
+        # Only enforce the temperature guard when attempting to move the motor.
+        # Zero-RPM requests (e.g., stop commands) should not trigger a cold-temp alarm.
+        if rpm != 0.0:
+            allowed, reason = safety.guard_motor_temp(temps_snapshot)
+            if not allowed:
+                hal.set_motor_rpm("main", 0.0)
+                hal.set_motor_rpm("feed", 0.0)
+                with state_lock:
+                    state["status"] = "ALARM"
+                    state["alarm_msg"] = reason
+                    state["motors"]["main"] = 0.0
+                    state["motors"]["feed"] = 0.0
+                return jsonify({"success": False, "msg": reason})
 
         hal.set_motor_rpm(motor, rpm)
         with state_lock:
