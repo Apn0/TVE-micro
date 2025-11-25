@@ -89,10 +89,14 @@ sys_config = load_config()
 # sensor_config expects int keys for channels
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
 
+running_event = threading.Event()
+running_event.set()
+
 hal = HardwareInterface(
     sys_config["pins"],
     sensor_config=sensor_cfg,
     adc_config=sys_config.get("adc"),
+    running_event=running_event,
 )
 
 safety = SafetyMonitor()
@@ -118,64 +122,96 @@ state_lock = threading.Lock()
 
 app = Flask(__name__)
 
+
+def _all_outputs_off():
+    """Cut all outputs and mirror the off state in shared state."""
+    hal.set_heater_duty("z1", 0.0)
+    hal.set_heater_duty("z2", 0.0)
+    hal.set_motor_rpm("main", 0.0)
+    hal.set_motor_rpm("feed", 0.0)
+    hal.set_relay("fan", False)
+    hal.set_relay("pump", False)
+
+    with state_lock:
+        state["motors"]["main"] = 0.0
+        state["motors"]["feed"] = 0.0
+        state["relays"]["fan"] = False
+        state["relays"]["pump"] = False
+
+
+def _latch_alarm(reason: str):
+    """Latch an alarm, stop control flow, and ensure outputs are off."""
+    running_event.clear()
+    _all_outputs_off()
+    with state_lock:
+        state["status"] = "ALARM"
+        state["alarm_msg"] = reason
+
+
 def control_loop():
     """Background loop to keep temps fresh and optionally log."""
     poll_interval = sys_config.get("temp_settings", {}).get("poll_interval", 0.25)
 
     while True:
         temps = hal.get_temps()
+        alarm_to_latch = None
 
         # Update shared state
         with state_lock:
             state["temps"] = temps
 
-            # --- SAFETY CHECK ---
-            is_safe, reason = safety.check(state, hal)
-            if not is_safe and state["status"] != "ALARM":
-                # Only trigger alarm if not already in ALARM state
-                state["status"] = "ALARM"
-                state["alarm_msg"] = reason
+            if running_event.is_set():
+                is_safe, reason = safety.check(state, hal)
+                if not is_safe and state["status"] != "ALARM":
+                    alarm_to_latch = reason
 
-                # Immediately cut power
+            alarm_active = state["status"] == "ALARM"
+            mode = state.get("mode")
+            target_z1 = state.get("target_z1", 0.0)
+            target_z2 = state.get("target_z2", 0.0)
+
+        if alarm_to_latch:
+            _latch_alarm(alarm_to_latch)
+            alarm_active = True
+
+        if alarm_active or not running_event.is_set():
+            _all_outputs_off()
+            with state_lock:
+                snapshot_state = dict(state)
+            try:
+                logger.log(snapshot_state, hal)
+            except Exception:
+                pass
+            time.sleep(poll_interval)
+            continue
+
+        # --- CONTROL LOGIC ---
+        if mode == "AUTO":
+            # PID Control
+
+            # Zone 1 (Assuming T2 is for Z1)
+            pid_z1.setpoint = target_z1
+            val_z1 = temps.get("t2")
+            if val_z1 is not None:
+                out_z1 = pid_z1.compute(val_z1)
+                if out_z1 is not None:
+                    hal.set_heater_duty("z1", out_z1)
+            else:
+                # Failsafe: if sensor missing, cut power
                 hal.set_heater_duty("z1", 0.0)
+
+            # Zone 2 (Assuming T3 is for Z2)
+            pid_z2.setpoint = target_z2
+            val_z2 = temps.get("t3")
+            if val_z2 is not None:
+                out_z2 = pid_z2.compute(val_z2)
+                if out_z2 is not None:
+                    hal.set_heater_duty("z2", out_z2)
+            else:
+                # Failsafe: if sensor missing, cut power
                 hal.set_heater_duty("z2", 0.0)
-                hal.set_motor_rpm("main", 0.0)
-                hal.set_motor_rpm("feed", 0.0)
-                hal.set_relay("fan", False)
-                hal.set_relay("pump", False)
 
-            # --- CONTROL LOGIC ---
-            if state["status"] == "ALARM":
-                # Force outputs to 0 in ALARM state (redundant safety)
-                hal.set_heater_duty("z1", 0.0)
-                hal.set_heater_duty("z2", 0.0)
-                # Keep motors off, etc. (already handled by emergency stop logic, but good to enforce)
-
-            elif state["mode"] == "AUTO":
-                # PID Control
-
-                # Zone 1 (Assuming T2 is for Z1)
-                pid_z1.setpoint = state["target_z1"]
-                val_z1 = temps.get("t2")
-                if val_z1 is not None:
-                    out_z1 = pid_z1.compute(val_z1)
-                    if out_z1 is not None:
-                        hal.set_heater_duty("z1", out_z1)
-                else:
-                    # Failsafe: if sensor missing, cut power
-                    hal.set_heater_duty("z1", 0.0)
-
-                # Zone 2 (Assuming T3 is for Z2)
-                pid_z2.setpoint = state["target_z2"]
-                val_z2 = temps.get("t3")
-                if val_z2 is not None:
-                    out_z2 = pid_z2.compute(val_z2)
-                    if out_z2 is not None:
-                        hal.set_heater_duty("z2", out_z2)
-                else:
-                    # Failsafe: if sensor missing, cut power
-                    hal.set_heater_duty("z2", 0.0)
-
+        with state_lock:
             snapshot_state = dict(state)
 
         # Logging with correct signature: DataLogger.log(state, hal)
@@ -299,21 +335,15 @@ def control():
 
     elif cmd == "EMERGENCY_STOP":
         # Immediately cut heaters and motors, raise ALARM.
-        hal.set_heater_duty("z1", 0.0)
-        hal.set_heater_duty("z2", 0.0)
-        hal.set_motor_rpm("main", 0.0)
-        hal.set_motor_rpm("feed", 0.0)
-        hal.set_relay("fan", False)
-        hal.set_relay("pump", False)
-        with state_lock:
-            state["status"] = "ALARM"
-            state["alarm_msg"] = "EMERGENCY_STOP"
+        _latch_alarm("EMERGENCY_STOP")
 
     elif cmd == "CLEAR_ALARM":
+        _all_outputs_off()
         with state_lock:
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
+        running_event.set()
 
     # ----------------------------
     # CONFIG COMMANDS
