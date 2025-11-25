@@ -184,6 +184,14 @@ class ADS1115Driver:
             print(f"[ADS1115] read failed ch{channel}: {e}")
             return None
 
+    def close(self):
+        if self.bus is not None:
+            try:
+                self.bus.close()
+            except Exception:
+                pass
+            self.bus = None
+
 # --- HardwareInterface --------------------------------------------------------
 
 class HardwareInterface:
@@ -554,6 +562,14 @@ class HardwareInterface:
 
     def shutdown(self):
         self.running = False
+        for thread in (getattr(self, "_hw_thread", None), getattr(self, "_temp_thread", None)):
+            if thread is not None:
+                thread.join(timeout=2.0)
+        if getattr(self, "_ads", None) is not None:
+            try:
+                self._ads.close()
+            except Exception:
+                pass
         if self.platform == "PI" and GPIO is not None:
             GPIO.cleanup()
 
