@@ -10,6 +10,12 @@ function MotorScreen({ data, sendCmd }) {
   const temps = data.state?.temps || {};
   const [mainRpm, setMainRpm] = useState(motors.main ?? 0);
   const [feedRpm, setFeedRpm] = useState(motors.feed ?? 0);
+  const [mainManualSteps, setMainManualSteps] = useState(100);
+  const [feedManualSteps, setFeedManualSteps] = useState(100);
+  const [mainManualRotations, setMainManualRotations] = useState(1);
+  const [feedManualRotations, setFeedManualRotations] = useState(1);
+  const [mainManualSpeed, setMainManualSpeed] = useState(1000);
+  const [feedManualSpeed, setFeedManualSpeed] = useState(1000);
   const [dm, setDm] = useState({
     ...DEFAULT_DM556,
     ...(data.config?.dm556 || {}),
@@ -54,6 +60,19 @@ function MotorScreen({ data, sendCmd }) {
   const applyDm = () => {
     sendCmd("UPDATE_DM556", { params: dm });
   };
+
+  const sendMoveSteps = (motor, steps, speed) => {
+    sendCmd("MOVE_MOTOR_STEPS", { motor, steps, speed });
+  };
+
+  const sendMoveRotations = (motor, rotations, speed) => {
+    const steps = rotations * dm.microsteps;
+    sendCmd("MOVE_MOTOR_STEPS", { motor, steps, speed });
+  };
+
+  const stopManualMove = (motor) => {
+    sendCmd("STOP_MANUAL_MOVE", { motor });
+  }
 
   const switchStates = useMemo(() => {
     return {
@@ -139,64 +158,63 @@ function MotorScreen({ data, sendCmd }) {
       </div>
 
       <div style={styles.panel}>
-        <h3>DM556 DIP switch helper</h3>
-        <p style={{ fontSize: "0.9em", color: "#aaa" }}>
-          Align the switch banks with the selected microstep and current values
-          for the NEMA23. Use SW4 for idle current reduction.
-        </p>
-
-        <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+        <h3>Calculated values</h3>
+        <div style={{ ...styles.grid2, gap: "20px" }}>
           <div>
-            <div style={styles.label}>Target current (peak)</div>
-            <select
-              style={{ ...styles.input, width: "140px" }}
-              value={dm.current_peak}
-              onChange={(e) => setDm({ ...dm, current_peak: parseFloat(e.target.value) })}
-            >
-              {Object.keys(DM556_TABLE.current).map((k) => (
-                <option key={k} value={k}>
-                  {k} A
-                </option>
-              ))}
-            </select>
+            <h4>Main Motor</h4>
+            <div style={styles.label}>Steps/rotation</div>
+            <div style={styles.metric}>{dm.microsteps}</div>
+            <div style={styles.label}>Steps/second</div>
+            <div style={styles.metric}>{((mainRpm / 60) * dm.microsteps).toFixed(0)}</div>
+            <div style={styles.label}>Steps/minute</div>
+            <div style={styles.metric}>{(mainRpm * dm.microsteps).toFixed(0)}</div>
+          </div>
+          <div>
+            <h4>Feeder Motor</h4>
+            <div style={styles.label}>Steps/rotation</div>
+            <div style={styles.metric}>{dm.microsteps}</div>
+            <div style={styles.label}>Steps/second</div>
+            <div style={styles.metric}>{((feedRpm / 60) * dm.microsteps).toFixed(0)}</div>
+            <div style={styles.label}>Steps/minute</div>
+            <div style={styles.metric}>{(feedRpm * dm.microsteps).toFixed(0)}</div>
+          </div>
+        </div>
+      </div>
 
-            <div style={{ ...styles.label, marginTop: "12px" }}>Microsteps</div>
-            <select
-              style={{ ...styles.input, width: "140px" }}
-              value={dm.microsteps}
-              onChange={(e) => setDm({ ...dm, microsteps: parseInt(e.target.value, 10) })}
-            >
-              {Object.keys(DM556_TABLE.steps).map((k) => (
-                <option key={k} value={k}>
-                  {k} steps/rev
-                </option>
-              ))}
-            </select>
-
-            <div style={{ marginTop: "10px", fontSize: "0.9em" }}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={dm.idle_half}
-                  onChange={(e) => setDm({ ...dm, idle_half: e.target.checked })}
-                  style={{ marginRight: "5px" }}
-                />
-                SW4: Half current when idle
-              </label>
+      <div style={styles.panel}>
+        <h3>Manual Controls</h3>
+        <div style={{ ...styles.grid2, gap: "20px" }}>
+          <div>
+            <h4>Main Motor</h4>
+            <div style={styles.label}>Move steps ({mainManualSteps})</div>
+            <input type="range" min="1" max="1000" value={mainManualSteps} onChange={(e) => setMainManualSteps(parseInt(e.target.value, 10))} style={{ width: "100%" }} />
+            <div style={styles.label}>Move rotations ({mainManualRotations})</div>
+            <input type="range" min="1" max="1000" value={mainManualRotations} onChange={(e) => setMainManualRotations(parseInt(e.target.value, 10))} style={{ width: "100%" }} />
+            <div style={styles.label}>Speed (steps/s)</div>
+            <input type="number" value={mainManualSpeed} onChange={(e) => setMainManualSpeed(parseInt(e.target.value, 10))} style={styles.input} />
+            <div style={{ marginTop: "10px" }}>
+              <button style={styles.buttonSecondary} onMouseDown={() => sendMoveSteps('main', 999999, mainManualSpeed)} onMouseUp={() => stopManualMove('main')}>Jog CW</button>
+              <button style={styles.buttonSecondary} onMouseDown={() => sendMoveSteps('main', -999999, mainManualSpeed)} onMouseUp={() => stopManualMove('main')}>Jog CCW</button>
+              <button style={{...styles.button, marginLeft: "10px"}} onClick={() => sendMoveSteps('main', mainManualSteps, mainManualSpeed)}>Send Steps</button>
+              <button style={{...styles.button, marginLeft: "10px"}} onClick={() => sendMoveRotations('main', mainManualRotations, mainManualSpeed)}>Send Rotations</button>
+              <button style={styles.buttonDanger} onClick={() => stopManualMove('main')}>Stop</button>
             </div>
-
-            <button style={{ ...styles.button, marginTop: "15px" }} onClick={applyDm}>
-              Apply DM556 config
-            </button>
-          </div>
-
-          <div>
-            <div style={styles.label}>Current (SW1–SW3)</div>
-            <DipSwitchBlock switches={switchStates.swCurr} />
           </div>
           <div>
-            <div style={styles.label}>Microsteps (SW5–SW8)</div>
-            <DipSwitchBlock switches={switchStates.swSteps} />
+            <h4>Feeder Motor</h4>
+            <div style={styles.label}>Move steps ({feedManualSteps})</div>
+            <input type="range" min="1" max="1000" value={feedManualSteps} onChange={(e) => setFeedManualSteps(parseInt(e.target.value, 10))} style={{ width: "100%" }} />
+            <div style={styles.label}>Move rotations ({feedManualRotations})</div>
+            <input type="range" min="1" max="1000" value={feedManualRotations} onChange={(e) => setFeedManualRotations(parseInt(e.target.value, 10))} style={{ width: "100%" }} />
+            <div style={styles.label}>Speed (steps/s)</div>
+            <input type="number" value={feedManualSpeed} onChange={(e) => setFeedManualSpeed(parseInt(e.target.value, 10))} style={styles.input} />
+            <div style={{ marginTop: "10px" }}>
+              <button style={styles.buttonSecondary} onMouseDown={() => sendMoveSteps('feed', 999999, feedManualSpeed)} onMouseUp={() => stopManualMove('feed')}>Jog CW</button>
+              <button style={styles.buttonSecondary} onMouseDown={() => sendMoveSteps('feed', -999999, feedManualSpeed)} onMouseUp={() => stopManualMove('feed')}>Jog CCW</button>
+              <button style={{...styles.button, marginLeft: "10px"}} onClick={() => sendMoveSteps('feed', feedManualSteps, feedManualSpeed)}>Send Steps</button>
+              <button style={{...styles.button, marginLeft: "10px"}} onClick={() => sendMoveRotations('feed', feedManualRotations, feedManualSpeed)}>Send Rotations</button>
+              <button style={styles.buttonDanger} onClick={() => stopManualMove('feed')}>Stop</button>
+            </div>
           </div>
         </div>
       </div>
