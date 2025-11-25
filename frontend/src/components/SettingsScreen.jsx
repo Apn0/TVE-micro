@@ -1,5 +1,5 @@
-﻿// file: frontend/src/tabs/SettingsScreen.jsx
-import React, { useState } from "react";
+// file: frontend/src/tabs/SettingsScreen.jsx
+import React, { useState, useEffect } from "react";
 import { styles } from "../App";
 import DipSwitchBlock from "./DipSwitchBlock";
 
@@ -43,6 +43,29 @@ function SettingsScreen({ data, sendCmd }) {
     }
   );
 
+  const [tempSettings, setTempSettings] = useState({
+    poll_interval: 0.25,
+    avg_window: 2.0,
+    ...data.config?.temp_settings,
+  });
+
+  const [logSettings, setLogSettings] = useState({
+    interval: 0.25,
+    flush_interval: 60.0,
+    ...data.config?.logging,
+  });
+
+  // Sync state with incoming data if valid
+  useEffect(() => {
+    if (data.config?.temp_settings) {
+      setTempSettings((prev) => ({ ...prev, ...data.config.temp_settings }));
+    }
+    if (data.config?.logging) {
+      setLogSettings((prev) => ({ ...prev, ...data.config.logging }));
+    }
+  }, [data.config]);
+
+
   const getSwitchState = () => {
     let swCurr = [false, false, false];
     let swSteps = [false, false, false, false];
@@ -56,8 +79,16 @@ function SettingsScreen({ data, sendCmd }) {
     return { swCurr, swSteps };
   };
 
-  const handleApply = () => {
+  const handleApplyDM = () => {
     sendCmd("UPDATE_DM556", { params: dm });
+  };
+
+  const handleApplyTemp = () => {
+    sendCmd("SET_TEMP_SETTINGS", { params: tempSettings });
+  };
+
+  const handleApplyLog = () => {
+    sendCmd("SET_LOGGING_SETTINGS", { params: logSettings });
   };
 
   const { swCurr, swSteps } = getSwitchState();
@@ -65,6 +96,63 @@ function SettingsScreen({ data, sendCmd }) {
 
   return (
     <div>
+      <div style={styles.panel}>
+        <h2>Logging & Performance</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+
+            {/* Column 1: Temp & Polling */}
+            <div>
+                <h3 style={{marginTop:0}}>Polling & Averaging</h3>
+                <div style={styles.label}>Hardware Poll Interval (s)</div>
+                <input
+                    type="number" step="0.05" min="0.05"
+                    style={styles.input}
+                    value={tempSettings.poll_interval}
+                    onChange={(e) => setTempSettings({...tempSettings, poll_interval: parseFloat(e.target.value)})}
+                />
+
+                <div style={styles.label}>Averaging Window (s)</div>
+                <input
+                    type="number" step="0.5" min="0.0"
+                    style={styles.input}
+                    value={tempSettings.avg_window}
+                    onChange={(e) => setTempSettings({...tempSettings, avg_window: parseFloat(e.target.value)})}
+                />
+
+                <button style={{...styles.button, marginTop: "10px"}} onClick={handleApplyTemp}>
+                    Apply Polling Config
+                </button>
+            </div>
+
+            {/* Column 2: Logging */}
+            <div>
+                <h3 style={{marginTop:0}}>Data Logging</h3>
+                <div style={styles.label}>Log Interval (s)</div>
+                <input
+                    type="number" step="0.05" min="0.05"
+                    style={styles.input}
+                    value={logSettings.interval}
+                    onChange={(e) => setLogSettings({...logSettings, interval: parseFloat(e.target.value)})}
+                />
+
+                <div style={styles.label}>Flush to Disk Interval (s)</div>
+                <input
+                    type="number" step="1" min="1"
+                    style={styles.input}
+                    value={logSettings.flush_interval}
+                    onChange={(e) => setLogSettings({...logSettings, flush_interval: parseFloat(e.target.value)})}
+                />
+                <div style={{fontSize: "0.8em", color: "#aaa", marginTop: "5px"}}>
+                    Accumulates logs in RAM. Flushes immediately if temperature deviates > 2 SD.
+                </div>
+
+                <button style={{...styles.button, marginTop: "10px"}} onClick={handleApplyLog}>
+                    Apply Logging Config
+                </button>
+            </div>
+        </div>
+      </div>
+
       <div style={styles.panel}>
         <h2>DM556 driver config</h2>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -117,7 +205,7 @@ function SettingsScreen({ data, sendCmd }) {
 
             <button
               style={{ ...styles.button, marginTop: "15px" }}
-              onClick={handleApply}
+              onClick={handleApplyDM}
             >
               Apply DM556 config
             </button>
