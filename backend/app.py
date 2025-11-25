@@ -3,6 +3,7 @@ import os
 import json
 import time
 import threading
+import copy
 
 from flask import Flask, request, jsonify
 
@@ -62,25 +63,25 @@ def load_config():
             with open(CONFIG_FILE, "r") as f:
                 cfg = json.load(f)
         except Exception:
-            cfg = DEFAULT_CONFIG.copy()
+            cfg = copy.deepcopy(DEFAULT_CONFIG)
     else:
-        cfg = DEFAULT_CONFIG.copy()
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
 
     # Ensure new keys exist
     if "z1" not in cfg:
-        cfg["z1"] = DEFAULT_CONFIG["z1"]
+        cfg["z1"] = copy.deepcopy(DEFAULT_CONFIG["z1"])
     if "z2" not in cfg:
-        cfg["z2"] = DEFAULT_CONFIG["z2"]
+        cfg["z2"] = copy.deepcopy(DEFAULT_CONFIG["z2"])
     if "dm556" not in cfg:
-        cfg["dm556"] = DEFAULT_CONFIG["dm556"]
+        cfg["dm556"] = copy.deepcopy(DEFAULT_CONFIG["dm556"])
     if "pins" not in cfg:
-        cfg["pins"] = DEFAULT_CONFIG["pins"]
+        cfg["pins"] = copy.deepcopy(DEFAULT_CONFIG["pins"])
     if "sensors" not in cfg:
-        cfg["sensors"] = DEFAULT_CONFIG["sensors"]
+        cfg["sensors"] = copy.deepcopy(DEFAULT_CONFIG["sensors"])
     if "adc" not in cfg:
-        cfg["adc"] = DEFAULT_CONFIG["adc"]
+        cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
     if "temp_settings" not in cfg:
-        cfg["temp_settings"] = DEFAULT_CONFIG["temp_settings"]
+        cfg["temp_settings"] = copy.deepcopy(DEFAULT_CONFIG["temp_settings"])
     return cfg
 
 sys_config = load_config()
