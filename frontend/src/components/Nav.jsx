@@ -5,7 +5,7 @@ import { styles } from "../App";
 function Nav({ current, setView }) {
   const tabs = [
     "HOME",
-    "ENGINE",
+    "MOTOR",
     "HEATERS",
     "HISTORY",
     "I/O TEST",
