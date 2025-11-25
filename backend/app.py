@@ -55,6 +55,10 @@ DEFAULT_CONFIG = {
         "use_average": True,
         "decimals_default": 1,
     },
+    "logging": {
+        "interval": 0.25,
+        "flush_interval": 60.0,
+    },
 }
 
 def load_config():
@@ -82,6 +86,8 @@ def load_config():
         cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
     if "temp_settings" not in cfg:
         cfg["temp_settings"] = copy.deepcopy(DEFAULT_CONFIG["temp_settings"])
+    if "logging" not in cfg:
+        cfg["logging"] = copy.deepcopy(DEFAULT_CONFIG["logging"])
     return cfg
 
 sys_config = load_config()
@@ -97,6 +103,7 @@ hal = HardwareInterface(
 
 safety = SafetyMonitor()
 logger = DataLogger()
+logger.configure(sys_config.get("logging", {}))
 # logger.start()  # REMOVED: Do not auto-start logging
 
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
@@ -120,13 +127,30 @@ app = Flask(__name__)
 
 def control_loop():
     """Background loop to keep temps fresh and optionally log."""
-    poll_interval = sys_config.get("temp_settings", {}).get("poll_interval", 0.25)
+    # We maintain a loop that runs faster (e.g. 0.05s) to check if we need to poll or log
+    # But for simplicity, we can just sleep 'min(poll, log)' or simply iterate.
+    # A cleaner approach is to track last_poll_time and last_log_time.
+
+    last_poll_time = 0
+    last_log_time = 0
 
     while True:
-        temps = hal.get_temps()
+        now = time.time()
 
-        # Update shared state
-        with state_lock:
+        # Read settings dynamically in case they change
+        temp_settings = sys_config.get("temp_settings", {})
+        poll_interval = float(temp_settings.get("poll_interval", 0.25))
+
+        log_settings = sys_config.get("logging", {})
+        log_interval = float(log_settings.get("interval", 0.25))
+
+        # --- POLLING TASK ---
+        if now - last_poll_time >= poll_interval:
+            last_poll_time = now
+            temps = hal.get_temps()
+
+            # Update shared state
+            with state_lock:
             state["temps"] = temps
 
             # --- SAFETY CHECK ---
@@ -176,16 +200,26 @@ def control_loop():
                     # Failsafe: if sensor missing, cut power
                     hal.set_heater_duty("z2", 0.0)
 
-            snapshot_state = dict(state)
+                snapshot_state = dict(state)
 
-        # Logging with correct signature: DataLogger.log(state, hal)
-        try:
-            logger.log(snapshot_state, hal)
-        except Exception:
-            # Ignore logging errors so the control loop keeps running
-            pass
+        # --- LOGGING TASK ---
+        # Note: Log interval cannot be faster than poll interval in practice,
+        # but we check time independently.
+        if now - last_log_time >= log_interval:
+            last_log_time = now
+            with state_lock:
+                # Capture snapshot for logging if we didn't just do it
+                # (Optimization: if poll & log align, we use the fresh state)
+                log_snapshot = dict(state)
 
-        time.sleep(poll_interval)
+            try:
+                logger.log(log_snapshot, hal)
+            except Exception:
+                pass
+
+        # Sleep a small amount to prevent CPU hogging, but fast enough for responsiveness
+        # If poll_interval is 0.25, sleeping 0.05 is fine.
+        time.sleep(0.05)
 
 def start_background_threads():
     threading.Thread(target=control_loop, daemon=True).start()
@@ -365,6 +399,17 @@ def control():
             "use_average": hal.temp_use_average,
             "decimals_default": hal.temp_decimals_default,
         }
+
+    elif cmd == "SET_LOGGING_SETTINGS":
+        # value: { "params": { "interval": float, "flush_interval": float } }
+        params = req.get("params") or {}
+        if "interval" in params:
+            sys_config["logging"]["interval"] = float(params["interval"])
+        if "flush_interval" in params:
+            sys_config["logging"]["flush_interval"] = float(params["flush_interval"])
+
+        # Apply changes to logger immediately
+        logger.configure(sys_config["logging"])
 
     elif cmd == "SET_SENSOR_MAPPING":
         # value: { mapping: { t1: 0/1/2/3/null, t2: ..., ... } }
