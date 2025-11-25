@@ -239,6 +239,12 @@ def control():
 
     global state, sys_config
 
+    # Short-circuit commands while an alarm is active, except for clearing it
+    with state_lock:
+        alarm_active = state.get("status") == "ALARM"
+    if alarm_active and cmd not in ("CLEAR_ALARM", "EMERGENCY_STOP"):
+        return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
+
     # ----------------------------
     # BASIC RUNTIME COMMANDS
     # ----------------------------
@@ -307,6 +313,7 @@ def control():
         with state_lock:
             state["status"] = "READY"
             state["alarm_msg"] = ""
+        safety.reset()
 
     # ----------------------------
     # CONFIG COMMANDS
