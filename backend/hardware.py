@@ -210,6 +210,7 @@ class HardwareInterface:
         pin_config,
         sensor_config=None,
         adc_config=None,
+        running_event=None,
     ):
         self.platform = PLATFORM
         self.pins = pin_config  # Dictionary of Pin Numbers
@@ -266,6 +267,9 @@ class HardwareInterface:
 
         # Threads (hardware + temperature)
         self.running = True
+        self.running_event = running_event or threading.Event()
+        if not self.running_event.is_set():
+            self.running_event.set()
         self._hw_thread = threading.Thread(target=self._hardware_loop, daemon=True)
         self._hw_thread.start()
 
@@ -297,6 +301,11 @@ class HardwareInterface:
 
     def _hardware_loop(self):
         while self.running:
+            if not self.running_event.is_set():
+                self._force_all_off()
+                time.sleep(0.05)
+                continue
+
             if self.platform == "WIN":
                 self._simulate_physics()
             else:
@@ -347,6 +356,10 @@ class HardwareInterface:
 
     def _temp_loop(self):
         while self.running:
+            if not self.running_event.is_set():
+                time.sleep(self.temp_poll_interval)
+                continue
+
             now = time.time()
 
             if self._ads is None or not self._ads.available:
@@ -527,6 +540,25 @@ class HardwareInterface:
             slope, offset = _fit_linear_correction(cfg["cal_points"])
             cfg["corr_slope"] = slope
             cfg["corr_offset"] = offset
+
+    def _force_all_off(self):
+        self.heaters["z1"] = 0.0
+        self.heaters["z2"] = 0.0
+        self.motors["main"] = 0.0
+        self.motors["feed"] = 0.0
+        self.relays["fan"] = False
+        self.relays["pump"] = False
+
+        if self.platform == "PI" and GPIO is not None:
+            def safe_out(name, value):
+                pin = self.pins.get(name)
+                if pin is not None:
+                    GPIO.output(int(pin), value)
+
+            safe_out("ssr_z1", GPIO.LOW)
+            safe_out("ssr_z2", GPIO.LOW)
+            safe_out("ssr_fan", GPIO.LOW)
+            safe_out("ssr_pump", GPIO.LOW)
 
     def shutdown(self):
         self.running = False
