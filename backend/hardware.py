@@ -210,6 +210,7 @@ class HardwareInterface:
         pin_config,
         sensor_config=None,
         adc_config=None,
+        running_event=None,
     ):
         self.platform = PLATFORM
         self.pins = pin_config  # Dictionary of Pin Numbers
@@ -266,6 +267,9 @@ class HardwareInterface:
 
         # Threads (hardware + temperature)
         self.running = True
+        self.running_event = running_event or threading.Event()
+        if not self.running_event.is_set():
+            self.running_event.set()
         self._hw_thread = threading.Thread(target=self._hardware_loop, daemon=True)
         self._hw_thread.start()
 
@@ -291,12 +295,34 @@ class HardwareInterface:
         if "alm_main" in self.pins and self.pins["alm_main"] is not None:
             GPIO.setup(int(self.pins["alm_main"]), GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
+        # Inputs (Buttons)
+        for btn in ("btn_start", "btn_emergency"):
+            if btn in self.pins and self.pins[btn] is not None:
+                 GPIO.setup(int(self.pins[btn]), GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+        # Output (LED)
+        if "led_status" in self.pins and self.pins["led_status"] is not None:
+            GPIO.setup(int(self.pins["led_status"]), GPIO.OUT)
+            GPIO.output(int(self.pins["led_status"]), GPIO.LOW)
+
         print("[HAL] GPIO Initialized with Config.")
 
     # --- Hardware loop (motors, relays, fault) ---------------------------
 
     def _hardware_loop(self):
         while self.running:
+            if not self.running_event.is_set():
+                self._force_all_off()
+                # Update LED even if stopped (e.g. Alarm state handled by main loop, but if HW loop is halted we might miss it.
+                # However, _force_all_off clears outputs.
+                # If we want LED to blink during Alarm, we should probably not use _force_all_off blindly or separate LED control.
+                # For now, let's allow LED control in force_all_off or separate it.
+                # Actually, running_event.clear() is used for Emergency Stop in app.py logic...
+                # BUT, if we want an LED to indicate Alarm, we need to be able to write to it.
+                # I'll update _force_all_off to NOT clear the LED status pin.
+                time.sleep(0.05)
+                continue
+
             if self.platform == "WIN":
                 self._simulate_physics()
             else:
@@ -342,6 +368,26 @@ class HardwareInterface:
         safe_out("ssr_z2", GPIO.HIGH if cycle < (self.heaters["z2"] / 100.0) else GPIO.LOW)
         safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
         safe_out("ssr_pump", GPIO.HIGH if self.relays["pump"] else GPIO.LOW)
+
+    def get_button_state(self, btn_name):
+        """Returns True if button is pressed (Active LOW assumed for pull-up)."""
+        if self.platform != "PI" or GPIO is None:
+            return False # TODO: Simulation hook
+
+        pin = self.pins.get(btn_name)
+        if pin is None:
+            return False
+
+        # Assume Pull-Up -> Active Low
+        return GPIO.input(int(pin)) == GPIO.LOW
+
+    def set_led_state(self, led_name, state):
+        if self.platform != "PI" or GPIO is None:
+            return
+
+        pin = self.pins.get(led_name)
+        if pin is not None:
+            GPIO.output(int(pin), GPIO.HIGH if state else GPIO.LOW)
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
@@ -463,6 +509,28 @@ class HardwareInterface:
     def is_motor_fault(self):
         return bool(self.motor_fault_active)
 
+    def get_button_state(self, btn_name):
+        """Returns True if button is pressed (Active LOW assumed for pull-up)."""
+        if self.platform != "PI" or GPIO is None:
+            # Simulation: Allow setting button states via internal variable if needed
+            # For now, return False
+            return getattr(self, f"_sim_{btn_name}", False)
+
+        pin = self.pins.get(btn_name)
+        if pin is None:
+            return False
+
+        # Assume Pull-Up -> Active Low
+        return GPIO.input(int(pin)) == GPIO.LOW
+
+    def set_led_state(self, led_name, state):
+        if self.platform != "PI" or GPIO is None:
+            return
+
+        pin = self.pins.get(led_name)
+        if pin is not None:
+            GPIO.output(int(pin), GPIO.HIGH if state else GPIO.LOW)
+
     # --- Config hooks ----------------------------------------------------
 
     def set_temp_poll_interval(self, seconds: float):
@@ -527,6 +595,27 @@ class HardwareInterface:
             slope, offset = _fit_linear_correction(cfg["cal_points"])
             cfg["corr_slope"] = slope
             cfg["corr_offset"] = offset
+
+    def _force_all_off(self):
+        self.heaters["z1"] = 0.0
+        self.heaters["z2"] = 0.0
+        self.motors["main"] = 0.0
+        self.motors["feed"] = 0.0
+        self.relays["fan"] = False
+        self.relays["pump"] = False
+
+        if self.platform == "PI" and GPIO is not None:
+            def safe_out(name, value):
+                pin = self.pins.get(name)
+                if pin is not None:
+                    GPIO.output(int(pin), value)
+
+            safe_out("ssr_z1", GPIO.LOW)
+            safe_out("ssr_z2", GPIO.LOW)
+            safe_out("ssr_fan", GPIO.LOW)
+            safe_out("ssr_pump", GPIO.LOW)
+            # NOTE: We specifically DO NOT force led_status off here,
+            # because we might want to blink it during an alarm state.
 
     def shutdown(self):
         self.running = False

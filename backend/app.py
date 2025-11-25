@@ -83,6 +83,12 @@ def load_config():
         cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
     if "temp_settings" not in cfg:
         cfg["temp_settings"] = copy.deepcopy(DEFAULT_CONFIG["temp_settings"])
+    if "extruder_sequence" not in cfg:
+        cfg["extruder_sequence"] = {
+            "start_delay_feed": 2.0,
+            "stop_delay_motor": 5.0,
+            "check_temp_before_start": True
+        }
     return cfg
 
 sys_config = load_config()
@@ -90,6 +96,15 @@ sys_config = load_config()
 # sensor_config expects int keys for channels
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
 
+running_event = threading.Event()
+running_event.set()
+
+hal = HardwareInterface(
+    sys_config["pins"],
+    sensor_config=sensor_cfg,
+    adc_config=sys_config.get("adc"),
+    running_event=running_event,
+)
 hal: HardwareInterface | None = None
 
 safety = SafetyMonitor()
@@ -101,14 +116,17 @@ pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
 
 # English status names
 state = {
-    "status": "READY",   # READY / ALARM
+    "status": "READY",   # READY / ALARM / STARTING / RUNNING / STOPPING
     "mode": "AUTO",      # or "MANUAL"
     "alarm_msg": "",
     "target_z1": 0.0,
     "target_z2": 0.0,
+    "manual_duty_z1": 0.0,
+    "manual_duty_z2": 0.0,
     "temps": {},
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
+    "seq_start_time": 0.0, # Track sequence timing
 }
 
 state_lock = threading.Lock()
@@ -118,20 +136,42 @@ _control_stop = threading.Event()
 app = Flask(__name__)
 
 
+def _all_outputs_off():
+    """Cut all outputs and mirror the off state in shared state."""
+    hal.set_heater_duty("z1", 0.0)
+    hal.set_heater_duty("z2", 0.0)
+    hal.set_motor_rpm("main", 0.0)
+    hal.set_motor_rpm("feed", 0.0)
+    hal.set_relay("fan", False)
+    hal.set_relay("pump", False)
+
+    with state_lock:
+        state["motors"]["main"] = 0.0
+        state["motors"]["feed"] = 0.0
+        state["relays"]["fan"] = False
+        state["relays"]["pump"] = False
+
+
+def _latch_alarm(reason: str):
+    """Latch an alarm, stop control flow, and ensure outputs are off."""
+    running_event.clear()
+    _all_outputs_off()
+    with state_lock:
+        state["status"] = "ALARM"
+        state["alarm_msg"] = reason
+
 def _ensure_hal_started():
     if hal is None:
         return False, (jsonify({"success": False, "msg": "HAL_NOT_INITIALIZED"}), 503)
     return True, None
 
-
-@app.before_first_request
-def _init_hal_on_first_request():
-    """Ensure HAL starts when the app is imported by a WSGI server."""
-    startup()
+# Track button state for rising edge detection
+last_btn_start_state = False
 
 def control_loop():
     """Background loop to keep temps fresh and optionally log."""
     poll_interval = sys_config.get("temp_settings", {}).get("poll_interval", 0.25)
+    global last_btn_start_state
 
     while not _control_stop.is_set():
         if hal is None:
@@ -139,58 +179,234 @@ def control_loop():
             continue
 
         temps = hal.get_temps()
+        alarm_to_latch = None
+
+        # --- Handle Physical Inputs (Buttons) ---
+        # Emergency Stop (Active High or Low? HAL says Pull-UP, Active Low)
+        # But get_button_state returns True if Pressed.
+        if hal.get_button_state("btn_emergency"):
+             alarm_to_latch = "EMERGENCY_STOP_BTN"
+
+        # Start Button (Rising Edge)
+        btn_start_pressed = hal.get_button_state("btn_start")
+        start_btn_event = btn_start_pressed and not last_btn_start_state
+        last_btn_start_state = btn_start_pressed
 
         # Update shared state
         with state_lock:
             state["temps"] = temps
 
-            # --- SAFETY CHECK ---
-            is_safe, reason = safety.check(state, hal)
-            if not is_safe and state["status"] != "ALARM":
-                # Only trigger alarm if not already in ALARM state
-                state["status"] = "ALARM"
-                state["alarm_msg"] = reason
+            if running_event.is_set():
+                is_safe, reason = safety.check(state, hal)
+                if not is_safe and state["status"] != "ALARM":
+                    alarm_to_latch = reason
 
-                # Immediately cut power
-                hal.set_heater_duty("z1", 0.0)
-                hal.set_heater_duty("z2", 0.0)
+            alarm_active = state["status"] == "ALARM"
+            status = state.get("status")
+            mode = state.get("mode")
+            target_z1 = state.get("target_z1", 0.0)
+            target_z2 = state.get("target_z2", 0.0)
+
+            # Button Logic
+            if start_btn_event:
+                if status == "READY":
+                    # Check temps if configured
+                    seq_cfg = sys_config.get("extruder_sequence", {})
+                    if seq_cfg.get("check_temp_before_start", True):
+                        # Simple check: are we within X degrees of target?
+                        # TODO: Make tolerance configurable. Assuming 10C for now or relying on Safety check.
+                        # Safety check `guard_motor_temp` is strict.
+                        allowed, reason = safety.guard_motor_temp(temps)
+                        if allowed:
+                            state["status"] = "STARTING"
+                            state["seq_start_time"] = time.time()
+                        else:
+                            print(f"[CTRL] Cannot start: {reason}")
+                    else:
+                        state["status"] = "STARTING"
+                        state["seq_start_time"] = time.time()
+
+                elif status == "RUNNING":
+                    state["status"] = "STOPPING"
+                    state["seq_start_time"] = time.time()
+
+        if alarm_to_latch:
+            _latch_alarm(alarm_to_latch)
+            alarm_active = True
+
+        # --- LED Indication ---
+        # READY: Off (or maybe solid Green if we had RGB, but we have 1 LED) -> Off or On?
+        # Prompt: "show if extruder is off/starting-stopping/on"
+        # OFF (READY): Off
+        # ON (RUNNING): On
+        # STARTING/STOPPING: Blink
+        # ALARM: Fast Blink
+
+        led_val = False
+        now = time.time()
+        if alarm_active:
+            # Fast Blink 5Hz
+            led_val = (int(now * 10) % 2) == 0
+        elif status == "RUNNING":
+            led_val = True
+        elif status in ("STARTING", "STOPPING"):
+            # Blink 1Hz
+            led_val = (int(now * 2) % 2) == 0
+        else: # READY
+            led_val = False
+
+        hal.set_led_state("led_status", led_val)
+
+        if alarm_active or not running_event.is_set():
+            _all_outputs_off()
+            # If emergency button is still pressed, ensure we stay in alarm?
+            # _latch_alarm sets running_event cleared.
+            # To clear alarm, user must use UI.
+            # BUT: if physical button is still pressed, we should re-latch if UI tries to clear.
+            # This is handled in the API cmd "CLEAR_ALARM" -> we should check button there.
+
+            with state_lock:
+                snapshot_state = dict(state)
+            try:
+                logger.log(snapshot_state, hal)
+            except Exception:
+                pass
+            time.sleep(poll_interval)
+            continue
+
+        # --- SEQUENCE LOGIC ---
+        seq_cfg = sys_config.get("extruder_sequence", {})
+
+        if status == "STARTING":
+            # Start Sequence
+            # 1. Start Main Motor immediately (if safe)
+            # 2. Wait X sec
+            # 3. Start Feed Motor
+            # 4. Go to RUNNING
+
+            # Ensure Main Motor is ON
+            # Target RPM? Configurable? For now use a default or last set?
+            # Let's use a "default_run_rpm" or just 10% if 0?
+            # Or assume user sets speed first?
+            # The prompt implies a simple "Start" button. Usually there is a potentiometer or preset speed.
+            # I will assume a default low speed if current target is 0, or just use current target if non-zero?
+            # Safety: don't start if target is 0?
+            # Let's hardcode a safe low speed for "Button Start" if currently 0: e.g. 10 RPM.
+
+            target_main = state["motors"].get("main", 0.0)
+            if target_main == 0:
+                target_main = 10.0 # Default start speed
+                with state_lock:
+                    state["motors"]["main"] = target_main
+
+            hal.set_motor_rpm("main", target_main)
+
+            # Check Delay
+            elapsed = now - state.get("seq_start_time", now)
+            delay_feed = seq_cfg.get("start_delay_feed", 2.0)
+
+            if elapsed >= delay_feed:
+                # Start Feeder
+                target_feed = state["motors"].get("feed", 0.0)
+                if target_feed == 0:
+                     target_feed = 10.0
+                     with state_lock:
+                         state["motors"]["feed"] = target_feed
+                hal.set_motor_rpm("feed", target_feed)
+
+                with state_lock:
+                    state["status"] = "RUNNING"
+
+        elif status == "STOPPING":
+            # Stop Sequence
+            # 1. Stop Feeder
+            # 2. Wait Y sec
+            # 3. Stop Main Motor
+            # 4. Go to READY
+
+            hal.set_motor_rpm("feed", 0.0)
+            with state_lock:
+                state["motors"]["feed"] = 0.0
+
+            elapsed = now - state.get("seq_start_time", now)
+            delay_stop = seq_cfg.get("stop_delay_motor", 5.0)
+
+            if elapsed >= delay_stop:
                 hal.set_motor_rpm("main", 0.0)
-                hal.set_motor_rpm("feed", 0.0)
-                hal.set_relay("fan", False)
-                hal.set_relay("pump", False)
+                with state_lock:
+                    state["motors"]["main"] = 0.0
+                    state["status"] = "READY"
 
-            # --- CONTROL LOGIC ---
-            if state["status"] == "ALARM":
-                # Force outputs to 0 in ALARM state (redundant safety)
+        elif status == "RUNNING":
+             # Ensure motors are running at target?
+             # (They are set in API, but good to reinforce or just let API handle changes)
+             pass
+
+        # --- CONTROL LOGIC (Temp) ---
+        if mode == "AUTO":
+            # PID Control
+
+            # Zone 1 (Assuming T2 is for Z1)
+            pid_z1.setpoint = target_z1
+            val_z1 = temps.get("t2")
+            if val_z1 is not None:
+                out_z1 = pid_z1.compute(val_z1)
+                if out_z1 is not None:
+                    hal.set_heater_duty("z1", out_z1)
+            else:
+                # Failsafe: if sensor missing, cut power
                 hal.set_heater_duty("z1", 0.0)
+
+            # Zone 2 (Assuming T3 is for Z2)
+            pid_z2.setpoint = target_z2
+            val_z2 = temps.get("t3")
+            if val_z2 is not None:
+                out_z2 = pid_z2.compute(val_z2)
+                if out_z2 is not None:
+                    hal.set_heater_duty("z2", out_z2)
+            else:
+                # Failsafe: if sensor missing, cut power
                 hal.set_heater_duty("z2", 0.0)
-                # Keep motors off, etc. (already handled by emergency stop logic, but good to enforce)
 
-            elif state["mode"] == "AUTO":
-                # PID Control
+        with state_lock:
+            snapshot_state = dict(state)
 
-                # Zone 1 (Assuming T2 is for Z1)
-                pid_z1.setpoint = state["target_z1"]
-                val_z1 = temps.get("t2")
-                if val_z1 is not None:
-                    out_z1 = pid_z1.compute(val_z1)
-                    if out_z1 is not None:
-                        hal.set_heater_duty("z1", out_z1)
-                else:
-                    # Failsafe: if sensor missing, cut power
-                    hal.set_heater_duty("z1", 0.0)
+        # Logging with correct signature: DataLogger.log(state, hal)
+        try:
+            logger.log(snapshot_state, hal)
+        except Exception:
+            # Ignore logging errors so the control loop keeps running
+            pass
 
-                # Zone 2 (Assuming T3 is for Z2)
-                pid_z2.setpoint = state["target_z2"]
-                val_z2 = temps.get("t3")
-                if val_z2 is not None:
-                    out_z2 = pid_z2.compute(val_z2)
-                    if out_z2 is not None:
-                        hal.set_heater_duty("z2", out_z2)
-                else:
-                    # Failsafe: if sensor missing, cut power
-                    hal.set_heater_duty("z2", 0.0)
+        _control_stop.wait(poll_interval)
 
+        # --- CONTROL LOGIC ---
+        if mode == "AUTO":
+            # PID Control
+
+            # Zone 1 (Assuming T2 is for Z1)
+            pid_z1.setpoint = target_z1
+            val_z1 = temps.get("t2")
+            if val_z1 is not None:
+                out_z1 = pid_z1.compute(val_z1)
+                if out_z1 is not None:
+                    hal.set_heater_duty("z1", out_z1)
+            else:
+                # Failsafe: if sensor missing, cut power
+                hal.set_heater_duty("z1", 0.0)
+
+            # Zone 2 (Assuming T3 is for Z2)
+            pid_z2.setpoint = target_z2
+            val_z2 = temps.get("t3")
+            if val_z2 is not None:
+                out_z2 = pid_z2.compute(val_z2)
+                if out_z2 is not None:
+                    hal.set_heater_duty("z2", out_z2)
+            else:
+                # Failsafe: if sensor missing, cut power
+                hal.set_heater_duty("z2", 0.0)
+
+        with state_lock:
             snapshot_state = dict(state)
 
         # Logging with correct signature: DataLogger.log(state, hal)
@@ -343,9 +559,9 @@ def control():
         hal.set_heater_duty(zone, duty)
         with state_lock:
             if zone == "z1":
-                state["target_z1"] = duty
+                state["manual_duty_z1"] = duty
             else:
-                state["target_z2"] = duty
+                state["manual_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
         # expects: value: { "motor": "main"/"feed", "rpm": float }
@@ -353,6 +569,24 @@ def control():
         rpm = float(req.get("rpm", 0.0))
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
+
+        with state_lock:
+            temps_snapshot = dict(state.get("temps", {}))
+
+        # Only enforce the temperature guard when attempting to move the motor.
+        # Zero-RPM requests (e.g., stop commands) should not trigger a cold-temp alarm.
+        if rpm != 0.0:
+            allowed, reason = safety.guard_motor_temp(temps_snapshot)
+            if not allowed:
+                hal.set_motor_rpm("main", 0.0)
+                hal.set_motor_rpm("feed", 0.0)
+                with state_lock:
+                    state["status"] = "ALARM"
+                    state["alarm_msg"] = reason
+                    state["motors"]["main"] = 0.0
+                    state["motors"]["feed"] = 0.0
+                return jsonify({"success": False, "msg": reason})
+
         hal.set_motor_rpm(motor, rpm)
         with state_lock:
             state["motors"][motor] = rpm
@@ -369,21 +603,19 @@ def control():
 
     elif cmd == "EMERGENCY_STOP":
         # Immediately cut heaters and motors, raise ALARM.
-        hal.set_heater_duty("z1", 0.0)
-        hal.set_heater_duty("z2", 0.0)
-        hal.set_motor_rpm("main", 0.0)
-        hal.set_motor_rpm("feed", 0.0)
-        hal.set_relay("fan", False)
-        hal.set_relay("pump", False)
-        with state_lock:
-            state["status"] = "ALARM"
-            state["alarm_msg"] = "EMERGENCY_STOP"
+        _latch_alarm("EMERGENCY_STOP")
 
     elif cmd == "CLEAR_ALARM":
+        # Check if physical emergency button is still active
+        if hal.get_button_state("btn_emergency"):
+            return jsonify({"success": False, "msg": "EMERGENCY_BTN_ACTIVE"})
+
+        _all_outputs_off()
         with state_lock:
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
+        running_event.set()
 
     # ----------------------------
     # CONFIG COMMANDS
@@ -409,6 +641,12 @@ def control():
         pins = req.get("pins") or {}
         sys_config["pins"] = pins
         # NOTE: requires restart to take effect on GPIO, unless you re-init HAL manually.
+
+    elif cmd == "UPDATE_EXTRUDER_SEQ":
+        seq = req.get("sequence") or {}
+        if "extruder_sequence" not in sys_config:
+            sys_config["extruder_sequence"] = {}
+        sys_config["extruder_sequence"].update(seq)
 
     elif cmd == "UPDATE_DM556":
         sys_config["dm556"] = req.get("params") or {}
