@@ -96,7 +96,7 @@ hal = HardwareInterface(
 
 safety = SafetyMonitor()
 logger = DataLogger()
-logger.start()  # start CSV logging on backend startup
+# logger.start()  # REMOVED: Do not auto-start logging
 
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
 pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
@@ -127,6 +127,54 @@ def control_loop():
         # Update shared state
         with state_lock:
             state["temps"] = temps
+
+            # --- SAFETY CHECK ---
+            is_safe, reason = safety.check(state, hal)
+            if not is_safe and state["status"] != "ALARM":
+                # Only trigger alarm if not already in ALARM state
+                state["status"] = "ALARM"
+                state["alarm_msg"] = reason
+
+                # Immediately cut power
+                hal.set_heater_duty("z1", 0.0)
+                hal.set_heater_duty("z2", 0.0)
+                hal.set_motor_rpm("main", 0.0)
+                hal.set_motor_rpm("feed", 0.0)
+                hal.set_relay("fan", False)
+                hal.set_relay("pump", False)
+
+            # --- CONTROL LOGIC ---
+            if state["status"] == "ALARM":
+                # Force outputs to 0 in ALARM state (redundant safety)
+                hal.set_heater_duty("z1", 0.0)
+                hal.set_heater_duty("z2", 0.0)
+                # Keep motors off, etc. (already handled by emergency stop logic, but good to enforce)
+
+            elif state["mode"] == "AUTO":
+                # PID Control
+
+                # Zone 1 (Assuming T2 is for Z1)
+                pid_z1.setpoint = state["target_z1"]
+                val_z1 = temps.get("t2")
+                if val_z1 is not None:
+                    out_z1 = pid_z1.compute(val_z1)
+                    if out_z1 is not None:
+                        hal.set_heater_duty("z1", out_z1)
+                else:
+                    # Failsafe: if sensor missing, cut power
+                    hal.set_heater_duty("z1", 0.0)
+
+                # Zone 2 (Assuming T3 is for Z2)
+                pid_z2.setpoint = state["target_z2"]
+                val_z2 = temps.get("t3")
+                if val_z2 is not None:
+                    out_z2 = pid_z2.compute(val_z2)
+                    if out_z2 is not None:
+                        hal.set_heater_duty("z2", out_z2)
+                else:
+                    # Failsafe: if sensor missing, cut power
+                    hal.set_heater_duty("z2", 0.0)
+
             snapshot_state = dict(state)
 
         # Logging with correct signature: DataLogger.log(state, hal)
@@ -171,6 +219,16 @@ def api_data():
         "status": snapshot_state.get("status", "READY"),
         "mode": snapshot_state.get("mode", "AUTO"),
     })
+
+@app.route("/api/log/start", methods=["POST"])
+def log_start():
+    logger.start()
+    return jsonify({"success": True})
+
+@app.route("/api/log/stop", methods=["POST"])
+def log_stop():
+    logger.stop()
+    return jsonify({"success": True})
 
 @app.route("/api/control", methods=["POST"])
 def control():
