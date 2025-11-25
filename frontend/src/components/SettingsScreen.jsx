@@ -1,4 +1,4 @@
-﻿// file: frontend/src/tabs/SettingsScreen.jsx
+// file: frontend/src/tabs/SettingsScreen.jsx
 import React, { useState } from "react";
 import { styles } from "../App";
 import DipSwitchBlock from "./DipSwitchBlock";
@@ -30,8 +30,89 @@ function SettingsScreen({ data, sendCmd }) {
   const { swCurr, swSteps } = getSwitchState();
   const adc = data.config?.adc || {};
 
+  // Local state for Extruder Sequence
+  const [seq, setSeq] = useState({
+      start_delay_feed: 2.0,
+      stop_delay_motor: 5.0,
+      check_temp_before_start: true,
+      ...(data.config?.extruder_sequence || {})
+  });
+
+  const handleSeqApply = () => {
+      sendCmd("UPDATE_EXTRUDER_SEQ", { sequence: seq });
+  };
+
+  // Local state for Pins (partial)
+  const [pins, setPins] = useState({
+      ...(data.config?.pins || {})
+  });
+
+  const handlePinsApply = () => {
+      sendCmd("UPDATE_PINS", { pins: pins });
+  };
+
   return (
     <div>
+      <div style={styles.panel}>
+        <h2>Extruder Sequence</h2>
+        <div style={{display: "flex", gap: "20px", flexWrap: "wrap"}}>
+            <div>
+                <div style={styles.label}>Start Delay (Feed Motor) [s]</div>
+                <input
+                    type="number"
+                    step="0.1"
+                    style={{...styles.input, width: "80px"}}
+                    value={seq.start_delay_feed}
+                    onChange={(e) => setSeq({...seq, start_delay_feed: parseFloat(e.target.value)})}
+                />
+            </div>
+            <div>
+                <div style={styles.label}>Stop Delay (Main Motor) [s]</div>
+                <input
+                    type="number"
+                    step="0.1"
+                    style={{...styles.input, width: "80px"}}
+                    value={seq.stop_delay_motor}
+                    onChange={(e) => setSeq({...seq, stop_delay_motor: parseFloat(e.target.value)})}
+                />
+            </div>
+            <div style={{display: "flex", alignItems: "center", marginTop: "24px"}}>
+                <label style={{cursor: "pointer", userSelect: "none"}}>
+                    <input
+                        type="checkbox"
+                        checked={seq.check_temp_before_start}
+                        onChange={(e) => setSeq({...seq, check_temp_before_start: e.target.checked})}
+                        style={{marginRight: "8px", transform: "scale(1.2)"}}
+                    />
+                    Check Temps before Start
+                </label>
+            </div>
+            <div style={{width: "100%", marginTop: "10px"}}>
+                 <button style={styles.button} onClick={handleSeqApply}>Apply Sequence Config</button>
+            </div>
+        </div>
+      </div>
+
+      <div style={styles.panel}>
+        <h2>IO Pins (GPIO BCM)</h2>
+        <div style={{display: "flex", flexWrap: "wrap", gap: "10px"}}>
+            {["btn_start", "btn_emergency", "led_status"].map(key => (
+                <div key={key} style={{width: "140px"}}>
+                     <div style={styles.label}>{key}</div>
+                     <input
+                        type="number"
+                        style={{...styles.input, width: "100%"}}
+                        value={pins[key] ?? ""}
+                        onChange={(e) => setPins({...pins, [key]: parseInt(e.target.value, 10)})}
+                     />
+                </div>
+            ))}
+        </div>
+        <button style={{...styles.button, marginTop: "15px"}} onClick={handlePinsApply}>
+            Update Pins (Requires Restart)
+        </button>
+      </div>
+
       <div style={styles.panel}>
         <h2>DM556 driver config</h2>
         <div style={{ display: "flex", justifyContent: "space-between" }}>

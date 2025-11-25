@@ -233,12 +233,15 @@ function HomeScreen({ data, sendCmd }) {
               <span>Status</span>
               <span
                 style={{
+                  fontWeight: "bold",
                   color:
                     status === "READY"
                       ? "#2ecc71"
+                      : status === "RUNNING"
+                      ? "#27ae60"
                       : status === "ALARM"
                       ? "#e74c3c"
-                      : "#f1c40f",
+                      : "#f1c40f", // STARTING, STOPPING, etc.
                 }}
               >
                 {status}
