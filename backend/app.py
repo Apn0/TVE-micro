@@ -123,6 +123,12 @@ def _ensure_hal_started():
         return False, (jsonify({"success": False, "msg": "HAL_NOT_INITIALIZED"}), 503)
     return True, None
 
+
+@app.before_first_request
+def _init_hal_on_first_request():
+    """Ensure HAL starts when the app is imported by a WSGI server."""
+    startup()
+
 def control_loop():
     """Background loop to keep temps fresh and optionally log."""
     poll_interval = sys_config.get("temp_settings", {}).get("poll_interval", 0.25)
