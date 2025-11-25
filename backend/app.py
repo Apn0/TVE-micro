@@ -115,6 +115,8 @@ state = {
     "alarm_msg": "",
     "target_z1": 0.0,
     "target_z2": 0.0,
+    "manual_duty_z1": 0.0,
+    "manual_duty_z2": 0.0,
     "temps": {},
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
@@ -376,9 +378,9 @@ def control():
         hal.set_heater_duty(zone, duty)
         with state_lock:
             if zone == "z1":
-                state["target_z1"] = duty
+                state["manual_duty_z1"] = duty
             else:
-                state["target_z2"] = duty
+                state["manual_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
         # expects: value: { "motor": "main"/"feed", "rpm": float }
