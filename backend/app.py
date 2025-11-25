@@ -151,7 +151,7 @@ def control_loop():
 
             # Update shared state
             with state_lock:
-            state["temps"] = temps
+                state["temps"] = temps
 
             # --- SAFETY CHECK ---
             is_safe, reason = safety.check(state, hal)
