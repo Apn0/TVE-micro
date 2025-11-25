@@ -356,10 +356,6 @@ class HardwareInterface:
 
     def _temp_loop(self):
         while self.running:
-            if not self.running_event.is_set():
-                time.sleep(self.temp_poll_interval)
-                continue
-
             now = time.time()
 
             if self._ads is None or not self._ads.available:
