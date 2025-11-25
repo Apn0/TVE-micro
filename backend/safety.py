@@ -16,12 +16,12 @@ class SafetyMonitor:
             return self._trigger_alarm("DM556 DRIVER FAULT (Check Blinks)")
 
         # 2. Motor Overheat
-        if state["temps"]["motor"] > self.LIMITS["temp_motor_max"]:
+        if state["temps"].get("motor", 0) > self.LIMITS["temp_motor_max"]:
             return self._trigger_alarm("MOTOR OVERHEAT")
 
         # 3. Runaway Heater
-        if state["temps"]["t2"] > self.LIMITS["temp_heaters_max"] or \
-           state["temps"]["t3"] > self.LIMITS["temp_heaters_max"]:
+        if state["temps"].get("t2", 0) > self.LIMITS["temp_heaters_max"] or \
+           state["temps"].get("t3", 0) > self.LIMITS["temp_heaters_max"]:
             return self._trigger_alarm("HEATER THERMAL RUNAWAY")
 
         return True, "OK"
