@@ -1,4 +1,4 @@
-# file: hardware.py
+# file: backend/hardware.py
 """
 HardwareInterface with ADS1115 + NTC integration.
 
@@ -94,12 +94,7 @@ DEFAULT_SENSOR_CONFIG: Dict[int, Dict[str, Any]] = {
         "logical": "motor",
         "r_fixed": 100_000.0,
         "r_25": 100_000.0,
-        "beta": 3950.0,
-        "v_ref": 3.3,
-        "wiring": "ntc_to_gnd",
-        "decimals": 1,
-        "cal_points": [],
-    },
+        "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
 }
 
 DEFAULT_ADC_CONFIG: Dict[str, Any] = {
