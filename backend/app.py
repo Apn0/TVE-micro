@@ -56,6 +56,10 @@ DEFAULT_CONFIG = {
         "use_average": True,
         "decimals_default": 1,
     },
+    "logging": {
+        "interval": 0.25,
+        "flush_interval": 60.0,
+    },
 }
 
 def load_config():
@@ -109,6 +113,7 @@ hal: HardwareInterface | None = None
 
 safety = SafetyMonitor()
 logger = DataLogger()
+logger.configure(sys_config.get("logging", {}))
 # logger.start()  # REMOVED: Do not auto-start logging
 
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
@@ -192,8 +197,20 @@ def control_loop():
         start_btn_event = btn_start_pressed and not last_btn_start_state
         last_btn_start_state = btn_start_pressed
 
-        # Update shared state
-        with state_lock:
+        # Read settings dynamically in case they change
+        temp_settings = sys_config.get("temp_settings", {})
+        poll_interval = float(temp_settings.get("poll_interval", 0.25))
+
+        log_settings = sys_config.get("logging", {})
+        log_interval = float(log_settings.get("interval", 0.25))
+
+        # --- POLLING TASK ---
+        if now - last_poll_time >= poll_interval:
+            last_poll_time = now
+            temps = hal.get_temps()
+
+            # Update shared state
+            with state_lock:
             state["temps"] = temps
 
             if running_event.is_set():
@@ -409,12 +426,20 @@ def control_loop():
         with state_lock:
             snapshot_state = dict(state)
 
-        # Logging with correct signature: DataLogger.log(state, hal)
-        try:
-            logger.log(snapshot_state, hal)
-        except Exception:
-            # Ignore logging errors so the control loop keeps running
-            pass
+        # --- LOGGING TASK ---
+        # Note: Log interval cannot be faster than poll interval in practice,
+        # but we check time independently.
+        if now - last_log_time >= log_interval:
+            last_log_time = now
+            with state_lock:
+                # Capture snapshot for logging if we didn't just do it
+                # (Optimization: if poll & log align, we use the fresh state)
+                log_snapshot = dict(state)
+
+            try:
+                logger.log(log_snapshot, hal)
+            except Exception:
+                pass
 
         _control_stop.wait(poll_interval)
 
@@ -673,6 +698,17 @@ def control():
             "use_average": hal.temp_use_average,
             "decimals_default": hal.temp_decimals_default,
         }
+
+    elif cmd == "SET_LOGGING_SETTINGS":
+        # value: { "params": { "interval": float, "flush_interval": float } }
+        params = req.get("params") or {}
+        if "interval" in params:
+            sys_config["logging"]["interval"] = float(params["interval"])
+        if "flush_interval" in params:
+            sys_config["logging"]["flush_interval"] = float(params["flush_interval"])
+
+        # Apply changes to logger immediately
+        logger.configure(sys_config["logging"])
 
     elif cmd == "SET_SENSOR_MAPPING":
         # value: { mapping: { t1: 0/1/2/3/null, t2: ..., ... } }
