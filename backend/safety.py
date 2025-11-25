@@ -26,6 +26,23 @@ class SafetyMonitor:
 
         return True, "OK"
 
+    def guard_motor_temp(self, temps):
+        """Ensure heaters are hot enough before allowing motor to run."""
+
+        heater_temps = []
+        for sensor in ("t2", "t3"):
+            temp = temps.get(sensor)
+            if temp is not None:
+                heater_temps.append(temp)
+
+        # If no heater readings are available, err on the side of safety.
+        max_heater_temp = max(heater_temps) if heater_temps else None
+
+        if max_heater_temp is None or max_heater_temp < self.LIMITS["min_temp_for_motor"]:
+            return self._trigger_alarm("COLD_EXTRUSION_PROTECTION")
+
+        return True, "OK"
+
     def _trigger_alarm(self, reason):
         self.alarm_active = True
         self.alarm_reason = reason

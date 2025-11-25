@@ -42,7 +42,7 @@ export const styles = {
 // Components
 import Nav from "./components/Nav";
 import HomeScreen from "./components/HomeScreen";
-import EngineScreen from "./components/EngineScreen";
+import MotorScreen from "./components/MotorScreen";
 import HeaterScreen from "./components/HeaterScreen";
 import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
@@ -116,7 +116,7 @@ function App() {
       {data ? (
         <div style={styles.content}>
           {view === "HOME" && <HomeScreen data={data} sendCmd={sendCmd} />}
-          {view === "ENGINE" && <EngineScreen data={data} sendCmd={sendCmd} />}
+          {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
           {view === "HEATERS" && <HeaterScreen data={data} sendCmd={sendCmd} />}
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}

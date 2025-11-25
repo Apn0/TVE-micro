@@ -1,70 +1,14 @@
 // file: frontend/src/tabs/SettingsScreen.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { styles } from "../App";
 import DipSwitchBlock from "./DipSwitchBlock";
-
-// DM556 table copied from original App.jsx
-const DM556_TABLE = {
-  current: {
-    1.4: [true, true, true],
-    2.1: [false, true, true],
-    2.7: [true, false, true],
-    3.2: [false, false, true],
-    3.8: [true, true, false],
-    4.3: [false, true, false],
-    4.9: [true, false, false],
-    5.6: [false, false, false],
-  },
-  steps: {
-    400: [false, true, true, true],
-    800: [true, false, true, true],
-    1600: [false, false, true, true],
-    3200: [true, true, false, true],
-    6400: [false, true, false, true],
-    12800: [true, false, false, true],
-    25600: [false, false, false, true],
-    1000: [true, true, true, false],
-    2000: [false, true, true, false],
-    4000: [true, false, true, false],
-    5000: [false, false, true, false],
-    8000: [true, true, false, false],
-    10000: [false, true, false, false],
-    20000: [true, false, false, false],
-    25000: [false, false, false, false],
-  },
-};
+import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 
 function SettingsScreen({ data, sendCmd }) {
-  const [dm, setDm] = useState(
-    data.config?.dm556 || {
-      microsteps: 1600,
-      current_peak: 3.2,
-      idle_half: true,
-    }
-  );
-
-  const [tempSettings, setTempSettings] = useState({
-    poll_interval: 0.25,
-    avg_window: 2.0,
-    ...data.config?.temp_settings,
+  const [dm, setDm] = useState({
+    ...DEFAULT_DM556,
+    ...(data.config?.dm556 || {}),
   });
-
-  const [logSettings, setLogSettings] = useState({
-    interval: 0.25,
-    flush_interval: 60.0,
-    ...data.config?.logging,
-  });
-
-  // Sync state with incoming data if valid
-  useEffect(() => {
-    if (data.config?.temp_settings) {
-      setTempSettings((prev) => ({ ...prev, ...data.config.temp_settings }));
-    }
-    if (data.config?.logging) {
-      setLogSettings((prev) => ({ ...prev, ...data.config.logging }));
-    }
-  }, [data.config]);
-
 
   const getSwitchState = () => {
     let swCurr = [false, false, false];
@@ -79,78 +23,94 @@ function SettingsScreen({ data, sendCmd }) {
     return { swCurr, swSteps };
   };
 
-  const handleApplyDM = () => {
+  const handleApply = () => {
     sendCmd("UPDATE_DM556", { params: dm });
-  };
-
-  const handleApplyTemp = () => {
-    sendCmd("SET_TEMP_SETTINGS", { params: tempSettings });
-  };
-
-  const handleApplyLog = () => {
-    sendCmd("SET_LOGGING_SETTINGS", { params: logSettings });
   };
 
   const { swCurr, swSteps } = getSwitchState();
   const adc = data.config?.adc || {};
 
+  // Local state for Extruder Sequence
+  const [seq, setSeq] = useState({
+      start_delay_feed: 2.0,
+      stop_delay_motor: 5.0,
+      check_temp_before_start: true,
+      ...(data.config?.extruder_sequence || {})
+  });
+
+  const handleSeqApply = () => {
+      sendCmd("UPDATE_EXTRUDER_SEQ", { sequence: seq });
+  };
+
+  // Local state for Pins (partial)
+  const [pins, setPins] = useState({
+      ...(data.config?.pins || {})
+  });
+
+  const handlePinsApply = () => {
+      sendCmd("UPDATE_PINS", { pins: pins });
+  };
+
   return (
     <div>
       <div style={styles.panel}>
-        <h2>Logging & Performance</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-
-            {/* Column 1: Temp & Polling */}
+        <h2>Extruder Sequence</h2>
+        <div style={{display: "flex", gap: "20px", flexWrap: "wrap"}}>
             <div>
-                <h3 style={{marginTop:0}}>Polling & Averaging</h3>
-                <div style={styles.label}>Hardware Poll Interval (s)</div>
+                <div style={styles.label}>Start Delay (Feed Motor) [s]</div>
                 <input
-                    type="number" step="0.05" min="0.05"
-                    style={styles.input}
-                    value={tempSettings.poll_interval}
-                    onChange={(e) => setTempSettings({...tempSettings, poll_interval: parseFloat(e.target.value)})}
+                    type="number"
+                    step="0.1"
+                    style={{...styles.input, width: "80px"}}
+                    value={seq.start_delay_feed}
+                    onChange={(e) => setSeq({...seq, start_delay_feed: parseFloat(e.target.value)})}
                 />
-
-                <div style={styles.label}>Averaging Window (s)</div>
-                <input
-                    type="number" step="0.5" min="0.0"
-                    style={styles.input}
-                    value={tempSettings.avg_window}
-                    onChange={(e) => setTempSettings({...tempSettings, avg_window: parseFloat(e.target.value)})}
-                />
-
-                <button style={{...styles.button, marginTop: "10px"}} onClick={handleApplyTemp}>
-                    Apply Polling Config
-                </button>
             </div>
-
-            {/* Column 2: Logging */}
             <div>
-                <h3 style={{marginTop:0}}>Data Logging</h3>
-                <div style={styles.label}>Log Interval (s)</div>
+                <div style={styles.label}>Stop Delay (Main Motor) [s]</div>
                 <input
-                    type="number" step="0.05" min="0.05"
-                    style={styles.input}
-                    value={logSettings.interval}
-                    onChange={(e) => setLogSettings({...logSettings, interval: parseFloat(e.target.value)})}
+                    type="number"
+                    step="0.1"
+                    style={{...styles.input, width: "80px"}}
+                    value={seq.stop_delay_motor}
+                    onChange={(e) => setSeq({...seq, stop_delay_motor: parseFloat(e.target.value)})}
                 />
-
-                <div style={styles.label}>Flush to Disk Interval (s)</div>
-                <input
-                    type="number" step="1" min="1"
-                    style={styles.input}
-                    value={logSettings.flush_interval}
-                    onChange={(e) => setLogSettings({...logSettings, flush_interval: parseFloat(e.target.value)})}
-                />
-                <div style={{fontSize: "0.8em", color: "#aaa", marginTop: "5px"}}>
-                    Accumulates logs in RAM. Flushes immediately if temperature deviates > 2 SD.
-                </div>
-
-                <button style={{...styles.button, marginTop: "10px"}} onClick={handleApplyLog}>
-                    Apply Logging Config
-                </button>
+            </div>
+            <div style={{display: "flex", alignItems: "center", marginTop: "24px"}}>
+                <label style={{cursor: "pointer", userSelect: "none"}}>
+                    <input
+                        type="checkbox"
+                        checked={seq.check_temp_before_start}
+                        onChange={(e) => setSeq({...seq, check_temp_before_start: e.target.checked})}
+                        style={{marginRight: "8px", transform: "scale(1.2)"}}
+                    />
+                    Check Temps before Start
+                </label>
+            </div>
+            <div style={{width: "100%", marginTop: "10px"}}>
+                 <button style={styles.button} onClick={handleSeqApply}>Apply Sequence Config</button>
             </div>
         </div>
+      </div>
+
+      <div style={styles.panel}>
+        <h2>IO Pins (GPIO BCM)</h2>
+        <div style={{display: "flex", flexWrap: "wrap", gap: "10px"}}>
+            {["btn_start", "btn_emergency", "led_status"].map(key => (
+                <div key={key} style={{width: "140px"}}>
+                     <div style={styles.label}>{key}</div>
+                     <input
+                        type="number"
+                        style={{...styles.input, width: "100%"}}
+                        value={pins[key] ?? ""}
+                        onChange={(e) => setPins({...pins, [key]: parseInt(e.target.value, 10)})}
+                     />
+                </div>
+            ))}
+        </div>
+        <button style={{...styles.button, marginTop: "15px"}} onClick={handlePinsApply}>
+            Update Pins (Requires Restart)
+        </button>
       </div>
 
       <div style={styles.panel}>
@@ -205,7 +165,7 @@ function SettingsScreen({ data, sendCmd }) {
 
             <button
               style={{ ...styles.button, marginTop: "15px" }}
-              onClick={handleApplyDM}
+              onClick={handleApply}
             >
               Apply DM556 config
             </button>
