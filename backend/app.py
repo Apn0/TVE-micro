@@ -182,6 +182,8 @@ def control_loop():
         alarm_to_latch = None
 
         # --- Handle Physical Inputs (Buttons) ---
+        # Emergency Stop (Active High or Low? HAL says Pull-UP, Active Low)
+        # But get_button_state returns True if Pressed.
         if hal.get_button_state("btn_emergency"):
              alarm_to_latch = "EMERGENCY_STOP_BTN"
 
@@ -211,6 +213,9 @@ def control_loop():
                     # Check temps if configured
                     seq_cfg = sys_config.get("extruder_sequence", {})
                     if seq_cfg.get("check_temp_before_start", True):
+                        # Simple check: are we within X degrees of target?
+                        # TODO: Make tolerance configurable. Assuming 10C for now or relying on Safety check.
+                        # Safety check `guard_motor_temp` is strict.
                         allowed, reason = safety.guard_motor_temp(temps)
                         if allowed:
                             state["status"] = "STARTING"
@@ -230,14 +235,23 @@ def control_loop():
             alarm_active = True
 
         # --- LED Indication ---
+        # READY: Off (or maybe solid Green if we had RGB, but we have 1 LED) -> Off or On?
+        # Prompt: "show if extruder is off/starting-stopping/on"
+        # OFF (READY): Off
+        # ON (RUNNING): On
+        # STARTING/STOPPING: Blink
+        # ALARM: Fast Blink
+
         led_val = False
         now = time.time()
         if alarm_active:
-            led_val = (int(now * 10) % 2) == 0 # Fast Blink 5Hz
+            # Fast Blink 5Hz
+            led_val = (int(now * 10) % 2) == 0
         elif status == "RUNNING":
             led_val = True
         elif status in ("STARTING", "STOPPING"):
-            led_val = (int(now * 2) % 2) == 0 # Blink 1Hz
+            # Blink 1Hz
+            led_val = (int(now * 2) % 2) == 0
         else: # READY
             led_val = False
 
@@ -245,6 +259,12 @@ def control_loop():
 
         if alarm_active or not running_event.is_set():
             _all_outputs_off()
+            # If emergency button is still pressed, ensure we stay in alarm?
+            # _latch_alarm sets running_event cleared.
+            # To clear alarm, user must use UI.
+            # BUT: if physical button is still pressed, we should re-latch if UI tries to clear.
+            # This is handled in the API cmd "CLEAR_ALARM" -> we should check button there.
+
             with state_lock:
                 snapshot_state = dict(state)
             try:
@@ -258,18 +278,35 @@ def control_loop():
         seq_cfg = sys_config.get("extruder_sequence", {})
 
         if status == "STARTING":
+            # Start Sequence
+            # 1. Start Main Motor immediately (if safe)
+            # 2. Wait X sec
+            # 3. Start Feed Motor
+            # 4. Go to RUNNING
+
+            # Ensure Main Motor is ON
+            # Target RPM? Configurable? For now use a default or last set?
+            # Let's use a "default_run_rpm" or just 10% if 0?
+            # Or assume user sets speed first?
+            # The prompt implies a simple "Start" button. Usually there is a potentiometer or preset speed.
+            # I will assume a default low speed if current target is 0, or just use current target if non-zero?
+            # Safety: don't start if target is 0?
+            # Let's hardcode a safe low speed for "Button Start" if currently 0: e.g. 10 RPM.
+
             target_main = state["motors"].get("main", 0.0)
             if target_main == 0:
-                target_main = 10.0
+                target_main = 10.0 # Default start speed
                 with state_lock:
                     state["motors"]["main"] = target_main
 
             hal.set_motor_rpm("main", target_main)
 
+            # Check Delay
             elapsed = now - state.get("seq_start_time", now)
             delay_feed = seq_cfg.get("start_delay_feed", 2.0)
 
             if elapsed >= delay_feed:
+                # Start Feeder
                 target_feed = state["motors"].get("feed", 0.0)
                 if target_feed == 0:
                      target_feed = 10.0
@@ -281,6 +318,12 @@ def control_loop():
                     state["status"] = "RUNNING"
 
         elif status == "STOPPING":
+            # Stop Sequence
+            # 1. Stop Feeder
+            # 2. Wait Y sec
+            # 3. Stop Main Motor
+            # 4. Go to READY
+
             hal.set_motor_rpm("feed", 0.0)
             with state_lock:
                 state["motors"]["feed"] = 0.0
@@ -295,7 +338,47 @@ def control_loop():
                     state["status"] = "READY"
 
         elif status == "RUNNING":
+             # Ensure motors are running at target?
+             # (They are set in API, but good to reinforce or just let API handle changes)
              pass
+
+        # --- CONTROL LOGIC (Temp) ---
+        if mode == "AUTO":
+            # PID Control
+
+            # Zone 1 (Assuming T2 is for Z1)
+            pid_z1.setpoint = target_z1
+            val_z1 = temps.get("t2")
+            if val_z1 is not None:
+                out_z1 = pid_z1.compute(val_z1)
+                if out_z1 is not None:
+                    hal.set_heater_duty("z1", out_z1)
+            else:
+                # Failsafe: if sensor missing, cut power
+                hal.set_heater_duty("z1", 0.0)
+
+            # Zone 2 (Assuming T3 is for Z2)
+            pid_z2.setpoint = target_z2
+            val_z2 = temps.get("t3")
+            if val_z2 is not None:
+                out_z2 = pid_z2.compute(val_z2)
+                if out_z2 is not None:
+                    hal.set_heater_duty("z2", out_z2)
+            else:
+                # Failsafe: if sensor missing, cut power
+                hal.set_heater_duty("z2", 0.0)
+
+        with state_lock:
+            snapshot_state = dict(state)
+
+        # Logging with correct signature: DataLogger.log(state, hal)
+        try:
+            logger.log(snapshot_state, hal)
+        except Exception:
+            # Ignore logging errors so the control loop keeps running
+            pass
+
+        _control_stop.wait(poll_interval)
 
         # --- CONTROL LOGIC ---
         if mode == "AUTO":
@@ -490,16 +573,19 @@ def control():
         with state_lock:
             temps_snapshot = dict(state.get("temps", {}))
 
-        allowed, reason = safety.guard_motor_temp(temps_snapshot)
-        if not allowed:
-            hal.set_motor_rpm("main", 0.0)
-            hal.set_motor_rpm("feed", 0.0)
-            with state_lock:
-                state["status"] = "ALARM"
-                state["alarm_msg"] = reason
-                state["motors"]["main"] = 0.0
-                state["motors"]["feed"] = 0.0
-            return jsonify({"success": False, "msg": reason})
+        # Only enforce the temperature guard when attempting to move the motor.
+        # Zero-RPM requests (e.g., stop commands) should not trigger a cold-temp alarm.
+        if rpm != 0.0:
+            allowed, reason = safety.guard_motor_temp(temps_snapshot)
+            if not allowed:
+                hal.set_motor_rpm("main", 0.0)
+                hal.set_motor_rpm("feed", 0.0)
+                with state_lock:
+                    state["status"] = "ALARM"
+                    state["alarm_msg"] = reason
+                    state["motors"]["main"] = 0.0
+                    state["motors"]["feed"] = 0.0
+                return jsonify({"success": False, "msg": reason})
 
         hal.set_motor_rpm(motor, rpm)
         with state_lock:
@@ -520,6 +606,7 @@ def control():
         _latch_alarm("EMERGENCY_STOP")
 
     elif cmd == "CLEAR_ALARM":
+        # Check if physical emergency button is still active
         if hal.get_button_state("btn_emergency"):
             return jsonify({"success": False, "msg": "EMERGENCY_BTN_ACTIVE"})
 

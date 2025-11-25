@@ -308,6 +308,13 @@ class HardwareInterface:
         while self.running:
             if not self.running_event.is_set():
                 self._force_all_off()
+                # Update LED even if stopped (e.g. Alarm state handled by main loop, but if HW loop is halted we might miss it.
+                # However, _force_all_off clears outputs.
+                # If we want LED to blink during Alarm, we should probably not use _force_all_off blindly or separate LED control.
+                # For now, let's allow LED control in force_all_off or separate it.
+                # Actually, running_event.clear() is used for Emergency Stop in app.py logic...
+                # BUT, if we want an LED to indicate Alarm, we need to be able to write to it.
+                # I'll update _force_all_off to NOT clear the LED status pin.
                 time.sleep(0.05)
                 continue
 
@@ -357,14 +364,30 @@ class HardwareInterface:
         safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
         safe_out("ssr_pump", GPIO.HIGH if self.relays["pump"] else GPIO.LOW)
 
+    def get_button_state(self, btn_name):
+        """Returns True if button is pressed (Active LOW assumed for pull-up)."""
+        if self.platform != "PI" or GPIO is None:
+            return False # TODO: Simulation hook
+
+        pin = self.pins.get(btn_name)
+        if pin is None:
+            return False
+
+        # Assume Pull-Up -> Active Low
+        return GPIO.input(int(pin)) == GPIO.LOW
+
+    def set_led_state(self, led_name, state):
+        if self.platform != "PI" or GPIO is None:
+            return
+
+        pin = self.pins.get(led_name)
+        if pin is not None:
+            GPIO.output(int(pin), GPIO.HIGH if state else GPIO.LOW)
+
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
     def _temp_loop(self):
         while self.running:
-            if not self.running_event.is_set():
-                time.sleep(self.temp_poll_interval)
-                continue
-
             now = time.time()
 
             if self._ads is None or not self._ads.available:
