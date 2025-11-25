@@ -1,0 +1,15 @@
+INTAREMA TVEmicro Project Scope
+-------------------------------
+Target System: EREMA INTAREMA TVEmicro (Recycling/Pelletizing System)
+Role: HMI (Human-Machine Interface)
+Hardware: 
+  - Logic/Control: Raspberry Pi (PLC)
+  - Clients: Human users (Desktop/Mobile)
+
+Goal: 
+- Create a 2D Interface to visualize and control machine parameters.
+- Establish communication between the Visual Interface and the Pi's GPIO/Logic.
+
+Architecture:
+- Backend (Pi): Handles PLC logic, sensors, and safety checks.
+- Frontend (Client): 2D Visualization of the machine.
