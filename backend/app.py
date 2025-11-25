@@ -449,6 +449,20 @@ def control():
         with state_lock:
             state["relays"][relay] = st
 
+    elif cmd == "MOVE_MOTOR_STEPS":
+        motor = req.get("motor")
+        steps = int(req.get("steps", 0))
+        speed = int(req.get("speed", 1000))
+        if motor not in ("main", "feed"):
+            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
+        hal.move_motor_steps(motor, steps, speed=speed)
+
+    elif cmd == "STOP_MANUAL_MOVE":
+        motor = req.get("motor")
+        if motor not in ("main", "feed"):
+            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
+        hal.stop_manual_move(motor)
+
     elif cmd == "EMERGENCY_STOP":
         _latch_alarm("EMERGENCY_STOP")
 

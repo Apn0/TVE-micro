@@ -117,7 +117,7 @@ function SettingsScreen({ data, sendCmd }) {
               }
             />
             <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: "5px" }}>
-              Flushes early if temperature deviates > 2 SD.
+              {'Flushes early if temperature deviates > 2 SD.'}
             </div>
 
             <button style={{ ...styles.button, marginTop: "10px" }} onClick={handleApplyLog}>

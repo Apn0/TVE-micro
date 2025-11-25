@@ -217,6 +217,15 @@ class HardwareInterface:
         self.temps = {k: 25.0 for k in LOGICAL_SENSORS}
         self.motor_fault_active = False
 
+        # Manual motor control state
+        self._manual_move_lock = threading.Lock()
+        self.manual_steps_pending = {"main": 0, "feed": 0}
+        self.manual_step_speed = {"main": 1000, "feed": 1000}
+        self._last_step_time = {"main": 0, "feed": 0}
+
+        self._stepper_threads = {}
+        self._stepper_events = {}
+
         # Sensor config
         self.sensor_config: Dict[int, Dict[str, Any]] = {}
         base_cfg = sensor_config or {}
@@ -270,6 +279,54 @@ class HardwareInterface:
 
         self._temp_thread = threading.Thread(target=self._temp_loop, daemon=True)
         self._temp_thread.start()
+
+        for motor_name in ("main", "feed"):
+            self._stepper_events[motor_name] = threading.Event()
+            self._stepper_threads[motor_name] = threading.Thread(
+                target=self._stepper_loop,
+                args=(motor_name,),
+                daemon=True
+            )
+            self._stepper_threads[motor_name].start()
+
+    def _stepper_loop(self, motor_name):
+        while self.running:
+            self._stepper_events[motor_name].wait()
+
+            with self._manual_move_lock:
+                steps_to_move = self.manual_steps_pending[motor_name]
+                speed = self.manual_step_speed[motor_name]
+
+            if steps_to_move == 0:
+                self._stepper_events[motor_name].clear()
+                continue
+
+            step_pin = self.pins.get(f"step_{motor_name}")
+            if self.platform != "PI" or GPIO is None or step_pin is None:
+                print(f"[HAL] SIM: Stepping {motor_name} for {steps_to_move} steps at {speed} steps/s")
+                time.sleep(abs(steps_to_move) / speed)
+                with self._manual_move_lock:
+                    self.manual_steps_pending[motor_name] = 0
+                continue
+
+            delay = 1.0 / speed
+            for _ in range(abs(steps_to_move)):
+                with self._manual_move_lock:
+                    if self.manual_steps_pending[motor_name] == 0:
+                        break
+
+                GPIO.output(step_pin, GPIO.HIGH)
+                time.sleep(delay / 2)
+                GPIO.output(step_pin, GPIO.LOW)
+                time.sleep(delay / 2)
+
+                with self._manual_move_lock:
+                    if self.manual_steps_pending[motor_name] > 0:
+                        self.manual_steps_pending[motor_name] -= 1
+                    else:
+                        self.manual_steps_pending[motor_name] += 1
+
+            self._stepper_events[motor_name].clear()
 
     # --- GPIO setup ------------------------------------------------------
 
@@ -492,6 +549,25 @@ class HardwareInterface:
     def set_motor_rpm(self, motor, rpm):
         if motor in self.motors:
             self.motors[motor] = float(rpm)
+
+    def move_motor_steps(self, motor, steps, speed=1000):
+        if motor not in ("main", "feed"):
+            return
+
+        dir_pin = self.pins.get(f"dir_{motor}")
+        if self.platform == "PI" and GPIO is not None and dir_pin is not None:
+            direction = GPIO.HIGH if steps > 0 else GPIO.LOW
+            GPIO.output(dir_pin, direction)
+
+        with self._manual_move_lock:
+            self.manual_steps_pending[motor] = steps
+            self.manual_step_speed[motor] = speed
+        self._stepper_events[motor].set()
+
+    def stop_manual_move(self, motor):
+        if motor in self.manual_steps_pending:
+            with self._manual_move_lock:
+                self.manual_steps_pending[motor] = 0
 
     def set_relay(self, relay, state):
         if relay in self.relays:
