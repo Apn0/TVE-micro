@@ -1,0 +1,338 @@
+﻿// file: frontend/src/tabs/HomeScreen.jsx
+import React from "react";
+import { styles } from "../App";
+
+function HomeScreen({ data, sendCmd }) {
+  const status = data.state?.status || "UNKNOWN";
+  const mode = data.state?.mode || "AUTO";
+  const temps = data.state?.temps || {};
+  const motors = data.state?.motors || {};
+  const relays = data.state?.relays || {};
+  const hasAlarm = status === "ALARM";
+
+  const t1 = temps.t1 ?? null;
+  const t2 = temps.t2 ?? null;
+  const t3 = temps.t3 ?? null;
+  const tm = temps.motor ?? null;
+
+  const anyHeaterOn = relays.ssr_z1 || relays.ssr_z2;
+
+  const tempBox = (label, value) => {
+    const isValid = value !== null && value !== undefined;
+    let color = "#7f8c8d";
+    if (isValid) {
+      if (value > 250) color = "#e74c3c";
+      else if (value > 200) color = "#f39c12";
+      else color = "#2ecc71";
+    }
+    return (
+      <div style={{ background: "#111", borderRadius: "6px", padding: "10px" }}>
+        <div style={{ color: "#aaa", fontSize: "0.9em" }}>{label}</div>
+        <div style={{ fontSize: "1.4em", fontWeight: "bold", color }}>
+          {isValid ? (
+            <>
+              {value.toFixed(1)}&nbsp;&deg;C
+            </>
+          ) : (
+            <>--.-&nbsp;&deg;C</>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {mode === "MANUAL" && (
+        <div style={styles.manualBanner}>
+          MANUAL MODE - Interlocks/boundaries not enforced. Use carefully.
+        </div>
+      )}
+
+      <div style={styles.panel}>
+        <h2>Extruder overview</h2>
+        <p style={{ fontSize: "0.9em", color: "#aaa" }}>
+          Schematic view of the micro-extruder with live temps and main states.
+        </p>
+
+        {/* full-width schematic */}
+        <div>
+          <svg width="100%" viewBox="0 0 600 140">
+            {/* Motor */}
+            <rect
+              x="10"
+              y="50"
+              width="40"
+              height="50"
+              fill={motors.main > 0 ? "#27ae60" : "#2c3e50"}
+              rx="4"
+            />
+            <text
+              x="30"
+              y="80"
+              textAnchor="middle"
+              fill="#ecf0f1"
+              fontSize="10"
+            >
+              MOTOR
+            </text>
+
+            {/* Barrel + feed */}
+            <rect x="50" y="60" width="500" height="30" fill="#7f8c8d" rx="5" />
+            <polygon points="90,60 110,60 100,90" fill="#95a5a6" />
+            <text
+              x="100"
+              y="50"
+              textAnchor="middle"
+              fill="#aaa"
+              fontSize="10"
+            >
+              FEED
+            </text>
+
+            {/* Zone 1 */}
+            <circle cx="130" cy="75" r="5" fill="#e67e22" />
+            <text
+              x="130"
+              y="110"
+              textAnchor="middle"
+              fill="#e67e22"
+              fontSize="12"
+            >
+              {t1 !== null ? (
+                <>
+                  T1: {t1.toFixed(1)}&deg;C
+                </>
+              ) : (
+                <>T1: --.-&deg;C</>
+              )}
+            </text>
+            <rect
+              x="200"
+              y="55"
+              width="100"
+              height="40"
+              fill={relays.ssr_z1 ? "#e74c3c" : "#555"}
+              opacity="0.5"
+              rx="5"
+            />
+            <text
+              x="250"
+              y="50"
+              textAnchor="middle"
+              fill="#aaa"
+              fontSize="10"
+            >
+              MICA Z1
+            </text>
+
+            {/* Zone 2 */}
+            <circle cx="310" cy="75" r="5" fill="#e67e22" />
+            <text
+              x="310"
+              y="110"
+              textAnchor="middle"
+              fill="#e67e22"
+              fontSize="12"
+            >
+              {t2 !== null ? (
+                <>
+                  T2: {t2.toFixed(1)}&deg;C
+                </>
+              ) : (
+                <>T2: --.-&deg;C</>
+              )}
+            </text>
+            <rect
+              x="320"
+              y="55"
+              width="100"
+              height="40"
+              fill={relays.ssr_z2 ? "#e74c3c" : "#555"}
+              opacity="0.5"
+              rx="5"
+            />
+            <text
+              x="370"
+              y="50"
+              textAnchor="middle"
+              fill="#aaa"
+              fontSize="10"
+            >
+              MICA Z2
+            </text>
+
+            {/* Nozzle */}
+            <circle cx="450" cy="75" r="5" fill="#e67e22" />
+            <text
+              x="450"
+              y="110"
+              textAnchor="middle"
+              fill="#e67e22"
+              fontSize="12"
+            >
+              {t3 !== null ? (
+                <>
+                  T3: {t3.toFixed(1)}&deg;C
+                </>
+              ) : (
+                <>T3: --.-&deg;C</>
+              )}
+            </text>
+            <polygon points="550,65 570,75 550,85" fill="#f1c40f" />
+
+            {/* Fan / pump */}
+            <rect
+              x="10"
+              y="120"
+              width="60"
+              height="20"
+              fill={relays.fan ? "#27ae60" : "#2c3e50"}
+              rx="4"
+            />
+            <text
+              x="40"
+              y="135"
+              textAnchor="middle"
+              fill="#ecf0f1"
+              fontSize="10"
+            >
+              FAN
+            </text>
+
+            <rect
+              x="80"
+              y="120"
+              width="60"
+              height="20"
+              fill={relays.pump ? "#27ae60" : "#2c3e50"}
+              rx="4"
+            />
+            <text
+              x="110"
+              y="135"
+              textAnchor="middle"
+              fill="#ecf0f1"
+              fontSize="10"
+            >
+              PUMP
+            </text>
+          </svg>
+        </div>
+
+        {/* status table below-right */}
+        <div
+          style={{
+            marginTop: "20px",
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <div style={{ width: "260px" }}>
+            <div style={styles.row}>
+              <span>Status</span>
+              <span
+                style={{
+                  color:
+                    status === "READY"
+                      ? "#2ecc71"
+                      : status === "ALARM"
+                      ? "#e74c3c"
+                      : "#f1c40f",
+                }}
+              >
+                {status}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span>Mode</span>
+              <span>{mode}</span>
+            </div>
+            <div style={styles.row}>
+              <span>Main RPM</span>
+              <span>{motors.main?.toFixed(1) ?? "0.0"}</span>
+            </div>
+            <div style={styles.row}>
+              <span>Feeder RPM</span>
+              <span>{motors.feed?.toFixed(1) ?? "0.0"}</span>
+            </div>
+            <div style={styles.row}>
+              <span>Heaters</span>
+              <span>{anyHeaterOn ? "ON" : "OFF"}</span>
+            </div>
+            <div style={styles.row}>
+              <span>Motor temp</span>
+              <span>
+                {tm !== null ? (
+                  <>
+                    {tm.toFixed(1)}&nbsp;&deg;C
+                  </>
+                ) : (
+                  <>--.-&nbsp;&deg;C</>
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.panel}>
+        <h3>Temperature summary</h3>
+        <div style={styles.grid2}>
+          {tempBox("Zone 1", t1)}
+          {tempBox("Zone 2", t2)}
+          {tempBox("Nozzle", t3)}
+          {tempBox("Motor", tm)}
+        </div>
+      </div>
+
+      <div style={styles.panel}>
+        <h3>Quick actions</h3>
+        <button
+          style={styles.button}
+          onClick={() =>
+            sendCmd("SET_MODE", { mode: mode === "AUTO" ? "MANUAL" : "AUTO" })
+          }
+        >
+          Toggle to {mode === "AUTO" ? "MANUAL" : "AUTO"}
+        </button>
+        <button
+          style={styles.buttonDanger}
+          onClick={() => sendCmd("EMERGENCY_STOP")}
+        >
+          EMERGENCY STOP
+        </button>
+      </div>
+
+      {hasAlarm && (
+        <div style={styles.alarmOverlay}>
+          <div style={{ color: "white", fontSize: "2em", fontWeight: "bold" }}>
+            ALARM
+          </div>
+          <div style={{ color: "#ecf0f1", marginTop: "10px" }}>
+            {data.state?.alarm_msg || "Unknown alarm"}
+          </div>
+          <button
+            style={{
+              ...styles.button,
+              marginTop: "20px",
+              background: "#f1c40f",
+              color: "#000",
+            }}
+            onClick={() => sendCmd("CLEAR_ALARM")}
+          >
+            Clear alarm
+          </button>
+          <button
+            style={{ ...styles.buttonDanger, marginTop: "10px" }}
+            onClick={() => sendCmd("EMERGENCY_STOP")}
+          >
+            Maintain STOP
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default HomeScreen;
