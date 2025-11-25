@@ -1,0 +1,28 @@
+{
+    "z1": {
+        "kp": 5.0,
+        "ki": 0.1,
+        "kd": 10.0
+    },
+    "z2": {
+        "kp": 5.0,
+        "ki": 0.1,
+        "kd": 10.0
+    },
+    "dm556": {
+        "current_peak": 3.2,
+        "idle_half": true,
+        "microsteps": 1600
+    },
+    "pins": {
+        "ssr_z1": 17,
+        "ssr_z2": 27,
+        "ssr_fan": 22,
+        "ssr_pump": 23,
+        "step_main": 5,
+        "dir_main": 6,
+        "step_feed": 13,
+        "dir_feed": 19,
+        "alm_main": 16
+    }
+}
