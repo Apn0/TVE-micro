@@ -20,11 +20,24 @@ function MotorScreen({ data, sendCmd }) {
     setFeedRpm(motors.feed ?? 0);
   }, [motors.main, motors.feed]);
 
+  const dmFromConfig = data.config?.dm556;
+
   useEffect(() => {
-    if (data.config?.dm556) {
-      setDm({ ...DEFAULT_DM556, ...data.config.dm556 });
-    }
-  }, [data.config?.dm556]);
+    if (!dmFromConfig) return;
+
+    setDm((prev) => {
+      const next = { ...DEFAULT_DM556, ...dmFromConfig };
+      if (
+        prev.current_peak === next.current_peak &&
+        prev.microsteps === next.microsteps &&
+        prev.idle_half === next.idle_half
+      ) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [dmFromConfig?.current_peak, dmFromConfig?.microsteps, dmFromConfig?.idle_half]);
 
   const sendMain = (rpm) => {
     const safeRpm = Math.max(0, rpm);
