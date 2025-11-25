@@ -83,6 +83,12 @@ def load_config():
         cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
     if "temp_settings" not in cfg:
         cfg["temp_settings"] = copy.deepcopy(DEFAULT_CONFIG["temp_settings"])
+    if "extruder_sequence" not in cfg:
+        cfg["extruder_sequence"] = {
+            "start_delay_feed": 2.0,
+            "stop_delay_motor": 5.0,
+            "check_temp_before_start": True
+        }
     return cfg
 
 sys_config = load_config()
@@ -110,7 +116,7 @@ pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
 
 # English status names
 state = {
-    "status": "READY",   # READY / ALARM
+    "status": "READY",   # READY / ALARM / STARTING / RUNNING / STOPPING
     "mode": "AUTO",      # or "MANUAL"
     "alarm_msg": "",
     "target_z1": 0.0,
@@ -120,6 +126,7 @@ state = {
     "temps": {},
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
+    "seq_start_time": 0.0, # Track sequence timing
 }
 
 state_lock = threading.Lock()
@@ -158,9 +165,13 @@ def _ensure_hal_started():
         return False, (jsonify({"success": False, "msg": "HAL_NOT_INITIALIZED"}), 503)
     return True, None
 
+# Track button state for rising edge detection
+last_btn_start_state = False
+
 def control_loop():
     """Background loop to keep temps fresh and optionally log."""
     poll_interval = sys_config.get("temp_settings", {}).get("poll_interval", 0.25)
+    global last_btn_start_state
 
     while not _control_stop.is_set():
         if hal is None:
@@ -169,6 +180,15 @@ def control_loop():
 
         temps = hal.get_temps()
         alarm_to_latch = None
+
+        # --- Handle Physical Inputs (Buttons) ---
+        if hal.get_button_state("btn_emergency"):
+             alarm_to_latch = "EMERGENCY_STOP_BTN"
+
+        # Start Button (Rising Edge)
+        btn_start_pressed = hal.get_button_state("btn_start")
+        start_btn_event = btn_start_pressed and not last_btn_start_state
+        last_btn_start_state = btn_start_pressed
 
         # Update shared state
         with state_lock:
@@ -180,13 +200,48 @@ def control_loop():
                     alarm_to_latch = reason
 
             alarm_active = state["status"] == "ALARM"
+            status = state.get("status")
             mode = state.get("mode")
             target_z1 = state.get("target_z1", 0.0)
             target_z2 = state.get("target_z2", 0.0)
 
+            # Button Logic
+            if start_btn_event:
+                if status == "READY":
+                    # Check temps if configured
+                    seq_cfg = sys_config.get("extruder_sequence", {})
+                    if seq_cfg.get("check_temp_before_start", True):
+                        allowed, reason = safety.guard_motor_temp(temps)
+                        if allowed:
+                            state["status"] = "STARTING"
+                            state["seq_start_time"] = time.time()
+                        else:
+                            print(f"[CTRL] Cannot start: {reason}")
+                    else:
+                        state["status"] = "STARTING"
+                        state["seq_start_time"] = time.time()
+
+                elif status == "RUNNING":
+                    state["status"] = "STOPPING"
+                    state["seq_start_time"] = time.time()
+
         if alarm_to_latch:
             _latch_alarm(alarm_to_latch)
             alarm_active = True
+
+        # --- LED Indication ---
+        led_val = False
+        now = time.time()
+        if alarm_active:
+            led_val = (int(now * 10) % 2) == 0 # Fast Blink 5Hz
+        elif status == "RUNNING":
+            led_val = True
+        elif status in ("STARTING", "STOPPING"):
+            led_val = (int(now * 2) % 2) == 0 # Blink 1Hz
+        else: # READY
+            led_val = False
+
+        hal.set_led_state("led_status", led_val)
 
         if alarm_active or not running_event.is_set():
             _all_outputs_off()
@@ -198,6 +253,49 @@ def control_loop():
                 pass
             time.sleep(poll_interval)
             continue
+
+        # --- SEQUENCE LOGIC ---
+        seq_cfg = sys_config.get("extruder_sequence", {})
+
+        if status == "STARTING":
+            target_main = state["motors"].get("main", 0.0)
+            if target_main == 0:
+                target_main = 10.0
+                with state_lock:
+                    state["motors"]["main"] = target_main
+
+            hal.set_motor_rpm("main", target_main)
+
+            elapsed = now - state.get("seq_start_time", now)
+            delay_feed = seq_cfg.get("start_delay_feed", 2.0)
+
+            if elapsed >= delay_feed:
+                target_feed = state["motors"].get("feed", 0.0)
+                if target_feed == 0:
+                     target_feed = 10.0
+                     with state_lock:
+                         state["motors"]["feed"] = target_feed
+                hal.set_motor_rpm("feed", target_feed)
+
+                with state_lock:
+                    state["status"] = "RUNNING"
+
+        elif status == "STOPPING":
+            hal.set_motor_rpm("feed", 0.0)
+            with state_lock:
+                state["motors"]["feed"] = 0.0
+
+            elapsed = now - state.get("seq_start_time", now)
+            delay_stop = seq_cfg.get("stop_delay_motor", 5.0)
+
+            if elapsed >= delay_stop:
+                hal.set_motor_rpm("main", 0.0)
+                with state_lock:
+                    state["motors"]["main"] = 0.0
+                    state["status"] = "READY"
+
+        elif status == "RUNNING":
+             pass
 
         # --- CONTROL LOGIC ---
         if mode == "AUTO":
@@ -422,6 +520,9 @@ def control():
         _latch_alarm("EMERGENCY_STOP")
 
     elif cmd == "CLEAR_ALARM":
+        if hal.get_button_state("btn_emergency"):
+            return jsonify({"success": False, "msg": "EMERGENCY_BTN_ACTIVE"})
+
         _all_outputs_off()
         with state_lock:
             state["status"] = "READY"
@@ -453,6 +554,12 @@ def control():
         pins = req.get("pins") or {}
         sys_config["pins"] = pins
         # NOTE: requires restart to take effect on GPIO, unless you re-init HAL manually.
+
+    elif cmd == "UPDATE_EXTRUDER_SEQ":
+        seq = req.get("sequence") or {}
+        if "extruder_sequence" not in sys_config:
+            sys_config["extruder_sequence"] = {}
+        sys_config["extruder_sequence"].update(seq)
 
     elif cmd == "UPDATE_DM556":
         sys_config["dm556"] = req.get("params") or {}
