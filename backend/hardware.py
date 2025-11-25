@@ -354,57 +354,60 @@ class HardwareInterface:
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
+    def _sample_temperatures(self, now: float):
+        """Read temperatures from ADS1115 (or simulation) regardless of run state."""
+
+        if self._ads is None or not self._ads.available:
+            if self.platform == "WIN":
+                return
+            self._simulate_temp_loop(now)
+            return
+
+        readings_by_logical: Dict[str, float] = {}
+
+        for ch, cfg in self.sensor_config.items():
+            if not cfg.get("enabled", False):
+                continue
+            logical = cfg.get("logical")
+            if logical not in LOGICAL_SENSORS:
+                continue
+
+            volts = self._ads.read_voltage(ch)
+            if volts is None:
+                continue
+
+            temp_raw = self._voltage_to_temp(volts, cfg)
+            temp_corr = cfg["corr_slope"] * temp_raw + cfg["corr_offset"]
+            readings_by_logical[logical] = temp_corr
+
+        with self._temp_lock:
+            for logical, val in readings_by_logical.items():
+                samples = self._temp_samples.setdefault(logical, [])
+                samples.append((now, float(val)))
+
+                cutoff = now - self.temp_avg_window
+                while samples and samples[0][0] < cutoff:
+                    samples.pop(0)
+
+                if self.temp_use_average and samples:
+                    avg = sum(v for _, v in samples) / len(samples)
+                    value = avg
+                else:
+                    value = val
+
+                decimals = self.temp_decimals_default
+                for cfg in self.sensor_config.values():
+                    if cfg.get("logical") == logical:
+                        decimals = int(cfg.get("decimals", decimals))
+                        break
+                self.temps[logical] = round(value, decimals)
+
     def _temp_loop(self):
         while self.running:
             now = time.time()
-
-            if self._ads is None or not self._ads.available:
-                if self.platform == "WIN":
-                    time.sleep(self.temp_poll_interval)
-                    continue
-                self._simulate_temp_loop(now)
-                time.sleep(self.temp_poll_interval)
-                continue
-
-            readings_by_logical: Dict[str, float] = {}
-
-            for ch, cfg in self.sensor_config.items():
-                if not cfg.get("enabled", False):
-                    continue
-                logical = cfg.get("logical")
-                if logical not in LOGICAL_SENSORS:
-                    continue
-
-                volts = self._ads.read_voltage(ch)
-                if volts is None:
-                    continue
-
-                temp_raw = self._voltage_to_temp(volts, cfg)
-                temp_corr = cfg["corr_slope"] * temp_raw + cfg["corr_offset"]
-                readings_by_logical[logical] = temp_corr
-
-            with self._temp_lock:
-                for logical, val in readings_by_logical.items():
-                    samples = self._temp_samples.setdefault(logical, [])
-                    samples.append((now, float(val)))
-
-                    cutoff = now - self.temp_avg_window
-                    while samples and samples[0][0] < cutoff:
-                        samples.pop(0)
-
-                    if self.temp_use_average and samples:
-                        avg = sum(v for _, v in samples) / len(samples)
-                        value = avg
-                    else:
-                        value = val
-
-                    decimals = self.temp_decimals_default
-                    for cfg in self.sensor_config.values():
-                        if cfg.get("logical") == logical:
-                            decimals = int(cfg.get("decimals", decimals))
-                            break
-                    self.temps[logical] = round(value, decimals)
-
+            # Keep polling temperatures even when the running_event is cleared so the
+            # UI/logs show cooling trends during a latched alarm.
+            self._sample_temperatures(now)
             time.sleep(self.temp_poll_interval)
 
     def _simulate_temp_loop(self, now: float):
