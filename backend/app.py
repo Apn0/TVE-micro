@@ -491,9 +491,21 @@ def _latch_alarm(reason: str):
         state["status"] = "ALARM"
         state["alarm_msg"] = reason
 
+startup_lock = threading.Lock()
+
+
 def _ensure_hal_started():
     if hal is None:
-        return False, (jsonify({"success": False, "msg": "HAL_NOT_INITIALIZED"}), 503)
+        with startup_lock:
+            if hal is None:
+                try:
+                    startup()
+                except Exception:
+                    app_logger.exception("HAL startup failed")
+                    return (
+                        jsonify({"success": False, "msg": "HAL_NOT_INITIALIZED"}),
+                        503,
+                    )
     return True, None
 
 last_btn_start_state = False
