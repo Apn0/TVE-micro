@@ -76,7 +76,8 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
-import GPIOControlScreen from "./components/GPIOControlScreen";
+import GpioScreen from "./components/GpioScreen";
+import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 
 function App() {
   const [view, setView] = useState("HOME");
@@ -179,14 +180,14 @@ function App() {
         </div>
         <div>Mini Hackstruder HMI · v0.4</div>
       </div>
-    <KeypadOverlay
-      visible={keypad.visible}
-      position={keypad.position}
-      value={keypad.value}
-      setValue={keypad.setValue}
-      submit={keypad.submit}
-      close={keypad.closeKeypad}
-    />
+        <KeypadOverlay
+          visible={keypad.visible}
+          position={keypad.position}
+          value={keypad.value}
+          setValue={keypad.setValue}
+          submit={keypad.submit}
+          close={keypad.closeKeypad}
+        />
 
     </div>
   );
