@@ -8,6 +8,7 @@ const rpmDisplay = (rpm) => `${rpm?.toFixed(0) ?? 0} RPM`;
 function MotorScreen({ data, sendCmd }) {
   const motors = data.state?.motors || {};
   const temps = data.state?.temps || {};
+  const motionConfig = data.config?.motion || data.config?.motors || {};
   const [mainRpm, setMainRpm] = useState(motors.main ?? 0);
   const [feedRpm, setFeedRpm] = useState(motors.feed ?? 0);
   const [mainManualSteps, setMainManualSteps] = useState(100);
@@ -80,6 +81,26 @@ function MotorScreen({ data, sendCmd }) {
       swSteps: DM556_TABLE.steps[dm.microsteps] || [false, false, false, false],
     };
   }, [dm.current_peak, dm.microsteps]);
+
+  const motionMetrics = useMemo(() => {
+    const rampUp = motionConfig.ramp_up_s ?? motionConfig.ramp_up ?? null;
+    const rampDown = motionConfig.ramp_down_s ?? motionConfig.ramp_down ?? null;
+    const accelPerSec = motionConfig.max_accel_per_s ?? motionConfig.max_accel ?? null;
+    const accelPerSec2 = motionConfig.max_accel_per_s2 ?? motionConfig.max_jerk ?? null;
+
+    const displayValue = (value, unit) => {
+      if (value === null || value === undefined) return "Not provided";
+      const rounded = Number.isFinite(value) ? value.toFixed(2) : value;
+      return unit ? `${rounded} ${unit}` : rounded;
+    };
+
+    return {
+      rampUp: displayValue(rampUp, "s"),
+      rampDown: displayValue(rampDown, "s"),
+      accelPerSec: displayValue(accelPerSec, "RPM/s"),
+      accelPerSec2: displayValue(accelPerSec2, "RPM/s²"),
+    };
+  }, [motionConfig.max_accel, motionConfig.max_accel_per_s, motionConfig.max_accel_per_s2, motionConfig.max_jerk, motionConfig.ramp_down, motionConfig.ramp_down_s, motionConfig.ramp_up, motionConfig.ramp_up_s]);
 
   return (
     <div>
@@ -177,6 +198,33 @@ function MotorScreen({ data, sendCmd }) {
             <div style={styles.metric}>{((feedRpm / 60) * dm.microsteps).toFixed(0)}</div>
             <div style={styles.label}>Steps/minute</div>
             <div style={styles.metric}>{(feedRpm * dm.microsteps).toFixed(0)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.panel}>
+        <h3>Ramp & acceleration</h3>
+        <p style={{ color: "#aaa", fontSize: "0.9em", marginTop: 0 }}>
+          These values describe how quickly the motors speed up or slow down. If
+          the backend exposes motion limits they are shown below; otherwise the
+          fields will read "Not provided".
+        </p>
+        <div style={styles.grid2}>
+          <div>
+            <div style={styles.label}>Ramp up</div>
+            <div style={styles.metricBig}>{motionMetrics.rampUp}</div>
+          </div>
+          <div>
+            <div style={styles.label}>Ramp down</div>
+            <div style={styles.metricBig}>{motionMetrics.rampDown}</div>
+          </div>
+          <div>
+            <div style={styles.label}>Max accel</div>
+            <div style={styles.metricBig}>{motionMetrics.accelPerSec}</div>
+          </div>
+          <div>
+            <div style={styles.label}>Max accel rate</div>
+            <div style={styles.metricBig}>{motionMetrics.accelPerSec2}</div>
           </div>
         </div>
       </div>
