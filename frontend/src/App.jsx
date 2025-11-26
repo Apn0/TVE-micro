@@ -18,6 +18,21 @@ export const styles = {
   panel: { background: "#1e1e1e", borderRadius: "8px", padding: "20px", marginBottom: "20px" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" },
   metricBig: { fontSize: "2em", fontWeight: "bold", color: "#fff" },
+  metricValue: { fontSize: "1.6em", fontWeight: "bold", color: "#ecf0f1" },
+  metricLabel: { color: "#8c9fb1", fontSize: "0.9em", letterSpacing: "0.5px", textTransform: "uppercase" },
+  metricGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "14px",
+    marginTop: "14px",
+  },
+  metricCard: {
+    background: "linear-gradient(145deg, #1a1f27, #13171d)",
+    border: "1px solid #1f2a36",
+    borderRadius: "10px",
+    padding: "14px",
+    boxShadow: "0 8px 16px rgba(0,0,0,0.25)",
+  },
   label: { color: "#aaa", fontSize: "0.75em", textTransform: "uppercase" },
   button: { padding: "10px 20px", background: "#3498db", border: "none", borderRadius: "4px", color: "white", cursor: "pointer", fontWeight: "bold", marginRight: "10px" },
   buttonDanger: { padding: "10px 20px", background: "#e74c3c", border: "none", borderRadius: "4px", color: "white", cursor: "pointer", fontWeight: "bold", marginRight: "10px" },
@@ -37,6 +52,19 @@ export const styles = {
     width: 16, height: 16, background: "#2c3e50", position: "absolute",
     left: 2, top: s ? 22 : 2, transition: "top 0.2s", borderRadius: 2
   }),
+  pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "0.8em",
+    fontWeight: "bold",
+    letterSpacing: "0.5px",
+    gap: "6px",
+    background: "#1f2f3d",
+    color: "#d7e0ea",
+    border: "1px solid #2c3e50",
+  },
 };
 
 // Components
