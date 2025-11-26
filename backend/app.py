@@ -213,7 +213,7 @@ def control_loop():
                             state["status"] = "STARTING"
                             state["seq_start_time"] = time.time()
                     else:
-                        pass
+                        alarm_req = reason
                 else:
                     with state_lock:
                         state["status"] = "STARTING"
