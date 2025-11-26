@@ -76,6 +76,11 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
+import GPIOControlScreen from "./components/GPIOControlScreen";
+import HistoryScreen from "./components/HistoryScreen";
+import TestScreen from "./components/TestScreen";
+import SensorsScreen from "./components/SensorsScreen";
+import SettingsScreen from "./components/SettingsScreen";
 import GpioScreen from "./components/GpioScreen";
 
 function App() {
@@ -158,6 +163,23 @@ function App() {
               history={history}
               keypad={keypad}
             />
+          )}
+          {view === "HISTORY" && <HistoryScreen history={history} />}
+          {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
+          {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
+          {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
+          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
+        </div>
+          {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
+          {view === "HEATERS" && <HeaterScreen data={data} sendCmd={sendCmd} />}
+          {view === "HISTORY" && <HistoryScreen history={history} />}
+          {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
+          {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
+          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
+          {view === "GPIO" && <GPIOControlScreen />}
+        </div>
+          {view === "HEATERS" && (
+            <HeaterScreen data={data} sendCmd={sendCmd} history={history} />
           )}
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
