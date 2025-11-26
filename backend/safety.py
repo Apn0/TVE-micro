@@ -13,12 +13,15 @@ class SafetyMonitor:
 
     def check(self, state, hal):
         """Returns (is_safe, reason)"""
-        
+
         # 1. Hardware Motor Fault (DM556 Alarm Signal)
         if hal.is_motor_fault():
             return self._trigger_alarm("DM556 DRIVER FAULT (Check Blinks)")
 
         # 2. Motor Overheat
+        motor_temp = state["temps"].get("motor")
+        if motor_temp is None:
+            return self._trigger_alarm("MOTOR_TEMP_SENSOR_FAILURE")
         motor_temp = self._safe_temp(state["temps"], "motor")
 
         if motor_temp is None:
@@ -28,6 +31,8 @@ class SafetyMonitor:
             return self._trigger_alarm("MOTOR OVERHEAT")
 
         # 3. Runaway Heater
+        t2 = state["temps"].get("t2")
+        t3 = state["temps"].get("t3")
         t2 = self._safe_temp(state["temps"], "t2")
         t3 = self._safe_temp(state["temps"], "t3")
 
