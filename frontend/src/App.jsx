@@ -150,7 +150,9 @@ function App() {
 
       {data ? (
         <div style={styles.content}>
-          {view === "HOME" && <HomeScreen data={data} sendCmd={sendCmd} />}
+          {view === "HOME" && (
+            <HomeScreen data={data} sendCmd={sendCmd} keypad={keypad} />
+          )}
           {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
           {view === "HEATERS" && (
             <HeaterScreen
