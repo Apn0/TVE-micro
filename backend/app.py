@@ -173,9 +173,18 @@ def _all_outputs_off():
         for name in state.get("pwm", {}):
             state["pwm"][name] = 0.0
 
+def _set_status(new_status: str):
+    with state_lock:
+        state["status"] = new_status
+        state["seq_start_time"] = time.time()
+
+
 def _latch_alarm(reason: str):
+    global last_btn_start_state
+
     running_event.clear()
     _all_outputs_off()
+    last_btn_start_state = False
     with state_lock:
         state["status"] = "ALARM"
         state["alarm_msg"] = reason
@@ -192,6 +201,7 @@ def control_loop():
 
     last_poll_time = 0
     last_log_time = 0
+    temps = {}
 
     while not _control_stop.is_set():
         now = time.time()
@@ -205,6 +215,9 @@ def control_loop():
         if hal is None:
             time.sleep(0.05)
             continue
+
+        if last_poll_time == 0:
+            _set_status("READY")
 
         btn_em = hal.get_button_state("btn_emergency")
         alarm_req = "EMERGENCY_STOP_BTN" if btn_em else None
@@ -227,8 +240,8 @@ def control_loop():
         btn_start = hal.get_button_state("btn_start")
         start_event = btn_start and not last_btn_start_state
         last_btn_start_state = btn_start
-
-        if now - last_poll_time >= poll_interval:
+        should_poll = (now - last_poll_time) >= poll_interval or start_event
+        if should_poll:
             last_poll_time = now
             temps = hal.get_temps()
 
@@ -239,31 +252,47 @@ def control_loop():
                 mode = state["mode"]
                 target_z1 = state["target_z1"]
                 target_z2 = state["target_z2"]
+        else:
+            with state_lock:
+                status = state["status"]
+                mode = state["mode"]
+                target_z1 = state["target_z1"]
+                target_z2 = state["target_z2"]
 
-            if running_event.is_set():
-                ok, reason = safety.check(state, hal)
-                if not ok and status != "ALARM":
-                    alarm_req = reason
+        if status == "STOPPING" and running_event.is_set():
+            with state_lock:
+                motors_snapshot = dict(state.get("motors", {}))
+            if all(abs(motors_snapshot.get(name, 0.0)) < 1e-6 for name in ("main", "feed")):
+                _set_status("READY")
+                with state_lock:
+                    status = state["status"]
 
-            if start_event and status == "READY":
-                seq = sys_config.get("extruder_sequence", {})
+        if running_event.is_set() and status != "ALARM" and should_poll:
+            ok, reason = safety.check(state, hal)
+            if not ok:
+                alarm_req = alarm_req or reason
+
+        if (
+            running_event.is_set()
+            and not alarm_req
+            and start_event
+            and status in ("READY", "RUNNING")
+        ):
+            seq = sys_config.get("extruder_sequence", {})
+            temps_for_start = temps if temps else hal.get_temps()
+            with state_lock:
+                state["temps"] = temps_for_start
+            if status == "READY":
                 if seq.get("check_temp_before_start", True):
-                    allowed, reason = safety.guard_motor_temp(temps)
+                    allowed, reason = safety.guard_motor_temp(temps_for_start)
                     if allowed:
-                        with state_lock:
-                            state["status"] = "STARTING"
-                            state["seq_start_time"] = time.time()
+                        _set_status("STARTING")
                     else:
                         alarm_req = reason
                 else:
-                    with state_lock:
-                        state["status"] = "STARTING"
-                        state["seq_start_time"] = time.time()
-
-            elif start_event and status == "RUNNING":
-                with state_lock:
-                    state["status"] = "STOPPING"
-                    state["seq_start_time"] = time.time()
+                    _set_status("STARTING")
+        else:
+            _set_status("STOPPING")
 
         if alarm_req:
             _latch_alarm(alarm_req)
@@ -277,6 +306,11 @@ def control_loop():
             temps_timestamp = state.get("temps_timestamp", 0.0)
 
         now = time.time()
+
+        if not running_event.is_set() and status != "ALARM":
+            with state_lock:
+                state["status"] = "ALARM"
+                status = "ALARM"
 
         if status == "ALARM" or not running_event.is_set():
             led = (int(now * 10) % 2) == 0
@@ -299,14 +333,24 @@ def control_loop():
         hal.set_led_state("led_status", led)
 
         seq = sys_config.get("extruder_sequence", {})
-        elapsed = now - state.get("seq_start_time", now)
+        with state_lock:
+            seq_start_time = state.get("seq_start_time", 0.0)
+            motors_snapshot = dict(state.get("motors", {}))
+        if status in ("STARTING", "STOPPING") and not seq_start_time:
+            _set_status(status)
+            with state_lock:
+                seq_start_time = state.get("seq_start_time", now)
+                motors_snapshot = dict(state.get("motors", {}))
+        elapsed = now - (seq_start_time or now)
+        max_start_time = seq.get("start_delay_feed", 2.0) + 1.0
+        max_stop_time = seq.get("stop_delay_motor", 5.0) + 1.0
 
         if status == "STARTING":
-            main_rpm = state["motors"].get("main", 0.0) or 10.0
+            main_rpm = motors_snapshot.get("main", 0.0) or 10.0
             hal.set_motor_rpm("main", main_rpm)
 
-            if elapsed >= seq.get("start_delay_feed", 2.0):
-                feed_rpm = state["motors"].get("feed", 0.0) or 10.0
+            if elapsed >= seq.get("start_delay_feed", 2.0) or elapsed >= max_start_time:
+                feed_rpm = motors_snapshot.get("feed", 0.0) or 10.0
                 hal.set_motor_rpm("feed", feed_rpm)
                 with state_lock:
                     state["motors"]["main"] = main_rpm
@@ -315,7 +359,7 @@ def control_loop():
 
         elif status == "STOPPING":
             hal.set_motor_rpm("feed", 0.0)
-            if elapsed >= seq.get("stop_delay_motor", 5.0):
+            if elapsed >= seq.get("stop_delay_motor", 5.0) or elapsed >= max_stop_time:
                 hal.set_motor_rpm("main", 0.0)
                 with state_lock:
                     state["motors"]["main"] = 0.0
@@ -378,6 +422,11 @@ def startup():
         pwm_config=sys_config.get("pwm"),
         running_event=running_event,
     )
+    with state_lock:
+        if state.get("status") != "ALARM":
+            state["status"] = "READY"
+            state["alarm_msg"] = ""
+            state["seq_start_time"] = 0.0
     start_background_threads()
 
 def shutdown():
