@@ -48,6 +48,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
+import GPIOControlScreen from "./components/GPIOControlScreen";
 
 function App() {
   const [view, setView] = useState("HOME");
@@ -122,6 +123,7 @@ function App() {
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
           {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
+          {view === "GPIO" && <GPIOControlScreen />}
         </div>
       ) : (
         <div style={styles.disconnectOverlay}>
