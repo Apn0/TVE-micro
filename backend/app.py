@@ -525,6 +525,31 @@ def control():
             sys_config["logging"]["flush_interval"] = float(params["flush_interval"])
         logger.configure(sys_config["logging"])
 
+    elif cmd == "GPIO_CONFIG":
+        pin = req.get("pin")
+        direction = req.get("direction", "OUT")
+        pull = req.get("pull")
+        try:
+            hal.configure_pin(int(pin), direction=direction, pull=pull)
+        except Exception:
+            return jsonify({"success": False, "msg": "GPIO_CONFIG_ERROR"})
+
+    elif cmd == "GPIO_WRITE":
+        pin = req.get("pin")
+        state = bool(req.get("state", False))
+        try:
+            hal.gpio_write(int(pin), state)
+        except Exception:
+            return jsonify({"success": False, "msg": "GPIO_WRITE_ERROR"})
+
+    elif cmd == "GPIO_READ":
+        pin = req.get("pin")
+        try:
+            value = hal.gpio_read(int(pin))
+            return jsonify({"success": True, "value": bool(value)})
+        except Exception:
+            return jsonify({"success": False, "msg": "GPIO_READ_ERROR"})
+
     elif cmd == "SAVE_CONFIG":
         try:
             with open(CONFIG_FILE, "w") as f:
