@@ -261,7 +261,7 @@ def _validate_temp_settings(section: dict, errors: list[str]):
         if key in section:
             try:
                 value = float(section[key])
-                if value > 0:
+                if value > 0 and math.isfinite(value):
                     result[key] = value
                 else:
                     raise ValueError
@@ -285,7 +285,7 @@ def _validate_logging(section: dict, errors: list[str]):
         if key in section:
             try:
                 value = float(section[key])
-                if value > 0:
+                if value > 0 and math.isfinite(value):
                     result[key] = value
                 else:
                     raise ValueError
@@ -925,7 +925,7 @@ def control():
                     state["alarm_msg"] = reason
                     state["motors"]["main"] = 0
                     state["motors"]["feed"] = 0
-                return jsonify({"success": False, "msg": reason})
+                return jsonify({"success": False, "msg": reason}), 400
         hal.set_motor_rpm(motor, rpm)
         with state_lock:
             state["motors"][motor] = rpm
@@ -999,9 +999,29 @@ def control():
         params = req.get("params", {})
         if zone not in ("z1", "z2") or not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_ZONE_OR_PARAMS"}), 400
+        sanitized_params: dict[str, float] = {}
+        pid_errors: list[str] = []
+        for name in ("kp", "ki", "kd"):
+            if name not in params:
+                continue
+            coerced = _coerce_finite(params.get(name))
+            if coerced is None:
+                pid_errors.append(f"{name} must be a finite number")
+                continue
+            if coerced < 0:
+                pid_errors.append(f"{name} must be non-negative")
+                continue
+            if coerced > 1000:
+                pid_errors.append(f"{name} exceeds maximum allowed value of 1000")
+                continue
+            sanitized_params[name] = coerced
+        if pid_errors:
+            return jsonify({"success": False, "msg": "; ".join(pid_errors)}), 400
         validation_errors: list[str] = []
         current = sys_config.get(zone, DEFAULT_CONFIG[zone])
-        validated = _validate_pid_section({**current, **params}, zone, validation_errors)
+        validated = _validate_pid_section(
+            {**current, **sanitized_params}, zone, validation_errors
+        )
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),
@@ -1067,9 +1087,37 @@ def control():
         params = req.get("params", {})
         if not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_TEMP_SETTINGS"}), 400
+        temp_errors: list[str] = []
+        sanitized: dict[str, float | int | bool] = {}
+        if "poll_interval" in params:
+            value = _coerce_finite(params.get("poll_interval"))
+            if value is None or not (0.01 <= value <= 60.0):
+                temp_errors.append("poll_interval must be between 0.01 and 60 seconds")
+            else:
+                sanitized["poll_interval"] = value
+        if "avg_window" in params:
+            value = _coerce_finite(params.get("avg_window"))
+            if value is None or not (0.01 <= value <= 600.0):
+                temp_errors.append("avg_window must be between 0.01 and 600 seconds")
+            else:
+                sanitized["avg_window"] = value
+        if "decimals_default" in params:
+            try:
+                dec = int(params.get("decimals_default"))
+            except (TypeError, ValueError):
+                dec = None
+            if dec is None or dec < 0 or dec > 5:
+                temp_errors.append("decimals_default must be an integer between 0 and 5")
+            else:
+                sanitized["decimals_default"] = dec
+        if "use_average" in params:
+            sanitized["use_average"] = bool(params.get("use_average"))
+
+        if temp_errors:
+            return jsonify({"success": False, "msg": "; ".join(temp_errors)}), 400
         validation_errors: list[str] = []
         current = sys_config.get("temp_settings", DEFAULT_CONFIG["temp_settings"])
-        validated = _validate_temp_settings({**current, **params}, validation_errors)
+        validated = _validate_temp_settings({**current, **sanitized}, validation_errors)
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),
@@ -1088,9 +1136,29 @@ def control():
         params = req.get("params", {})
         if not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_LOGGING_PARAMS"}), 400
+        logging_errors: list[str] = []
+        sanitized_logging: dict[str, float] = {}
+        if "interval" in params:
+            val = _coerce_finite(params.get("interval"))
+            if val is None or not (0.01 <= val <= 3600.0):
+                logging_errors.append("interval must be between 0.01 and 3600 seconds")
+            else:
+                sanitized_logging["interval"] = val
+        if "flush_interval" in params:
+            val = _coerce_finite(params.get("flush_interval"))
+            if val is None or not (0.1 <= val <= 3600.0):
+                logging_errors.append("flush_interval must be between 0.1 and 3600 seconds")
+            else:
+                sanitized_logging["flush_interval"] = val
+
+        if logging_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(logging_errors)}),
+                400,
+            )
         validation_errors: list[str] = []
         current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
-        validated = _validate_logging({**current, **params}, validation_errors)
+        validated = _validate_logging({**current, **sanitized_logging}, validation_errors)
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),

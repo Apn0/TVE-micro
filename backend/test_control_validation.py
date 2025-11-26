@@ -17,6 +17,7 @@ class TestControlValidation(unittest.TestCase):
     def setUp(self):
         app.testing = True
         self.client = app.test_client()
+        self.client.post("/api/control", json={"command": "CLEAR_ALARM", "value": {}})
 
     def test_rejects_invalid_heater_duty(self):
         resp = self.client.post(
@@ -46,6 +47,17 @@ class TestControlValidation(unittest.TestCase):
         resp = self.client.post(
             "/api/control",
             json={"command": "UPDATE_PID", "value": {"zone": "z1", "params": {"kp": -1}}},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+
+    def test_rejects_non_finite_pid_values(self):
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "UPDATE_PID",
+                "value": {"zone": "z1", "params": {"kp": math.inf, "ki": math.nan}},
+            },
         )
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()["success"])
