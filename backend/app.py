@@ -1,11 +1,19 @@
 # file: backend/app.py
 import os
+import sys
 import json
 import time
 import threading
 import copy
 import math
 import logging
+
+# Ensure the repository root is on the import path when the file is executed
+# directly (e.g., `python app.py` from the backend directory).
+CURRENT_DIR = os.path.dirname(__file__)
+REPO_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, os.pardir))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from flask import Flask, request, jsonify
 import atexit
