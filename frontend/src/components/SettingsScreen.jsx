@@ -143,6 +143,12 @@ function SettingsScreen({ data, sendCmd, setView }) {
 
       <div style={styles.panel}>
         <h2>Extruder Sequence</h2>
+        <div style={{ color: "#ccc", marginTop: "-5px", maxWidth: "640px" }}>
+          Startup sequencing currently controls just the two motors: the main screw
+          starts first, the feed screw waits for the start delay, and on stop the
+          feed halts immediately while the main motor waits for the stop delay.
+          Other devices are not yet sequenced.
+        </div>
         <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
           <div>
             <div style={styles.label}>Start Delay Feed [s]</div>
