@@ -76,7 +76,8 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
-import GPIOControlScreen from "./components/GPIOControlScreen";
+import GpioScreen from "./components/GpioScreen";
+import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 
 function App() {
   const [view, setView] = useState("HOME");
@@ -163,15 +164,12 @@ function App() {
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
           {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
-          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
-        </div>
-          {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
-          {view === "HEATERS" && <HeaterScreen data={data} sendCmd={sendCmd} />}
-          {view === "HISTORY" && <HistoryScreen history={history} />}
-          {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
-          {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
-          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
-          {view === "GPIO" && <GPIOControlScreen />}
+          {view === "SETTINGS" && (
+            <SettingsScreen data={data} sendCmd={sendCmd} setView={setView} />
+          )}
+          {view === "WIRING CALIBRATION" && (
+            <WiringCalibrationScreen data={data} />
+          )}
         </div>
       ) : (
         <div style={styles.disconnectOverlay}>
@@ -187,14 +185,14 @@ function App() {
         </div>
         <div>Mini Hackstruder HMI · v0.4</div>
       </div>
-    <KeypadOverlay
-      visible={keypad.visible}
-      position={keypad.position}
-      value={keypad.value}
-      setValue={keypad.setValue}
-      submit={keypad.submit}
-      close={keypad.closeKeypad}
-    />
+        <KeypadOverlay
+          visible={keypad.visible}
+          position={keypad.position}
+          value={keypad.value}
+          setValue={keypad.setValue}
+          submit={keypad.submit}
+          close={keypad.closeKeypad}
+        />
 
     </div>
   );
