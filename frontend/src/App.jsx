@@ -166,6 +166,7 @@ function App() {
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
           {view === "GPIO" && <GPIOControlScreen />}
+          {view === "WIRING CALIBRATION" && <WiringCalibrationScreen />}
           {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
         </div>
       ) : (
