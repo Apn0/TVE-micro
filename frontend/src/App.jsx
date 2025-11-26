@@ -77,6 +77,8 @@ function App() {
             temps: json.state?.temps || {},
             relays: json.state?.relays || {},
             motors: json.state?.motors || {},
+            target_z1: json.state?.target_z1,
+            target_z2: json.state?.target_z2,
           };
           setHistory((prev) => {
             const next = [...prev, entry];
