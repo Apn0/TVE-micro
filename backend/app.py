@@ -8,10 +8,10 @@ import copy
 from flask import Flask, request, jsonify
 import atexit
 
-from hardware import HardwareInterface
-from safety import SafetyMonitor
-from logger import DataLogger
-from pid import PID
+from backend.hardware import HardwareInterface
+from backend.safety import SafetyMonitor
+from backend.logger import DataLogger
+from backend.pid import PID
 
 CONFIG_FILE = "config.json"
 
