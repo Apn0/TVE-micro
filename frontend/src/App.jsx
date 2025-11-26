@@ -76,7 +76,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
-import GpioScreen from "./components/GpioScreen";
+import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 
 function App() {
@@ -85,6 +85,7 @@ function App() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [history, setHistory] = useState([]);
+  const HISTORY_RETENTION_MS = 1000 * 60 * 60 * 24 * 7; // keep a rolling 7-day window
   const keypad = useKeypad();
 
   // Status polling
@@ -106,12 +107,19 @@ function App() {
             temps: json.state?.temps || {},
             relays: json.state?.relays || {},
             motors: json.state?.motors || {},
+            fans: json.state?.fans || json.state?.cooling || {},
+            pwm: json.state?.pwm || {},
+            manual_duty_z1: json.state?.manual_duty_z1,
+            manual_duty_z2: json.state?.manual_duty_z2,
             target_z1: json.state?.target_z1,
             target_z2: json.state?.target_z2,
+            status: json.state?.status,
+            mode: json.state?.mode,
           };
           setHistory((prev) => {
-            const next = [...prev, entry];
-            return next.length > 600 ? next.slice(next.length - 600) : next;
+            const cutoff = entry.t - HISTORY_RETENTION_MS;
+            const trimmed = prev.filter((h) => h.t >= cutoff);
+            return [...trimmed, entry];
           });
         }
       } catch (e) {
@@ -150,7 +158,9 @@ function App() {
 
       {data ? (
         <div style={styles.content}>
-          {view === "HOME" && <HomeScreen data={data} sendCmd={sendCmd} />}
+          {view === "HOME" && (
+            <HomeScreen data={data} sendCmd={sendCmd} keypad={keypad} />
+          )}
           {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
           {view === "HEATERS" && (
             <HeaterScreen
@@ -163,13 +173,9 @@ function App() {
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
-          {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
-          {view === "SETTINGS" && (
-            <SettingsScreen data={data} sendCmd={sendCmd} setView={setView} />
-          )}
-          {view === "WIRING CALIBRATION" && (
-            <WiringCalibrationScreen data={data} />
-          )}
+          {view === "GPIO" && <GPIOControlScreen />}
+          {view === "WIRING CALIBRATION" && <WiringCalibrationScreen />}
+          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
         </div>
       ) : (
         <div style={styles.disconnectOverlay}>

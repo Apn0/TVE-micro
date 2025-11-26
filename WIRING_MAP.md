@@ -1,15 +1,25 @@
 # INTAREMA TVEmicro - Hardware Wiring Map
 Generated based on Software Version V12 (Configurable I/O)
 
-## 1. Raspberry Pi GPIO Header (BCM Numbering)
-The software uses **BCM** numbering, not Board numbering.
+## 1. PWM SSR Hat (I2C)
+The SSR board is driven over I2C (PCA9685 at address **0x40**, bus **1**). Channel numbering below is `CHx (PCA index)`.
+
+| Channel | Function | PWM Name | Notes |
+| :--- | :--- | :--- | :--- |
+| **CH1 (0)** | Heater Zone 1 (Z1) | `z1` | SSR output via I2C |
+| **CH2 (1)** | Heater Zone 2 (Z2) | `z2` | SSR output via I2C |
+| **CH3 (2)** | Motor Cooling Fan | `fan` | Optional PWM duty (otherwise relay) |
+| **CH4 (3)** | Nozzle Fan | `fan_nozzle` | Optional PWM duty |
+| **CH5 (4)** | Filament Water Pump | `pump` | Optional PWM duty (otherwise relay) |
+| **CH6 (5)** | Status LED | `led_status` | Optional PWM brightness |
+
+## 2. Raspberry Pi GPIO Header (BCM Numbering)
+The software uses **BCM** numbering, not Board numbering. GPIO mappings cover buttons, steppers, and alarm input. Fan/pump pins remain for relay fallback if PWM is unavailable.
 
 | Component | Function | GPIO (BCM) | Physical Pin (Approx) | Type |
 | :--- | :--- | :--- | :--- | :--- |
-| **SSR 1** | Heater Zone 1 (MICA) | **17** | Pin 11 | Output (PWM) |
-| **SSR 2** | Heater Zone 2 (Nozzle) | **27** | Pin 13 | Output (PWM) |
-| **SSR 3** | Motor Cooling Fan | **22** | Pin 15 | Output (On/Off) |
-| **SSR 4** | Filament Water Pump | **23** | Pin 16 | Output (On/Off) |
+| **SSR 3 (Fallback)** | Motor Cooling Fan | **22** | Pin 15 | Output (On/Off) |
+| **SSR 4 (Fallback)** | Filament Water Pump | **23** | Pin 16 | Output (On/Off) |
 | **DM556** | Alarm Signal (ALM+) | **16** | Pin 36 | Input (Pull-Up) |
 | **DM556** | Step Pulse (PUL+) | **5** | Pin 29 | Output (Freq) |
 | **DM556** | Direction (DIR+) | **6** | Pin 31 | Output (Logic) |

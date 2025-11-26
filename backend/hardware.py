@@ -53,6 +53,7 @@ except Exception:
 # --- Logical sensors ----------------------------------------------------------
 
 LOGICAL_SENSORS = ["t1", "t2", "t3", "motor"]
+hardware_logger = logging.getLogger("tve.backend.hardware")
 
 # --- Default sensor + ADC configuration ---------------------------------------
 
@@ -110,13 +111,15 @@ DEFAULT_ADC_CONFIG: Dict[str, Any] = {
 DEFAULT_PWM_CONFIG: Dict[str, Any] = {
     "enabled": False,
     "bus": 1,
-    "address": 0x80,
+    "address": 0x40,
     "frequency": 1000,
     "channels": {
-        "fan": 0,
-        "fan_nozzle": 1,
-        "pump": 2,
-        "led_status": 3,
+        "z1": 0,
+        "z2": 1,
+        "fan": 2,
+        "fan_nozzle": 3,
+        "pump": 4,
+        "led_status": 5,
     },
 }
 
@@ -165,7 +168,7 @@ class ADS1115Driver:
                 print(f"[ADS1115] SMBus init failed: {e}")
                 self.available = False
 
-    def read_voltage(self, channel: int):
+    def read_voltage(self, channel: int, retries: int = 1):
         if not self.available or self.bus is None:
             return None
         if channel not in (0, 1, 2, 3):
@@ -180,27 +183,31 @@ class ADS1115Driver:
             (0x04 << 5) |          # DR 128 SPS
             (0x00 << 0)            # comparator disabled
         )
-        try:
-            self.bus.write_i2c_block_data(
-                self.address, 0x01, [(config >> 8) & 0xFF, config & 0xFF]
-            )
-            time.sleep(0.01)
-            data = self.bus.read_i2c_block_data(self.address, 0x00, 2)
-            raw = (data[0] << 8) | data[1]
-            if raw & 0x8000:
-                raw -= 1 << 16
-            volts = raw * (self.fsr / 32768.0)
-            return volts
-        except Exception as e:
-            print(f"[ADS1115] read failed ch{channel}: {e}")
-            return None
+        attempts = max(1, int(retries) + 1)
+        for attempt in range(attempts):
+            try:
+                self.bus.write_i2c_block_data(
+                    self.address, 0x01, [(config >> 8) & 0xFF, config & 0xFF]
+                )
+                time.sleep(0.01)
+                data = self.bus.read_i2c_block_data(self.address, 0x00, 2)
+                raw = (data[0] << 8) | data[1]
+                if raw & 0x8000:
+                    raw -= 1 << 16
+                volts = raw * (self.fsr / 32768.0)
+                return volts
+            except Exception as e:
+                if attempt == attempts - 1:
+                    print(f"[ADS1115] read failed ch{channel}: {e}")
+                    return None
+                time.sleep(0.005)
 
     def close(self):
         if self.bus is not None:
             try:
                 self.bus.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close ADS1115 bus: %s", exc)
             self.bus = None
 
 # --- PCA9685 PWM driver ------------------------------------------------------
@@ -208,14 +215,21 @@ class ADS1115Driver:
 class PCA9685Driver:
     """Minimal PCA9685 PWM helper."""
 
-    def __init__(self, bus_id=1, address=0x80, frequency=1000):
+    def __init__(self, bus_id=1, address=0x40, frequency=1000):
         self.available = PLATFORM == "PI" and SMBus is not None
         self.bus_id = bus_id
-        self.address = address
+        self.address = int(address)
         self.frequency = frequency
         self.bus = None
 
         if self.available:
+            if not 0x03 <= self.address <= 0x77:
+                hardware_logger.warning(
+                    "Invalid PCA9685 address 0x%02X; disabling PWM", self.address
+                )
+                self.available = False
+                return
+
             try:
                 self.bus = SMBus(self.bus_id)
                 self._init_device()
@@ -304,8 +318,8 @@ class PCA9685Driver:
         if self.bus is not None:
             try:
                 self.bus.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close PCA9685 bus: %s", exc)
             self.bus = None
 
 # --- HardwareInterface --------------------------------------------------------
@@ -340,6 +354,8 @@ class HardwareInterface:
         self.motor_fault_active = False
         self.pin_pull_up_down = {}
         self.pin_modes = {}
+        # Simulated GPIO storage so the API remains usable off-device
+        self._sim_gpio_values = {}
 
         # Manual motor control state
         self._manual_move_lock = threading.Lock()
@@ -392,17 +408,24 @@ class HardwareInterface:
         if PLATFORM == "PI" and self.pwm_cfg.get("enabled", False):
             self._pwm = PCA9685Driver(
                 bus_id=self.pwm_cfg.get("bus", 1),
-                address=self.pwm_cfg.get("address", 0x80),
+                address=self.pwm_cfg.get("address", 0x40),
                 frequency=self.pwm_cfg.get("frequency", 1000),
             )
         else:
             self._pwm = None
+        self._pwm_available = self._pwm is not None and getattr(self._pwm, "available", False)
+        # Only treat PWM channels as active when both enabled in config and the
+        # hardware/driver is actually available. This allows GPIO SSR control to
+        # remain active when PWM is disabled or the PCA9685 cannot be used.
+        self._pwm_active = bool(self.pwm_cfg.get("enabled", False) and self._pwm_available)
+        self._active_pwm_channels = self.pwm_channels if self._pwm_active else {}
 
         # Temp / averaging settings
         self.temp_poll_interval = 0.25
         self.temp_use_average = True
         self.temp_avg_window = 2.0
         self.temp_decimals_default = 1
+        self._temp_timestamps: Dict[str, float] = {k: 0.0 for k in LOGICAL_SENSORS}
 
         # Simple in-memory store for simulated GPIO values when running without
         # real hardware. Keys are BCM pin numbers, values are booleans.
@@ -416,6 +439,11 @@ class HardwareInterface:
             self._setup_gpio()
         else:
             print("[HAL] Windows or no pins. Simulation Mode.")
+
+    def _is_pwm_channel_active(self, name: str) -> bool:
+        """Return True if the given logical output is using PWM right now."""
+
+        return self._pwm_active and name in self._active_pwm_channels
 
         # Threads (hardware + temperature)
         self.running = True
@@ -485,9 +513,13 @@ class HardwareInterface:
         outs = []
         for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump",
                     "step_main", "dir_main", "step_feed", "dir_feed"):
-            if key == "ssr_fan" and "fan" in self.pwm_channels:
+            if key == "ssr_z1" and self._is_pwm_channel_active("z1"):
                 continue
-            if key == "ssr_pump" and "pump" in self.pwm_channels:
+            if key == "ssr_z2" and self._is_pwm_channel_active("z2"):
+                continue
+            if key == "ssr_fan" and self._is_pwm_channel_active("fan"):
+                continue
+            if key == "ssr_pump" and self._is_pwm_channel_active("pump"):
                 continue
             if key in self.pins and self.pins[key] is not None:
                 outs.append(int(self.pins[key]))
@@ -508,7 +540,7 @@ class HardwareInterface:
         if (
             "led_status" in self.pins
             and self.pins["led_status"] is not None
-            and "led_status" not in self.pwm_channels
+            and not self._is_pwm_channel_active("led_status")
         ):
             GPIO.setup(int(self.pins["led_status"]), GPIO.OUT)
             GPIO.output(int(self.pins["led_status"]), GPIO.LOW)
@@ -587,8 +619,8 @@ class HardwareInterface:
         heat_z1 = 0.1 if self.heaters["z1"] > 0 else -0.05
         heat_z2 = 0.1 if self.heaters["z2"] > 0 else -0.05
 
-        self.temps["t2"] += heat_z1 + random.uniform(-0.01, 0.01)
-        self.temps["t3"] += heat_z2 + random.uniform(-0.01, 0.01)
+        self.temps["t2"] += heat_z1 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
+        self.temps["t3"] += heat_z2 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
         self.temps["t1"] += (self.temps["t2"] - self.temps["t1"]) * 0.005
 
         if self.motors["main"] > 0:
@@ -619,11 +651,18 @@ class HardwareInterface:
             if pin is not None:
                 GPIO.output(int(pin), value)
 
-        safe_out("ssr_z1", GPIO.HIGH if cycle < (self.heaters["z1"] / 100.0) else GPIO.LOW)
-        safe_out("ssr_z2", GPIO.HIGH if cycle < (self.heaters["z2"] / 100.0) else GPIO.LOW)
-        if "fan" not in self.pwm_channels:
+        if self._is_pwm_channel_active("z1"):
+            self.set_pwm_output("z1", self.heaters["z1"])
+        else:
+            safe_out("ssr_z1", GPIO.HIGH if cycle < (self.heaters["z1"] / 100.0) else GPIO.LOW)
+
+        if self._is_pwm_channel_active("z2"):
+            self.set_pwm_output("z2", self.heaters["z2"])
+        else:
+            safe_out("ssr_z2", GPIO.HIGH if cycle < (self.heaters["z2"] / 100.0) else GPIO.LOW)
+        if not self._is_pwm_channel_active("fan"):
             safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
-        if "pump" not in self.pwm_channels:
+        if not self._is_pwm_channel_active("pump"):
             safe_out("ssr_pump", GPIO.HIGH if self.relays["pump"] else GPIO.LOW)
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
@@ -649,7 +688,7 @@ class HardwareInterface:
                 if logical not in LOGICAL_SENSORS:
                     continue
 
-                volts = self._ads.read_voltage(ch)
+                volts = self._ads.read_voltage(ch, retries=1)
                 if volts is None:
                     readings_by_logical[logical] = None
                     continue
@@ -670,6 +709,7 @@ class HardwareInterface:
                     if val is None or not math.isfinite(val):
                         samples.clear()
                         self.temps[logical] = None
+                        self._temp_timestamps[logical] = 0.0
                         continue
 
                     samples.append((now, float(val)))
@@ -690,8 +730,17 @@ class HardwareInterface:
                             decimals = int(cfg.get("decimals", decimals))
                             break
                     self.temps[logical] = round(value, decimals)
+                    self._temp_timestamps[logical] = now
 
             time.sleep(self.temp_poll_interval)
+
+    def get_sensor_timestamp(self, logical: str) -> float:
+        """Return last valid reading timestamp for a logical sensor."""
+        return float(self._temp_timestamps.get(logical, 0.0))
+
+    def get_last_temp_timestamp(self) -> float:
+        """Return the most recent timestamp across valid sensors (0 if none)."""
+        return max(self._temp_timestamps.values() or [0.0])
 
     def _simulate_temp_loop(self, now: float):
         with self._temp_lock:
@@ -709,7 +758,7 @@ class HardwareInterface:
             ) * 0.05
 
             for k in LOGICAL_SENSORS:
-                self.temps[k] += random.uniform(-0.05, 0.05)
+                self.temps[k] += random.uniform(-0.05, 0.05)  # nosec B311 - simulation noise only
 
     # --- Voltage -> temp -------------------------------------------------
 
@@ -741,14 +790,17 @@ class HardwareInterface:
 
     def set_heater_duty(self, heater, duty):
         if heater in self.heaters:
-            self.heaters[heater] = max(0.0, min(100.0, float(duty)))
+            clamped = max(0.0, min(100.0, float(duty)))
+            self.heaters[heater] = clamped
+            if self._is_pwm_channel_active(heater):
+                self.set_pwm_output(heater, clamped)
 
     def set_motor_rpm(self, motor, rpm):
         if motor in self.motors:
             self.motors[motor] = float(rpm)
 
     def set_pwm_output(self, name: str, duty: float):
-        if name not in self.pwm_channels:
+        if not self._is_pwm_channel_active(name):
             return
 
         duty = max(0.0, min(100.0, float(duty)))
@@ -780,7 +832,7 @@ class HardwareInterface:
     def set_relay(self, relay, state):
         if relay in self.relays:
             self.relays[relay] = bool(state)
-            if relay in self.pwm_channels:
+            if self._is_pwm_channel_active(relay):
                 self.set_pwm_output(relay, 100.0 if state else 0.0)
 
     def get_temps(self):
@@ -805,7 +857,7 @@ class HardwareInterface:
         return GPIO.input(int(pin)) == GPIO.LOW
 
     def set_led_state(self, led_name, state):
-        if led_name in self.pwm_channels:
+        if self._is_pwm_channel_active(led_name):
             self.set_pwm_output(led_name, 100.0 if state else 0.0)
             return
 
@@ -818,50 +870,59 @@ class HardwareInterface:
 
     def get_gpio_status(self):
         """Returns the status of all GPIO pins."""
-        if self.platform != "PI" or GPIO is None:
-            return {}
-
         status = {}
         for pin_name, pin_num in self.pins.items():
             if pin_num is not None:
                 try:
                     mode = self.pin_modes.get(pin_num, "IN")
                     value = self.get_gpio_value(pin_num)
-                    pull_up_down = self.pin_pull_up_down.get(pin_num)
-                    status[pin_num] = {"name": pin_name, "mode": mode, "value": value, "pull_up_down": pull_up_down}
+                    pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else None
+                    status[pin_num] = {
+                        "name": pin_name,
+                        "mode": mode,
+                        "value": value,
+                        "pull_up_down": pull_up_down,
+                    }
                 except Exception as e:
                     logging.warning(f"Could not get status for pin {pin_num}: {e}")
         return status
 
     def set_gpio_mode(self, pin, mode, pull_up_down='up'):
         """Sets the mode of a GPIO pin."""
-        if self.platform != "PI" or GPIO is None:
+        normalized_mode = mode.upper()
+        if normalized_mode not in ("IN", "OUT"):
             return
 
-        if mode.upper() == "IN":
+        self.pin_modes[pin] = normalized_mode
+        self.pin_pull_up_down[pin] = pull_up_down if normalized_mode == "IN" else None
+
+        if self.platform != "PI" or GPIO is None:
+            # Keep a simulated value around so status endpoints are populated
+            if pin not in self._sim_gpio_values:
+                self._sim_gpio_values[pin] = 0
+            return
+
+        if normalized_mode == "IN":
             pud = GPIO.PUD_UP
             if pull_up_down == 'down':
                 pud = GPIO.PUD_DOWN
             elif pull_up_down == 'off':
                 pud = GPIO.PUD_OFF
             GPIO.setup(pin, GPIO.IN, pull_up_down=pud)
-            self.pin_pull_up_down[pin] = pull_up_down
-            self.pin_modes[pin] = "IN"
-        elif mode.upper() == "OUT":
+        elif normalized_mode == "OUT":
             GPIO.setup(pin, GPIO.OUT)
-            self.pin_pull_up_down[pin] = None
-            self.pin_modes[pin] = "OUT"
 
     def get_gpio_value(self, pin):
         """Gets the value of a GPIO pin."""
         if self.platform != "PI" or GPIO is None:
-            return None
+            return self._sim_gpio_values.get(pin)
 
         return GPIO.input(pin)
 
     def set_gpio_value(self, pin, value):
         """Sets the value of a GPIO pin."""
         if self.platform != "PI" or GPIO is None:
+            self._sim_gpio_values[pin] = 1 if value else 0
             return
 
         GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
@@ -950,9 +1011,9 @@ class HardwareInterface:
 
             safe_out("ssr_z1", GPIO.LOW)
             safe_out("ssr_z2", GPIO.LOW)
-            if "fan" not in self.pwm_channels:
+            if not self._is_pwm_channel_active("fan"):
                 safe_out("ssr_fan", GPIO.LOW)
-            if "pump" not in self.pwm_channels:
+            if not self._is_pwm_channel_active("pump"):
                 safe_out("ssr_pump", GPIO.LOW)
             # NOTE: We specifically DO NOT force led_status off here,
             # because we might want to blink it during an alarm state.
@@ -965,13 +1026,13 @@ class HardwareInterface:
         if getattr(self, "_ads", None) is not None:
             try:
                 self._ads.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close ADS driver during shutdown: %s", exc)
         if getattr(self, "_pwm", None) is not None:
             try:
                 self._pwm.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close PWM driver during shutdown: %s", exc)
         if self.platform == "PI" and GPIO is not None:
             GPIO.cleanup()
 

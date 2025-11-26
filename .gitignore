@@ -3,3 +3,4 @@ backend/__pycache__/
 *.log
 frontend/dist/
 *.txt
+!backend/performance/requirements.txt

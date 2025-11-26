@@ -3,6 +3,7 @@ import time
 import os
 import math
 import json
+import logging
 from datetime import datetime
 
 class DataLogger:
@@ -10,6 +11,8 @@ class DataLogger:
         self.log_dir = "logs"
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
+
+        self._logger = logging.getLogger("tve.backend.logger")
 
         self.current_file = None
         self.writer = None
@@ -239,7 +242,7 @@ class DataLogger:
                         return True
         except Exception:
             # In case of any unexpected errors, ignore deviation check to prevent logging crash
-            pass
+            self._logger.exception("Deviation check failed; ignoring outlier detection for this row")
 
         return False
 

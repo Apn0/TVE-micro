@@ -83,12 +83,6 @@ function SensorsScreen({ data, sendCmd }) {
       });
       return next;
     });
-
-    channels.forEach((ch) => {
-      sendCmd("SET_SENSOR_CALIBRATION", {
-        params: { channel: ch, r_fixed: value },
-      });
-    });
   };
 
   const tdStyle = {
@@ -158,6 +152,11 @@ function SensorsScreen({ data, sendCmd }) {
         >
           Write all channels to controller
         </button>
+
+        <p style={{ fontSize: "0.85em", color: "#aaa", marginTop: "6px" }}>
+          "Set all R_fixed" only updates the local table. Use a write button to
+          persist the values on the controller.
+        </p>
       </div>
 
       <div style={styles.panel}>
