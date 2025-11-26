@@ -1064,6 +1064,13 @@ def control():
         pins = req.get("pins", {})
         if not isinstance(pins, dict):
             return jsonify({"success": False, "msg": "INVALID_PINS"}), 400
+
+        known_pins = set(DEFAULT_CONFIG["pins"].keys())
+        unknown_pins = set(pins.keys()) - known_pins
+        if unknown_pins:
+            msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
+            return jsonify({"success": False, "msg": msg}), 400
+
         validation_errors: list[str] = []
         current = sys_config.get("pins", DEFAULT_CONFIG["pins"])
         validated = _validate_pins({**current, **pins}, validation_errors)
