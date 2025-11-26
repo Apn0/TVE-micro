@@ -83,12 +83,6 @@ function SettingsScreen({ data, sendCmd, setView }) {
           <h2 style={{ margin: 0 }}>Settings</h2>
           <div style={{ color: "#ccc" }}>Configuration and maintenance tools</div>
         </div>
-        <button
-          style={{ ...styles.button, background: "#9b59b6" }}
-          onClick={() => setView && setView("WIRING CALIBRATION")}
-        >
-          Wiring calibration check
-        </button>
       </div>
 
       <div style={styles.panel}>
@@ -332,6 +326,31 @@ function SettingsScreen({ data, sendCmd, setView }) {
           <div>Address: {adc.address !== undefined ? `0x${adc.address.toString(16)}` : "-"}</div>
           <div>FSR: {adc.fsr ?? "-"} V</div>
         </div>
+      </div>
+
+      <div
+        style={{
+          ...styles.panel,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          position: "sticky",
+          bottom: 0,
+          background: "#1e1e1e",
+        }}
+      >
+        <div>
+          <h3 style={{ margin: 0 }}>Wiring calibration</h3>
+          <div style={{ color: "#ccc" }}>
+            Run the wiring calibration check after hardware changes.
+          </div>
+        </div>
+        <button
+          style={{ ...styles.button, background: "#9b59b6" }}
+          onClick={() => setView && setView("WIRING CALIBRATION")}
+        >
+          Wiring calibration check
+        </button>
       </div>
     </div>
   );
