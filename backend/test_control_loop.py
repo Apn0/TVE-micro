@@ -32,12 +32,14 @@ class ControlLoopEdgeTests(unittest.TestCase):
         app_module.safety.reset()
         app_module._all_outputs_off()
         app_module.last_btn_start_state = False
+        app_module.last_btn_stop_state = False
         app_module._set_status("READY")
 
         self._wait_for_status("READY")
 
         self.hal._sim_btn_start = False
         self.hal._sim_btn_emergency = False
+        self.hal._sim_btn_stop = False
 
     def tearDown(self):
         app_module.sys_config["temp_settings"]["poll_interval"] = self._orig_poll
@@ -131,9 +133,39 @@ class ControlLoopEdgeTests(unittest.TestCase):
         with state_lock:
             self.assertEqual(state["status"], "READY")
             self.assertEqual(state["alarm_msg"], "")
+        deadline = time.time() + 1.0
+        while time.time() < deadline and not app_module.running_event.is_set():
+            time.sleep(0.05)
         self.assertTrue(app_module.running_event.is_set())
         self.assertEqual(self.hal.motors.get("main"), 0.0)
         self.assertEqual(self.hal.motors.get("feed"), 0.0)
+
+    def test_start_sequence_requires_explicit_stop(self):
+        self.hal._sim_btn_start = True
+        time.sleep(0.05)
+        self.hal._sim_btn_start = False
+
+        self._wait_for_status("STARTING")
+        self._wait_for_status("RUNNING")
+
+        time.sleep(0.2)
+        with state_lock:
+            self.assertEqual(state["status"], "RUNNING")
+
+    def test_stop_button_triggers_stopping(self):
+        self.hal._sim_btn_start = True
+        time.sleep(0.05)
+        self.hal._sim_btn_start = False
+
+        self._wait_for_status("STARTING")
+        self._wait_for_status("RUNNING")
+
+        self.hal._sim_btn_stop = True
+        time.sleep(0.05)
+        self.hal._sim_btn_stop = False
+
+        self._wait_for_status("STOPPING")
+        self._wait_for_status("READY")
 
 
 if __name__ == "__main__":
