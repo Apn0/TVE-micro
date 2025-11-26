@@ -111,7 +111,7 @@ DEFAULT_ADC_CONFIG: Dict[str, Any] = {
 DEFAULT_PWM_CONFIG: Dict[str, Any] = {
     "enabled": False,
     "bus": 1,
-    "address": 0x80,
+    "address": 0x40,
     "frequency": 1000,
     "channels": {
         "fan": 0,
@@ -213,14 +213,21 @@ class ADS1115Driver:
 class PCA9685Driver:
     """Minimal PCA9685 PWM helper."""
 
-    def __init__(self, bus_id=1, address=0x80, frequency=1000):
+    def __init__(self, bus_id=1, address=0x40, frequency=1000):
         self.available = PLATFORM == "PI" and SMBus is not None
         self.bus_id = bus_id
-        self.address = address
+        self.address = int(address)
         self.frequency = frequency
         self.bus = None
 
         if self.available:
+            if not 0x03 <= self.address <= 0x77:
+                hardware_logger.warning(
+                    "Invalid PCA9685 address 0x%02X; disabling PWM", self.address
+                )
+                self.available = False
+                return
+
             try:
                 self.bus = SMBus(self.bus_id)
                 self._init_device()
@@ -399,7 +406,7 @@ class HardwareInterface:
         if PLATFORM == "PI" and self.pwm_cfg.get("enabled", False):
             self._pwm = PCA9685Driver(
                 bus_id=self.pwm_cfg.get("bus", 1),
-                address=self.pwm_cfg.get("address", 0x80),
+                address=self.pwm_cfg.get("address", 0x40),
                 frequency=self.pwm_cfg.get("frequency", 1000),
             )
         else:

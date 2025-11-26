@@ -34,7 +34,7 @@
     "pwm": {
         "enabled": true,
         "bus": 1,
-        "address": 128,
+        "address": 64,
         "frequency": 1000,
         "channels": {
             "fan": 0,
