@@ -92,7 +92,7 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
         if param in section:
             try:
                 value = float(section[param])
-                if value < 0:
+                if not math.isfinite(value) or value < 0:
                     raise ValueError("PID parameters must be non-negative")
                 result[param] = value
             except (TypeError, ValueError):
@@ -464,8 +464,12 @@ def _all_outputs_off():
 
 def _set_status(new_status: str):
     with state_lock:
+        current_status = state.get("status")
         state["status"] = new_status
-        state["seq_start_time"] = time.time()
+        if new_status in ("READY", "RUNNING"):
+            state["seq_start_time"] = 0.0
+        elif current_status != new_status:
+            state["seq_start_time"] = time.time()
 
 
 def _latch_alarm(reason: str):
@@ -542,7 +546,7 @@ def control_loop():
 
             with state_lock:
                 state["temps"] = temps
-                state["temps_timestamp"] = now
+                state["temps_timestamp"] = hal.get_last_temp_timestamp() or now
                 status = state["status"]
                 mode = state["mode"]
                 target_z1 = state["target_z1"]
@@ -567,11 +571,8 @@ def control_loop():
             if not ok:
                 alarm_req = alarm_req or reason
 
-        stop_requested = stop_event or alarm_req or not running_event.is_set()
-
-        if stop_requested and status in ("STARTING", "RUNNING"):
-            _set_status("STOPPING")
-        elif (
+        stop_requested = False
+        if (
             running_event.is_set()
             and not alarm_req
             and start_event
@@ -590,6 +591,13 @@ def control_loop():
                         alarm_req = reason
                 else:
                     _set_status("STARTING")
+            elif status == "RUNNING":
+                stop_requested = True
+        elif start_event and status in ("STARTING", "STOPPING"):
+            stop_requested = True
+
+        if stop_requested:
+            _set_status("STOPPING")
 
         if alarm_req:
             _latch_alarm(alarm_req)
@@ -673,21 +681,32 @@ def control_loop():
             freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
             temps_age = now - temps_timestamp if temps_timestamp else float("inf")
             temps_fresh = temps_timestamp and temps_age <= freshness_timeout
+            stale_detected = not temps_fresh
 
-            def apply_heater(temp_val, controller, heater_name):
-                if not temps_fresh or temp_val is None:
+            def apply_heater(temp_val, controller, heater_name, logical):
+                sensor_ts = hal.get_sensor_timestamp(logical)
+                sensor_age = now - sensor_ts if sensor_ts else float("inf")
+                sensor_fresh = sensor_ts and sensor_age <= freshness_timeout
+
+                if not temps_fresh or not sensor_fresh or temp_val is None:
                     controller.reset()
                     hal.set_heater_duty(heater_name, 0.0)
-                    return
+                    return not sensor_fresh
 
                 out = controller.compute(temp_val)
                 if out is None:
-                    return
+                    return False
 
                 hal.set_heater_duty(heater_name, out)
+                return False
 
-            apply_heater(t2, pid_z1, "z1")
-            apply_heater(t3, pid_z2, "z2")
+            stale_detected = apply_heater(t2, pid_z1, "z1", "t2") or stale_detected
+            stale_detected = apply_heater(t3, pid_z2, "z2", "t3") or stale_detected
+
+            if stale_detected:
+                _latch_alarm(alarm_req or "TEMP_DATA_STALE")
+                time.sleep(0.05)
+                continue
 
         if now - last_log_time >= log_interval:
             last_log_time = now
@@ -880,13 +899,12 @@ def control():
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
-        rpm = _safe_float(req.get("rpm", 0))
+        rpm = _coerce_finite(req.get("rpm", 0))
         if rpm is None:
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
-        rpm = _clamp(rpm, -5000.0, 5000.0)
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
-        if rpm is None or abs(rpm) > MAX_MOTOR_RPM:
+        if abs(rpm) > MAX_MOTOR_RPM:
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
         with state_lock:
             temps = dict(state["temps"])
@@ -930,10 +948,11 @@ def control():
 
     elif cmd == "SET_PWM_OUTPUT":
         name = req.get("name")
-        duty = _safe_float(req.get("duty", 0))
+        duty = _coerce_finite(req.get("duty", 0))
         if duty is None:
             return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
-        duty = _clamp(duty, 0.0, 100.0)
+        if duty < 0.0 or duty > MAX_PWM_DUTY:
+            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
         if name not in getattr(hal, "pwm_channels", {}):
             return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
         fresh, reason = _temps_fresh(request_time)
@@ -972,7 +991,7 @@ def control():
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
-        running_event.clear()
+        running_event.set()
         alarm_clear_pending = True
 
     elif cmd == "UPDATE_PID":
