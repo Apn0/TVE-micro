@@ -166,7 +166,7 @@ class ADS1115Driver:
                 print(f"[ADS1115] SMBus init failed: {e}")
                 self.available = False
 
-    def read_voltage(self, channel: int):
+    def read_voltage(self, channel: int, retries: int = 1):
         if not self.available or self.bus is None:
             return None
         if channel not in (0, 1, 2, 3):
@@ -181,20 +181,24 @@ class ADS1115Driver:
             (0x04 << 5) |          # DR 128 SPS
             (0x00 << 0)            # comparator disabled
         )
-        try:
-            self.bus.write_i2c_block_data(
-                self.address, 0x01, [(config >> 8) & 0xFF, config & 0xFF]
-            )
-            time.sleep(0.01)
-            data = self.bus.read_i2c_block_data(self.address, 0x00, 2)
-            raw = (data[0] << 8) | data[1]
-            if raw & 0x8000:
-                raw -= 1 << 16
-            volts = raw * (self.fsr / 32768.0)
-            return volts
-        except Exception as e:
-            print(f"[ADS1115] read failed ch{channel}: {e}")
-            return None
+        attempts = max(1, int(retries) + 1)
+        for attempt in range(attempts):
+            try:
+                self.bus.write_i2c_block_data(
+                    self.address, 0x01, [(config >> 8) & 0xFF, config & 0xFF]
+                )
+                time.sleep(0.01)
+                data = self.bus.read_i2c_block_data(self.address, 0x00, 2)
+                raw = (data[0] << 8) | data[1]
+                if raw & 0x8000:
+                    raw -= 1 << 16
+                volts = raw * (self.fsr / 32768.0)
+                return volts
+            except Exception as e:
+                if attempt == attempts - 1:
+                    print(f"[ADS1115] read failed ch{channel}: {e}")
+                    return None
+                time.sleep(0.005)
 
     def close(self):
         if self.bus is not None:
@@ -410,6 +414,7 @@ class HardwareInterface:
         self.temp_use_average = True
         self.temp_avg_window = 2.0
         self.temp_decimals_default = 1
+        self._temp_timestamps: Dict[str, float] = {k: 0.0 for k in LOGICAL_SENSORS}
 
         # Simple in-memory store for simulated GPIO values when running without
         # real hardware. Keys are BCM pin numbers, values are booleans.
@@ -656,7 +661,7 @@ class HardwareInterface:
                 if logical not in LOGICAL_SENSORS:
                     continue
 
-                volts = self._ads.read_voltage(ch)
+                volts = self._ads.read_voltage(ch, retries=1)
                 if volts is None:
                     readings_by_logical[logical] = None
                     continue
@@ -677,6 +682,7 @@ class HardwareInterface:
                     if val is None or not math.isfinite(val):
                         samples.clear()
                         self.temps[logical] = None
+                        self._temp_timestamps[logical] = 0.0
                         continue
 
                     samples.append((now, float(val)))
@@ -697,8 +703,17 @@ class HardwareInterface:
                             decimals = int(cfg.get("decimals", decimals))
                             break
                     self.temps[logical] = round(value, decimals)
+                    self._temp_timestamps[logical] = now
 
             time.sleep(self.temp_poll_interval)
+
+    def get_sensor_timestamp(self, logical: str) -> float:
+        """Return last valid reading timestamp for a logical sensor."""
+        return float(self._temp_timestamps.get(logical, 0.0))
+
+    def get_last_temp_timestamp(self) -> float:
+        """Return the most recent timestamp across valid sensors (0 if none)."""
+        return max(self._temp_timestamps.values() or [0.0])
 
     def _simulate_temp_loop(self, now: float):
         with self._temp_lock:
