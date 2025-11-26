@@ -424,8 +424,8 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
       }
     };
 
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
   }, [expandedZone, keypad]);
 
   const toggleZoneExpansion = (zoneKey) => {
