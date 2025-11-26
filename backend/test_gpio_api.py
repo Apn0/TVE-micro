@@ -1,7 +1,7 @@
 
 import unittest
-import app as app_module
-from app import app, hal
+from backend import app as app_module
+from backend.app import app, hal
 
 class TestGpioApi(unittest.TestCase):
     def setUp(self):

@@ -49,5 +49,57 @@
         "start_delay_feed": 2.0,
         "stop_delay_motor": 5.0,
         "check_temp_before_start": true
+    },
+    "sensors": {
+        "0": {
+            "enabled": true,
+            "logical": "t1",
+            "r_fixed": 100000.0,
+            "r_25": 100000.0,
+            "beta": 3950.0,
+            "v_ref": 3.3,
+            "wiring": "ntc_to_gnd",
+            "decimals": 1,
+            "cal_points": []
+        },
+        "1": {
+            "enabled": true,
+            "logical": "t2",
+            "r_fixed": 100000.0,
+            "r_25": 100000.0,
+            "beta": 3950.0,
+            "v_ref": 3.3,
+            "wiring": "ntc_to_gnd",
+            "decimals": 1,
+            "cal_points": []
+        },
+        "2": {
+            "enabled": true,
+            "logical": "t3",
+            "r_fixed": 100000.0,
+            "r_25": 100000.0,
+            "beta": 3950.0,
+            "v_ref": 3.3,
+            "wiring": "ntc_to_gnd",
+            "decimals": 1,
+            "cal_points": []
+        },
+        "3": {
+            "enabled": true,
+            "logical": "motor",
+            "r_fixed": 100000.0,
+            "r_25": 100000.0,
+            "beta": 3950.0,
+            "v_ref": 3.3,
+            "wiring": "ntc_to_gnd",
+            "decimals": 1,
+            "cal_points": []
+        }
+    },
+    "adc": {
+        "enabled": true,
+        "bus": 1,
+        "address": 72,
+        "fsr": 4.096
     }
 }
