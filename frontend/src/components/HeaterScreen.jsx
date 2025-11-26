@@ -1,18 +1,19 @@
 // file: frontend/src/tabs/HeaterScreen.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { styles } from "../App";
+import { validateSetpoint } from "../utils/validation";
 
 function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const temps = data.state?.temps || {};
   const relays = data.state?.relays || {};
-  const [targetZ1, setTargetZ1] = useState(data.state?.target_z1 ?? 0);
-  const [targetZ2, setTargetZ2] = useState(data.state?.target_z2 ?? 0);
+  const [targetZ1, setTargetZ1] = useState(validateSetpoint(data.state?.target_z1));
+  const [targetZ2, setTargetZ2] = useState(validateSetpoint(data.state?.target_z2));
   const [expandedZone, setExpandedZone] = useState(null);
   const setpointRef = useRef(null);
 
   useEffect(() => {
-    setTargetZ1(data.state?.target_z1 ?? 0);
-    setTargetZ2(data.state?.target_z2 ?? 0);
+    setTargetZ1(validateSetpoint(data.state?.target_z1));
+    setTargetZ2(validateSetpoint(data.state?.target_z2));
   }, [data.state?.target_z1, data.state?.target_z2]);
 
   const heaterGraph = useMemo(() => {
@@ -439,16 +440,19 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     const initial = Number.isFinite(targetValue) ? String(targetValue) : "";
 
     keypad?.openKeypad?.(initial, rect, (val) => {
-      const parsed = parseFloat(val);
-      const next = Number.isNaN(parsed) ? targetValue : parsed;
-      const nextZ1 = zoneKey === "z1" ? next : targetZ1;
-      const nextZ2 = zoneKey === "z2" ? next : targetZ2;
-
-      if (!Number.isNaN(parsed)) {
-        if (zoneKey === "z1") setTargetZ1(next);
-        if (zoneKey === "z2") setTargetZ2(next);
-        sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
+      const validated = validateSetpoint(val);
+      if (validated === null) {
+        setExpandedZone(null);
+        keypad?.closeKeypad?.();
+        return;
       }
+
+      const nextZ1 = zoneKey === "z1" ? validated : targetZ1;
+      const nextZ2 = zoneKey === "z2" ? validated : targetZ2;
+
+      if (zoneKey === "z1") setTargetZ1(validated);
+      if (zoneKey === "z2") setTargetZ2(validated);
+      sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
 
       setExpandedZone(null);
       keypad?.closeKeypad?.();

@@ -1,6 +1,7 @@
 // file: frontend/src/tabs/HomeScreen.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { styles } from "../App";
+import { validateSetpoint } from "../utils/validation";
 
 function HomeScreen({ data, sendCmd, keypad }) {
   const status = data.state?.status || "UNKNOWN";
@@ -15,8 +16,8 @@ function HomeScreen({ data, sendCmd, keypad }) {
   const [targetZ2, setTargetZ2] = useState(null);
 
   useEffect(() => {
-    setTargetZ1(data.state?.target_z1 ?? null);
-    setTargetZ2(data.state?.target_z2 ?? null);
+    setTargetZ1(validateSetpoint(data.state?.target_z1));
+    setTargetZ2(validateSetpoint(data.state?.target_z2));
   }, [data.state?.target_z1, data.state?.target_z2]);
 
   useEffect(() => {
@@ -121,16 +122,19 @@ function HomeScreen({ data, sendCmd, keypad }) {
     const initial = Number.isFinite(targetValue) ? String(targetValue) : "";
 
     keypad?.openKeypad?.(initial, rect, (val) => {
-      const parsed = parseFloat(val);
-      const next = Number.isNaN(parsed) ? targetValue : parsed;
-      const nextZ1 = zoneKey === "z1" ? next : targetZ1;
-      const nextZ2 = zoneKey === "z2" ? next : targetZ2;
-
-      if (!Number.isNaN(parsed)) {
-        if (zoneKey === "z1") setTargetZ1(next);
-        if (zoneKey === "z2") setTargetZ2(next);
-        sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
+      const validated = validateSetpoint(val);
+      if (validated === null) {
+        setExpandedHeater(null);
+        keypad?.closeKeypad?.();
+        return;
       }
+
+      const nextZ1 = zoneKey === "z1" ? validated : targetZ1;
+      const nextZ2 = zoneKey === "z2" ? validated : targetZ2;
+
+      if (zoneKey === "z1") setTargetZ1(validated);
+      if (zoneKey === "z2") setTargetZ2(validated);
+      sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
 
       setExpandedHeater(null);
       keypad?.closeKeypad?.();
