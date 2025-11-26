@@ -46,8 +46,14 @@ function GpioScreen({ data, sendCmd }) {
     setBusy(true);
     setErr("");
     try {
-      const json = await sendCmd("GPIO_READ", { pin });
-      setReadValue(json?.value ?? null);
+      const res = await fetch("/api/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "GPIO_READ", value: { pin } }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.msg || "Read failed");
+      setReadValue(json.value);
     } catch (e) {
       setErr(String(e.message || e));
       setReadValue(null);
