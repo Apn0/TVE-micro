@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
     "pwm": {
         "enabled": True,
         "bus": 1,
-        "address": 0x80,
+        "address": 0x40,
         "frequency": 1000,
         "channels": {
             "fan": 0,
