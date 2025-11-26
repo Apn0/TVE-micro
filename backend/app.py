@@ -154,7 +154,35 @@ state_lock = threading.Lock()
 _control_thread: threading.Thread | None = None
 _control_stop = threading.Event()
 
+relay_toggle_times: dict[str, float] = {}
+gpio_write_times: dict[int, float] = {}
+TOGGLE_DEBOUNCE_SEC = 0.25
+
 app = Flask(__name__)
+
+
+def _safe_float(val: object) -> float | None:
+    try:
+        num = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(num):
+        return None
+    return num
+
+
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    return max(min_value, min(max_value, value))
+
+
+def _temps_fresh(now: float) -> tuple[bool, str | None]:
+    poll_interval = float(sys_config.get("temp_settings", {}).get("poll_interval", 0.25))
+    allowed_age = max(1.0, poll_interval * 4)
+    with state_lock:
+        ts = state.get("temps_ts", 0.0)
+    if ts <= 0 or now - ts > allowed_age:
+        return False, "TEMP_DATA_STALE"
+    return True, None
 
 def _all_outputs_off():
     hal.set_heater_duty("z1", 0.0)
@@ -525,6 +553,7 @@ def control():
     data = request.get_json(force=True) or {}
     cmd = data.get("command")
     req = data.get("value", {})
+    request_time = time.time()
 
     global state, sys_config, alarm_clear_pending
 
@@ -582,15 +611,25 @@ def control():
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
-        rpm = _coerce_finite(req.get("rpm", 0))
+        rpm = _safe_float(req.get("rpm", 0))
+        if rpm is None:
+            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
+        rpm = _clamp(rpm, -5000.0, 5000.0)
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         if rpm is None or abs(rpm) > MAX_MOTOR_RPM:
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
         with state_lock:
             temps = dict(state["temps"])
+            temps_ts = state.get("temps_ts", 0.0)
         if rpm != 0:
-            allowed, reason = safety.guard_motor_temp(temps)
+            fresh, reason = _temps_fresh(request_time)
+            if not fresh:
+                return jsonify({"success": False, "msg": reason}), 400
+            if request_time - temps_ts > 0:
+                allowed, reason = safety.guard_motor_temp(temps)
+            else:
+                allowed, reason = False, "TEMP_DATA_STALE"
             if not allowed:
                 hal.set_motor_rpm("main", 0)
                 hal.set_motor_rpm("feed", 0)
@@ -609,25 +648,40 @@ def control():
         st = bool(req.get("state", False))
         if relay not in ("fan", "pump"):
             return jsonify({"success": False, "msg": "INVALID_RELAY"})
+        last_toggle = relay_toggle_times.get(relay, 0.0)
+        if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
+            return jsonify({"success": False, "msg": "RELAY_DEBOUNCE"}), 429
+        with state_lock:
+            if state["relays"].get(relay) == st:
+                return jsonify({"success": True, "msg": "NO_CHANGE"})
         hal.set_relay(relay, st)
+        relay_toggle_times[relay] = request_time
         with state_lock:
             state["relays"][relay] = st
 
     elif cmd == "SET_PWM_OUTPUT":
         name = req.get("name")
-        duty = _coerce_finite(req.get("duty", 0))
+        duty = _safe_float(req.get("duty", 0))
+        if duty is None:
+            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        duty = _clamp(duty, 0.0, 100.0)
         if name not in getattr(hal, "pwm_channels", {}):
             return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
-        if duty is None or duty < MIN_HEATER_DUTY or duty > MAX_PWM_DUTY:
-            return jsonify({"success": False, "msg": "INVALID_PWM_DUTY"}), 400
+        fresh, reason = _temps_fresh(request_time)
+        if not fresh:
+            return jsonify({"success": False, "msg": reason}), 400
         hal.set_pwm_output(name, duty)
         with state_lock:
             state.setdefault("pwm", {})[name] = max(0.0, min(100.0, float(duty)))
 
     elif cmd == "MOVE_MOTOR_STEPS":
         motor = req.get("motor")
-        steps = int(req.get("steps", 0))
-        speed = int(req.get("speed", 1000))
+        try:
+            steps = int(req.get("steps", 0))
+            speed = int(req.get("speed", 1000))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "msg": "INVALID_MOVE_PARAMS"}), 400
+        speed = max(1, min(20000, speed))
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         hal.move_motor_steps(motor, steps, speed=speed)
@@ -664,12 +718,12 @@ def control():
             if val is not None and val < 0:
                 return jsonify({"success": False, "msg": "INVALID_PID"}), 400
         target = pid_z1 if zone == "z1" else pid_z2
-        if kp is not None:
-            target.kp = kp
-        if ki is not None:
-            target.ki = ki
-        if kd is not None:
-            target.kd = kd
+        for key in ("kp", "ki", "kd"):
+            if key in params:
+                val = _safe_float(params.get(key))
+                if val is None or val < 0:
+                    return jsonify({"success": False, "msg": "INVALID_PID_PARAM"}), 400
+                setattr(target, key, val)
         sys_config[zone] = {"kp": target.kp, "ki": target.ki, "kd": target.kd}
 
     elif cmd == "UPDATE_PINS":
@@ -741,15 +795,37 @@ def control():
         direction = req.get("direction", "OUT")
         pull = req.get("pull")
         try:
-            hal.configure_pin(int(pin), direction=direction, pull=pull)
+            int_pin = int(pin)
+            hal.configure_pin(int_pin, direction=direction, pull=pull)
         except Exception:
             return jsonify({"success": False, "msg": "GPIO_CONFIG_ERROR"})
 
     elif cmd == "GPIO_WRITE":
         pin = req.get("pin")
-        state = bool(req.get("state", False))
+        desired = req.get("state", False)
+        if isinstance(desired, str):
+            desired = desired.lower() in ("1", "true", "on")
+        elif isinstance(desired, (int, float)):
+            desired = bool(desired)
+        elif not isinstance(desired, bool):
+            return jsonify({"success": False, "msg": "INVALID_GPIO_STATE"}), 400
         try:
-            hal.gpio_write(int(pin), state)
+            int_pin = int(pin)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "msg": "INVALID_PIN"}), 400
+
+        known_pins = {v for v in hal.pins.values() if v is not None}
+        known_pins.update(getattr(hal, "pin_modes", {}).keys())
+        if int_pin not in known_pins:
+            return jsonify({"success": False, "msg": "UNKNOWN_PIN"}), 400
+
+        last_toggle = gpio_write_times.get(int_pin, 0.0)
+        if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
+            return jsonify({"success": False, "msg": "GPIO_DEBOUNCE"}), 429
+
+        try:
+            hal.gpio_write(int_pin, bool(desired))
+            gpio_write_times[int_pin] = request_time
         except Exception:
             return jsonify({"success": False, "msg": "GPIO_WRITE_ERROR"})
 
