@@ -169,6 +169,86 @@ function HomeScreen({ data, sendCmd, keypad }) {
     );
   };
 
+  const renderZone = (label, temp, target, zoneKey, relayOn) => {
+    let color = "#7f8c8d";
+    if (temp !== null && temp !== undefined) {
+      if (target !== null && temp > target + 15) color = "#e74c3c";
+      else if (target !== null && temp < target - 15) color = "#f39c12";
+      else color = "#2ecc71";
+    }
+
+    const fieldBox = {
+      background: "#111",
+      borderRadius: "8px",
+      padding: "12px",
+      border: "1px solid #1f2a36",
+    };
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div
+          style={{
+            ...fieldBox,
+            cursor: "pointer",
+            boxShadow: expandedHeater === zoneKey ? "0 0 0 1px #3498db" : "none",
+            transition: "box-shadow 0.2s ease",
+          }}
+          onClick={() => toggleHeaterCard(zoneKey)}
+        >
+          <div style={{ ...styles.label, marginBottom: 6 }}>
+            {label} temperature
+          </div>
+          <div
+            style={{
+              fontSize: "1.6em",
+              fontWeight: "bold",
+              color,
+            }}
+          >
+            {temp !== null && temp !== undefined
+              ? `${temp.toFixed(1)} °C`
+              : "--.- °C"}
+          </div>
+          <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
+            SSR {relayOn ? "active" : "idle"}
+          </div>
+        </div>
+
+        {expandedHeater === zoneKey && (
+          <div
+            ref={(node) => {
+              if (expandedHeater === zoneKey) setpointRef.current = node;
+            }}
+            style={{
+              ...fieldBox,
+              background: "#0c0f15",
+              border: "1px solid #3498db",
+              cursor: "pointer",
+            }}
+            onClick={(e) => handleSetpointClick(zoneKey, target, e)}
+          >
+            <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                color: "#ecf0f1",
+              }}
+            >
+              <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>
+                {target?.toFixed?.(1) ?? target}
+              </span>
+              <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
+                Tap to edit
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={hasAlarm ? "alarm-glow" : ""}>
       {mode === "MANUAL" && (
@@ -531,10 +611,16 @@ function HomeScreen({ data, sendCmd, keypad }) {
       </div>
 
       <div style={styles.panel}>
+        <h3>Heater zones</h3>
+        <div style={styles.grid2}>
+          {renderZone("Zone 1", t1, targetZ1, "z1", heaterZ1On)}
+          {renderZone("Zone 2", t2, targetZ2, "z2", heaterZ2On)}
+        </div>
+      </div>
+
+      <div style={styles.panel}>
         <h3>Temperature summary</h3>
         <div style={styles.grid2}>
-          {tempBox("Zone 1", t1)}
-          {tempBox("Zone 2", t2)}
           {tempBox("Nozzle", t3)}
           {tempBox("Motor", tm)}
         </div>
