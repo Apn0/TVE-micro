@@ -76,6 +76,10 @@ function GPIOControlScreen() {
   return (
     <div>
       <h2 style={{ marginBottom: 12 }}>GPIO Control</h2>
+      <div style={{ color: '#8c9fb1', marginBottom: 8 }}>
+        Pins are shown in <strong>BCM numbering</strong>, not physical header positions
+        (e.g., BCM6 is on physical pin 31; physical pin 6 is ground).
+      </div>
       <div style={styles.panel}>
         <div
           style={{
@@ -87,7 +91,7 @@ function GPIOControlScreen() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '80px 1fr 1fr 1fr',
+              gridTemplateColumns: '90px 1fr 1fr 1fr 1fr',
               gap: '10px',
               paddingBottom: '8px',
               borderBottom: '1px solid #2c3e50',
@@ -95,7 +99,8 @@ function GPIOControlScreen() {
               fontSize: '0.9em',
             }}
           >
-            <span>Pin</span>
+            <span>Pin (BCM)</span>
+            <span>Assigned Name</span>
             <span>Mode</span>
             <span>Pull-up/down</span>
             <span>Value</span>
@@ -131,7 +136,7 @@ function GPIOControlScreen() {
                   key={pin}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '80px 1fr 1fr 1fr',
+                    gridTemplateColumns: '90px 1fr 1fr 1fr 1fr',
                     gap: '10px',
                     alignItems: 'center',
                     padding: '10px 12px',
@@ -141,6 +146,10 @@ function GPIOControlScreen() {
                   }}
                 >
                   <div style={{ color: '#ecf0f1', fontWeight: 'bold' }}>GPIO {pin}</div>
+
+                  <div style={{ color: '#ecf0f1' }}>
+                    {status.name || 'Unassigned'}
+                  </div>
 
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <span style={styles.label}>Mode</span>
