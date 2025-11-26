@@ -8,10 +8,10 @@ import copy
 from flask import Flask, request, jsonify
 import atexit
 
-from hardware import HardwareInterface
-from safety import SafetyMonitor
-from logger import DataLogger
-from pid import PID
+from backend.hardware import HardwareInterface
+from backend.safety import SafetyMonitor
+from backend.logger import DataLogger
+from backend.pid import PID
 
 CONFIG_FILE = "config.json"
 
@@ -33,6 +33,18 @@ DEFAULT_CONFIG = {
         "step_feed": 13,
         "dir_feed": 19,
         "alm_main": 16,
+    },
+    "pwm": {
+        "enabled": True,
+        "bus": 1,
+        "address": 0x80,
+        "frequency": 1000,
+        "channels": {
+            "fan": 0,
+            "fan_nozzle": 1,
+            "pump": 2,
+            "led_status": 3,
+        },
     },
     "sensors": {
         "0": {"enabled": True, "logical": "t1", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
@@ -108,6 +120,7 @@ state = {
     "temps": {},
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
+    "pwm": {k: 0.0 for k in sys_config.get("pwm", {}).get("channels", {})},
     "seq_start_time": 0.0,
 }
 
@@ -125,11 +138,15 @@ def _all_outputs_off():
     hal.set_motor_rpm("feed", 0.0)
     hal.set_relay("fan", False)
     hal.set_relay("pump", False)
+    for name in getattr(hal, "pwm_channels", {}):
+        hal.set_pwm_output(name, 0.0)
     with state_lock:
         state["motors"]["main"] = 0.0
         state["motors"]["feed"] = 0.0
         state["relays"]["fan"] = False
         state["relays"]["pump"] = False
+        for name in state.get("pwm", {}):
+            state["pwm"][name] = 0.0
 
 def _latch_alarm(reason: str):
     running_event.clear()
@@ -310,6 +327,7 @@ def startup():
         sys_config["pins"],
         sensor_config=sensor_cfg,
         adc_config=sys_config.get("adc"),
+        pwm_config=sys_config.get("pwm"),
         running_event=running_event,
     )
     start_background_threads()
@@ -480,6 +498,29 @@ def control():
         with state_lock:
             state["relays"][relay] = st
 
+    elif cmd == "SET_PWM_OUTPUT":
+        name = req.get("name")
+        duty = float(req.get("duty", 0))
+        if name not in getattr(hal, "pwm_channels", {}):
+            return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
+        hal.set_pwm_output(name, duty)
+        with state_lock:
+            state.setdefault("pwm", {})[name] = max(0.0, min(100.0, float(duty)))
+
+    elif cmd == "MOVE_MOTOR_STEPS":
+        motor = req.get("motor")
+        steps = int(req.get("steps", 0))
+        speed = int(req.get("speed", 1000))
+        if motor not in ("main", "feed"):
+            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
+        hal.move_motor_steps(motor, steps, speed=speed)
+
+    elif cmd == "STOP_MANUAL_MOVE":
+        motor = req.get("motor")
+        if motor not in ("main", "feed"):
+            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
+        hal.stop_manual_move(motor)
+
     elif cmd == "EMERGENCY_STOP":
         _latch_alarm("EMERGENCY_STOP")
 
@@ -541,6 +582,31 @@ def control():
         if "flush_interval" in params:
             sys_config["logging"]["flush_interval"] = float(params["flush_interval"])
         logger.configure(sys_config["logging"])
+
+    elif cmd == "GPIO_CONFIG":
+        pin = req.get("pin")
+        direction = req.get("direction", "OUT")
+        pull = req.get("pull")
+        try:
+            hal.configure_pin(int(pin), direction=direction, pull=pull)
+        except Exception:
+            return jsonify({"success": False, "msg": "GPIO_CONFIG_ERROR"})
+
+    elif cmd == "GPIO_WRITE":
+        pin = req.get("pin")
+        state = bool(req.get("state", False))
+        try:
+            hal.gpio_write(int(pin), state)
+        except Exception:
+            return jsonify({"success": False, "msg": "GPIO_WRITE_ERROR"})
+
+    elif cmd == "GPIO_READ":
+        pin = req.get("pin")
+        try:
+            value = hal.gpio_read(int(pin))
+            return jsonify({"success": True, "value": bool(value)})
+        except Exception:
+            return jsonify({"success": False, "msg": "GPIO_READ_ERROR"})
 
     elif cmd == "SAVE_CONFIG":
         try:

@@ -51,6 +51,7 @@ function SettingsScreen({ data, sendCmd }) {
   const handleApplyDM = () => sendCmd("UPDATE_DM556", { params: dm });
   const handleApplyTemp = () => sendCmd("SET_TEMP_SETTINGS", { params: tempSettings });
   const handleApplyLog = () => sendCmd("SET_LOGGING_SETTINGS", { params: logSettings });
+  const handleSaveConfig = () => sendCmd("SAVE_CONFIG");
   const handleSeqApply = () => sendCmd("UPDATE_EXTRUDER_SEQ", { sequence: seq });
   const handlePinsApply = () => sendCmd("UPDATE_PINS", { pins });
 
@@ -117,7 +118,7 @@ function SettingsScreen({ data, sendCmd }) {
               }
             />
             <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: "5px" }}>
-              Flushes early if temperature deviates > 2 SD.
+              {'Flushes early if temperature deviates > 2 SD.'}
             </div>
 
             <button style={{ ...styles.button, marginTop: "10px" }} onClick={handleApplyLog}>
@@ -196,6 +197,19 @@ function SettingsScreen({ data, sendCmd }) {
 
         <button style={{ ...styles.button, marginTop: "15px" }} onClick={handlePinsApply}>
           Update Pins (Requires Restart)
+        </button>
+      </div>
+
+      <div style={{ ...styles.panel, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Persist current settings</h3>
+          <div style={{ color: "#aaa", maxWidth: "520px" }}>
+            Apply your changes above, then save to write the current configuration to backend/config.json so it survives a reboot.
+          </div>
+        </div>
+
+        <button style={styles.button} onClick={handleSaveConfig}>
+          Save Config to Disk
         </button>
       </div>
 
