@@ -4,6 +4,7 @@ import json
 import time
 import threading
 import copy
+import math
 
 from flask import Flask, request, jsonify
 import atexit
@@ -14,6 +15,11 @@ from backend.logger import DataLogger
 from backend.pid import PID
 
 CONFIG_FILE = "config.json"
+
+MAX_HEATER_DUTY = 100.0
+MIN_HEATER_DUTY = 0.0
+MAX_PWM_DUTY = 100.0
+MAX_MOTOR_RPM = 5000.0
 
 DEFAULT_CONFIG = {
     "z1": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
@@ -85,6 +91,9 @@ def load_config():
     else:
         cfg = copy.deepcopy(DEFAULT_CONFIG)
 
+    if not isinstance(cfg, dict):
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+
     for k in DEFAULT_CONFIG:
         if k not in cfg:
             cfg[k] = copy.deepcopy(DEFAULT_CONFIG[k])
@@ -93,6 +102,14 @@ def load_config():
         cfg["extruder_sequence"] = copy.deepcopy(DEFAULT_CONFIG["extruder_sequence"])
 
     return cfg
+
+
+def _coerce_finite(value):
+    try:
+        coerced = float(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if math.isfinite(coerced) else None
 
 sys_config = load_config()
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
@@ -449,17 +466,33 @@ def control():
             state["mode"] = mode
 
     elif cmd == "SET_TARGET":
+        target_z1 = state.get("target_z1")
+        target_z2 = state.get("target_z2")
+
+        if "z1" in req:
+            t = _coerce_finite(req.get("z1"))
+            if t is None:
+                return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
+            target_z1 = t
+        if "z2" in req:
+            t = _coerce_finite(req.get("z2"))
+            if t is None:
+                return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
+            target_z2 = t
+
         with state_lock:
-            if "z1" in req:
-                state["target_z1"] = float(req["z1"])
-            if "z2" in req:
-                state["target_z2"] = float(req["z2"])
+            if target_z1 is not None:
+                state["target_z1"] = target_z1
+            if target_z2 is not None:
+                state["target_z2"] = target_z2
 
     elif cmd == "SET_HEATER":
         zone = req.get("zone")
-        duty = float(req.get("duty", 0))
+        duty = _coerce_finite(req.get("duty", 0))
         if zone not in ("z1", "z2"):
             return jsonify({"success": False, "msg": "INVALID_ZONE"})
+        if duty is None or duty < MIN_HEATER_DUTY or duty > MAX_HEATER_DUTY:
+            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
         hal.set_heater_duty(zone, duty)
         with state_lock:
             if zone == "z1":
@@ -469,9 +502,11 @@ def control():
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
-        rpm = float(req.get("rpm", 0))
+        rpm = _coerce_finite(req.get("rpm", 0))
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
+        if rpm is None or abs(rpm) > MAX_MOTOR_RPM:
+            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
         with state_lock:
             temps = dict(state["temps"])
         if rpm != 0:
@@ -500,9 +535,11 @@ def control():
 
     elif cmd == "SET_PWM_OUTPUT":
         name = req.get("name")
-        duty = float(req.get("duty", 0))
+        duty = _coerce_finite(req.get("duty", 0))
         if name not in getattr(hal, "pwm_channels", {}):
             return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
+        if duty is None or duty < MIN_HEATER_DUTY or duty > MAX_PWM_DUTY:
+            return jsonify({"success": False, "msg": "INVALID_PWM_DUTY"}), 400
         hal.set_pwm_output(name, duty)
         with state_lock:
             state.setdefault("pwm", {})[name] = max(0.0, min(100.0, float(duty)))
@@ -539,10 +576,19 @@ def control():
         params = req.get("params", {})
         if zone not in ("z1", "z2"):
             return jsonify({"success": False, "msg": "INVALID_ZONE"})
+        kp = _coerce_finite(params.get("kp", params.get("p")))
+        ki = _coerce_finite(params.get("ki", params.get("i")))
+        kd = _coerce_finite(params.get("kd", params.get("d")))
+        for val in (kp, ki, kd):
+            if val is not None and val < 0:
+                return jsonify({"success": False, "msg": "INVALID_PID"}), 400
         target = pid_z1 if zone == "z1" else pid_z2
-        target.kp = float(params.get("kp", target.kp))
-        target.ki = float(params.get("ki", target.ki))
-        target.kd = float(params.get("kd", target.kd))
+        if kp is not None:
+            target.kp = kp
+        if ki is not None:
+            target.ki = ki
+        if kd is not None:
+            target.kd = kd
         sys_config[zone] = {"kp": target.kp, "ki": target.ki, "kd": target.kd}
 
     elif cmd == "UPDATE_PINS":
@@ -550,7 +596,14 @@ def control():
 
     elif cmd == "UPDATE_EXTRUDER_SEQ":
         seq = req.get("sequence", {})
-        sys_config["extruder_sequence"].update(seq)
+        sanitized_seq = {}
+        for key in ("start_delay_feed", "stop_delay_motor"):
+            if key in seq:
+                val = _coerce_finite(seq.get(key))
+                if val is None or val < 0:
+                    return jsonify({"success": False, "msg": "INVALID_SEQUENCE"}), 400
+                sanitized_seq[key] = val
+        sys_config["extruder_sequence"].update(sanitized_seq)
 
     elif cmd == "UPDATE_DM556":
         sys_config["dm556"] = req.get("params", {})
@@ -559,13 +612,26 @@ def control():
         params = req.get("params", {})
         try:
             if "poll_interval" in params:
-                hal.set_temp_poll_interval(float(params["poll_interval"]))
+                poll_interval = _coerce_finite(params.get("poll_interval"))
+                if poll_interval is None or poll_interval <= 0:
+                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
+                hal.set_temp_poll_interval(poll_interval)
             if "avg_window" in params:
-                hal.set_temp_average_window(float(params["avg_window"]))
+                avg_window = _coerce_finite(params.get("avg_window"))
+                if avg_window is None or avg_window <= 0:
+                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
+                hal.set_temp_average_window(avg_window)
             if "use_average" in params:
                 hal.set_temp_use_average(bool(params["use_average"]))
             if "decimals_default" in params:
-                hal.set_temp_decimals_default(int(params["decimals_default"]))
+                decimals_default = params.get("decimals_default")
+                try:
+                    decimals_default = int(decimals_default)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
+                if decimals_default < 0:
+                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
+                hal.set_temp_decimals_default(decimals_default)
         except:
             return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"})
         sys_config["temp_settings"] = {
@@ -578,9 +644,15 @@ def control():
     elif cmd == "SET_LOGGING_SETTINGS":
         params = req.get("params", {})
         if "interval" in params:
-            sys_config["logging"]["interval"] = float(params["interval"])
+            interval = _coerce_finite(params.get("interval"))
+            if interval is None or interval <= 0:
+                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
+            sys_config["logging"]["interval"] = interval
         if "flush_interval" in params:
-            sys_config["logging"]["flush_interval"] = float(params["flush_interval"])
+            flush_interval = _coerce_finite(params.get("flush_interval"))
+            if flush_interval is None or flush_interval <= 0:
+                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
+            sys_config["logging"]["flush_interval"] = flush_interval
         logger.configure(sys_config["logging"])
 
     elif cmd == "GPIO_CONFIG":
