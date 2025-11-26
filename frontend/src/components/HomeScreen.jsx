@@ -1,14 +1,36 @@
-﻿// file: frontend/src/tabs/HomeScreen.jsx
-import React from "react";
+// file: frontend/src/tabs/HomeScreen.jsx
+import React, { useEffect, useRef, useState } from "react";
 import { styles } from "../App";
 
-function HomeScreen({ data, sendCmd }) {
+function HomeScreen({ data, sendCmd, keypad }) {
   const status = data.state?.status || "UNKNOWN";
   const mode = data.state?.mode || "AUTO";
   const temps = data.state?.temps || {};
   const motors = data.state?.motors || {};
   const relays = data.state?.relays || {};
   const hasAlarm = status === "ALARM";
+  const [expandedHeater, setExpandedHeater] = useState(null);
+  const setpointRef = useRef(null);
+  const [targetZ1, setTargetZ1] = useState(null);
+  const [targetZ2, setTargetZ2] = useState(null);
+
+  useEffect(() => {
+    setTargetZ1(data.state?.target_z1 ?? null);
+    setTargetZ2(data.state?.target_z2 ?? null);
+  }, [data.state?.target_z1, data.state?.target_z2]);
+
+  useEffect(() => {
+    const onClickOutside = (event) => {
+      if (setpointRef.current && !setpointRef.current.contains(event.target)) {
+        setExpandedHeater(null);
+      }
+    };
+
+    if (expandedHeater) {
+      document.addEventListener("mousedown", onClickOutside);
+      return () => document.removeEventListener("mousedown", onClickOutside);
+    }
+  }, [expandedHeater]);
 
   const t1 = temps.t1 ?? null;
   const t2 = temps.t2 ?? null;
@@ -88,6 +110,61 @@ function HomeScreen({ data, sendCmd }) {
     </span>
   );
 
+  const toggleHeaterCard = (zoneKey) => {
+    keypad?.closeKeypad?.();
+    setExpandedHeater((prev) => (prev === zoneKey ? null : zoneKey));
+  };
+
+  const handleSetpointClick = (zoneKey, targetValue, event) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const initial = Number.isFinite(targetValue) ? String(targetValue) : "";
+
+    keypad?.openKeypad?.(initial, rect, (val) => {
+      const parsed = parseFloat(val);
+      const next = Number.isNaN(parsed) ? targetValue : parsed;
+      const nextZ1 = zoneKey === "z1" ? next : targetZ1;
+      const nextZ2 = zoneKey === "z2" ? next : targetZ2;
+
+      if (!Number.isNaN(parsed)) {
+        if (zoneKey === "z1") setTargetZ1(next);
+        if (zoneKey === "z2") setTargetZ2(next);
+        sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
+      }
+
+      setExpandedHeater(null);
+      keypad?.closeKeypad?.();
+    });
+  };
+
+  const renderSetpointDropdown = (zoneKey, targetValue) => {
+    const isNumber = Number.isFinite(targetValue);
+    return (
+      <div
+        ref={(node) => {
+          if (expandedHeater === zoneKey) setpointRef.current = node;
+        }}
+        style={{
+          marginTop: 10,
+          padding: 12,
+          borderRadius: 8,
+          background: "#0c0f15",
+          border: "1px solid #3498db",
+          cursor: "pointer",
+        }}
+        onClick={(e) => handleSetpointClick(zoneKey, targetValue, e)}
+      >
+        <div style={{ ...styles.metricLabel, marginBottom: 6 }}>Set point</div>
+        <div style={{ fontSize: "1.4em", fontWeight: "bold" }}>
+          {isNumber ? `${targetValue.toFixed(0)} °C` : "-- °C"}
+        </div>
+        <div style={{ color: "#8c9fb1", marginTop: 4, fontSize: "0.9em" }}>
+          Tap to edit setpoint
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={hasAlarm ? "alarm-glow" : ""}>
       {mode === "MANUAL" && (
@@ -136,23 +213,31 @@ function HomeScreen({ data, sendCmd }) {
               Auto-cooling tied to main screw activity
             </div>
           </div>
-          <div style={styles.metricCard}>
+          <div
+            style={{ ...styles.metricCard, cursor: "pointer" }}
+            onClick={() => toggleHeaterCard("z1")}
+          >
             <div style={styles.metricLabel}>Heater Z1</div>
             <div style={{ ...styles.metricValue, color: heaterZ1On ? "#e74c3c" : "#7f8c8d" }}>
               {heaterZ1On ? "ON" : "OFF"}
             </div>
             <div style={{ color: "#8c9fb1", marginTop: 6 }}>
-              Target {data.state?.target_z1?.toFixed?.(0) ?? 0}&deg;C
+              Target {targetZ1?.toFixed?.(0) ?? 0}&deg;C
             </div>
+            {expandedHeater === "z1" && renderSetpointDropdown("z1", targetZ1)}
           </div>
-          <div style={styles.metricCard}>
+          <div
+            style={{ ...styles.metricCard, cursor: "pointer" }}
+            onClick={() => toggleHeaterCard("z2")}
+          >
             <div style={styles.metricLabel}>Heater Z2</div>
             <div style={{ ...styles.metricValue, color: heaterZ2On ? "#e74c3c" : "#7f8c8d" }}>
               {heaterZ2On ? "ON" : "OFF"}
             </div>
             <div style={{ color: "#8c9fb1", marginTop: 6 }}>
-              Target {data.state?.target_z2?.toFixed?.(0) ?? 0}&deg;C
+              Target {targetZ2?.toFixed?.(0) ?? 0}&deg;C
             </div>
+            {expandedHeater === "z2" && renderSetpointDropdown("z2", targetZ2)}
           </div>
         </div>
 
