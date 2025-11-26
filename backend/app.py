@@ -318,26 +318,14 @@ def load_config():
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
         except Exception:
-            raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+            raw_cfg = {}
     else:
-        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        raw_cfg = {}
 
-    if not isinstance(cfg, dict):
-        cfg = copy.deepcopy(DEFAULT_CONFIG)
+    if not isinstance(raw_cfg, dict):
+        raw_cfg = {}
 
-    for k in DEFAULT_CONFIG:
-        if k not in cfg:
-            cfg[k] = copy.deepcopy(DEFAULT_CONFIG[k])
-
-    if "extruder_sequence" not in cfg:
-        cfg["extruder_sequence"] = copy.deepcopy(DEFAULT_CONFIG["extruder_sequence"])
-
-    cfg["temp_settings"] = {
-        **DEFAULT_CONFIG.get("temp_settings", {}),
-        **(cfg.get("temp_settings") or {}),
-    }
-
-    return cfg
+    return validate_config(raw_cfg)
 
 
 def _coerce_finite(value):
