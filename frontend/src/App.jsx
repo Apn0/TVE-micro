@@ -152,7 +152,12 @@ function App() {
           {view === "HOME" && <HomeScreen data={data} sendCmd={sendCmd} />}
           {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
           {view === "HEATERS" && (
-            <HeaterScreen data={data} sendCmd={sendCmd} history={history} />
+            <HeaterScreen
+              data={data}
+              sendCmd={sendCmd}
+              history={history}
+              keypad={keypad}
+            />
           )}
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}

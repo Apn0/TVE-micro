@@ -1,21 +1,19 @@
 // file: frontend/src/tabs/HeaterScreen.jsx
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { styles } from "../App";
 
-function HeaterScreen({ data, sendCmd, history = [] }) {
+function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const temps = data.state?.temps || {};
   const relays = data.state?.relays || {};
   const [targetZ1, setTargetZ1] = useState(data.state?.target_z1 ?? 0);
   const [targetZ2, setTargetZ2] = useState(data.state?.target_z2 ?? 0);
+  const [expandedZone, setExpandedZone] = useState(null);
+  const setpointRef = useRef(null);
 
   useEffect(() => {
     setTargetZ1(data.state?.target_z1 ?? 0);
     setTargetZ2(data.state?.target_z2 ?? 0);
   }, [data.state?.target_z1, data.state?.target_z2]);
-
-  const applyTargets = () => {
-    sendCmd("SET_TARGET", { z1: targetZ1, z2: targetZ2 });
-  };
 
   const heaterGraph = useMemo(() => {
     if (!history || history.length < 2) return null;
@@ -416,7 +414,55 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
     );
   }, [history]);
 
-  const renderZone = (label, temp, target, onChange, relayOn) => {
+  useEffect(() => {
+    if (!expandedZone) return undefined;
+
+    const handleClick = (event) => {
+      if (setpointRef.current && !setpointRef.current.contains(event.target)) {
+        setExpandedZone(null);
+        keypad?.closeKeypad?.();
+      }
+    };
+
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [expandedZone, keypad]);
+
+  const toggleZoneExpansion = (zoneKey) => {
+    keypad?.closeKeypad?.();
+    setExpandedZone((prev) => (prev === zoneKey ? null : zoneKey));
+  };
+
+  const handleSetpointClick = (zoneKey, targetValue, event) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const initial = Number.isFinite(targetValue) ? String(targetValue) : "";
+
+    keypad?.openKeypad?.(initial, rect, (val) => {
+      const parsed = parseFloat(val);
+      const next = Number.isNaN(parsed) ? targetValue : parsed;
+      const nextZ1 = zoneKey === "z1" ? next : targetZ1;
+      const nextZ2 = zoneKey === "z2" ? next : targetZ2;
+
+      if (!Number.isNaN(parsed)) {
+        if (zoneKey === "z1") setTargetZ1(next);
+        if (zoneKey === "z2") setTargetZ2(next);
+        sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
+      }
+
+      setExpandedZone(null);
+      keypad?.closeKeypad?.();
+    });
+  };
+
+  const fieldBox = {
+    background: "#111",
+    borderRadius: "8px",
+    padding: "12px",
+    border: "1px solid #1f2a36",
+  };
+
+  const renderZone = (label, temp, target, zoneKey, relayOn) => {
     let color = "#7f8c8d";
     if (temp !== null && temp !== undefined) {
       if (temp > target + 15) color = "#e74c3c";
@@ -425,32 +471,60 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
     }
 
     return (
-      <div style={{ background: "#111", borderRadius: "6px", padding: "12px" }}>
-        <div style={styles.label}>{label}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
         <div
           style={{
-            fontSize: "1.6em",
-            fontWeight: "bold",
-            color,
+            ...fieldBox,
+            cursor: "pointer",
+            boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
+            transition: "box-shadow 0.2s ease",
           }}
+          onClick={() => toggleZoneExpansion(zoneKey)}
         >
-          {temp !== null && temp !== undefined ? `${temp.toFixed(1)} °C` : "--.- °C"}
+          <div style={{ ...styles.label, marginBottom: 6 }}>{label} temperature</div>
+          <div
+            style={{
+              fontSize: "1.6em",
+              fontWeight: "bold",
+              color,
+            }}
+          >
+            {temp !== null && temp !== undefined ? `${temp.toFixed(1)} °C` : "--.- °C"}
+          </div>
+          <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
+            SSR {relayOn ? "active" : "idle"}
+          </div>
         </div>
-        <div style={{ marginTop: "10px" }}>
-          <div style={styles.label}>Target (°C)</div>
-          <input
-            type="number"
-            value={target}
-            onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-            style={{ ...styles.input, width: "80px" }}
-          />
-        </div>
-        <div style={{ marginTop: "8px", fontSize: "0.8em" }}>
-          SSR:{" "}
-          <span style={{ color: relayOn ? "#2ecc71" : "#7f8c8d" }}>
-            {relayOn ? "ON" : "OFF"}
-          </span>
-        </div>
+
+        {expandedZone === zoneKey && (
+          <div
+            ref={(node) => {
+              if (expandedZone === zoneKey) setpointRef.current = node;
+            }}
+            style={{
+              ...fieldBox,
+              background: "#0c0f15",
+              border: "1px solid #3498db",
+              cursor: "pointer",
+            }}
+            onClick={(e) => handleSetpointClick(zoneKey, target, e)}
+          >
+            <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                color: "#ecf0f1",
+              }}
+            >
+              <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{target?.toFixed?.(1) ?? target}</span>
+              <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
+                Tap to edit
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -464,27 +538,9 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
           SSR duty; for now we just pass targets to the backend.
         </p>
         <div style={styles.grid2}>
-          {renderZone(
-            "Zone 1",
-            temps.t1 ?? null,
-            targetZ1,
-            setTargetZ1,
-            relays.ssr_z1
-          )}
-          {renderZone(
-            "Zone 2",
-            temps.t2 ?? null,
-            targetZ2,
-            setTargetZ2,
-            relays.ssr_z2
-          )}
+          {renderZone("Zone 1", temps.t1 ?? null, targetZ1, "z1", relays.ssr_z1)}
+          {renderZone("Zone 2", temps.t2 ?? null, targetZ2, "z2", relays.ssr_z2)}
         </div>
-        <button
-          style={{ ...styles.button, marginTop: "20px" }}
-          onClick={applyTargets}
-        >
-          Apply targets
-        </button>
       </div>
       {heaterGraph}
     </div>
