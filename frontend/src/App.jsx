@@ -105,8 +105,10 @@ function App() {
       if (!json.success && json.ok !== true) throw new Error(json.msg || "Failed");
 
       setMessage(command + " OK");
+      return json;
     } catch (e) {
       setError("Cmd error: " + e.message);
+      throw e;
     }
   };
 
