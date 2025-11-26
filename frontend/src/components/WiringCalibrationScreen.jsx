@@ -21,6 +21,7 @@ const buildInitialState = () =>
 
 function WiringCalibrationScreen() {
   const [reviewActive, setReviewActive] = useState(false);
+  const [autoReviewStarted, setAutoReviewStarted] = useState(false);
   const [wireStates, setWireStates] = useState(() => buildInitialState());
 
   const handleUpdate = (id, key, value) => {
@@ -60,8 +61,27 @@ function WiringCalibrationScreen() {
 
   const resetChecklist = () => {
     setReviewActive(false);
+    setAutoReviewStarted(false);
     setWireStates(buildInitialState());
   };
+
+  const hasAnyProgress = useMemo(
+    () =>
+      WIRES.some((wire) => {
+        const state = wireStates[wire.id];
+        return state.reviewed || state.safeToTest || state.tested || state.completed;
+      }),
+    [wireStates]
+  );
+
+  // If the user starts interacting with any card, automatically flag the session as active
+  // so they don't have to discover the global "start review" switch first.
+  React.useEffect(() => {
+    if (!reviewActive && hasAnyProgress) {
+      setReviewActive(true);
+      setAutoReviewStarted(true);
+    }
+  }, [hasAnyProgress, reviewActive]);
 
   const allCriteriaMet = useMemo(
     () =>
@@ -101,7 +121,9 @@ function WiringCalibrationScreen() {
           Reset checklist
         </button>
         <div style={{ color: "#aaa" }}>
-          Use the reviewing button to indicate an active verification session.
+          {autoReviewStarted
+            ? "Review session started automatically after you updated a component."
+            : "Use the reviewing button to indicate an active verification session or start toggling a card."}
         </div>
       </div>
 
