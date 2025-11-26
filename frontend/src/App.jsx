@@ -156,6 +156,21 @@ function App() {
         <div style={styles.content}>
           {view === "HOME" && <HomeScreen data={data} sendCmd={sendCmd} />}
           {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
+          {view === "HEATERS" && (
+            <HeaterScreen
+              data={data}
+              sendCmd={sendCmd}
+              history={history}
+              keypad={keypad}
+            />
+          )}
+          {view === "HISTORY" && <HistoryScreen history={history} />}
+          {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
+          {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
+          {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
+          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
+        </div>
+          {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
           {view === "HEATERS" && <HeaterScreen data={data} sendCmd={sendCmd} />}
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
