@@ -163,13 +163,8 @@ function App() {
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
-          {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
-          {view === "SETTINGS" && (
-            <SettingsScreen data={data} sendCmd={sendCmd} setView={setView} />
-          )}
-          {view === "WIRING CALIBRATION" && (
-            <WiringCalibrationScreen data={data} />
-          )}
+          {view === "GPIO" && <GPIOControlScreen />}
+          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
         </div>
       ) : (
         <div style={styles.disconnectOverlay}>
