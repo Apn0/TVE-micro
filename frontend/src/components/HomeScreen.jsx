@@ -41,8 +41,10 @@ function HomeScreen({ data, sendCmd }) {
     );
   };
 
+  const flowActive = motors.feed > 0 || motors.main > 0;
+
   return (
-    <div>
+    <div className={hasAlarm ? "alarm-glow" : ""}>
       {mode === "MANUAL" && (
         <div style={styles.manualBanner}>
           MANUAL MODE - Interlocks/boundaries not enforced. Use carefully.
@@ -66,6 +68,7 @@ function HomeScreen({ data, sendCmd }) {
               height="50"
               fill={motors.main > 0 ? "#27ae60" : "#2c3e50"}
               rx="4"
+              className={motors.main > 0 ? "motor-active" : ""}
             />
             <text
               x="30"
@@ -79,6 +82,16 @@ function HomeScreen({ data, sendCmd }) {
 
             {/* Barrel + feed */}
             <rect x="50" y="60" width="500" height="30" fill="#7f8c8d" rx="5" />
+            <line
+              x1="60"
+              y1="75"
+              x2="540"
+              y2="75"
+              stroke={flowActive ? "#2ecc71" : "#4b4b4b"}
+              strokeWidth="6"
+              className={flowActive ? "flow-line" : ""}
+              opacity={flowActive ? 0.9 : 0.5}
+            />
             <polygon points="90,60 110,60 100,90" fill="#95a5a6" />
             <text
               x="100"
@@ -115,6 +128,7 @@ function HomeScreen({ data, sendCmd }) {
               fill={relays.ssr_z1 ? "#e74c3c" : "#555"}
               opacity="0.5"
               rx="5"
+              className={relays.ssr_z1 ? "heater-on" : ""}
             />
             <text
               x="250"
@@ -151,6 +165,7 @@ function HomeScreen({ data, sendCmd }) {
               fill={relays.ssr_z2 ? "#e74c3c" : "#555"}
               opacity="0.5"
               rx="5"
+              className={relays.ssr_z2 ? "heater-on" : ""}
             />
             <text
               x="370"
@@ -189,6 +204,7 @@ function HomeScreen({ data, sendCmd }) {
               height="20"
               fill={relays.fan ? "#27ae60" : "#2c3e50"}
               rx="4"
+              className={relays.fan ? "fan-spin" : ""}
             />
             <text
               x="40"
