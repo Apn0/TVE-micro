@@ -4,7 +4,7 @@ import { styles } from "../App";
 import DipSwitchBlock from "./DipSwitchBlock";
 import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 
-function SettingsScreen({ data, sendCmd }) {
+function SettingsScreen({ data, sendCmd, setView }) {
   const [dm, setDm] = useState({
     ...DEFAULT_DM556,
     ...(data.config?.dm556 || {}),
@@ -60,6 +60,19 @@ function SettingsScreen({ data, sendCmd }) {
 
   return (
     <div>
+
+      <div style={{ ...styles.panel, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Settings</h2>
+          <div style={{ color: "#ccc" }}>Configuration and maintenance tools</div>
+        </div>
+        <button
+          style={{ ...styles.button, background: "#9b59b6" }}
+          onClick={() => setView && setView("WIRING CALIBRATION")}
+        >
+          Wiring calibration check
+        </button>
+      </div>
 
       <div style={styles.panel}>
         <h2>Logging & Performance</h2>
