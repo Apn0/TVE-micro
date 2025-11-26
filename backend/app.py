@@ -1009,22 +1009,6 @@ def control():
         target.ki = validated["ki"]
         target.kd = validated["kd"]
         sys_config[zone] = validated
-        if zone not in ("z1", "z2"):
-            return jsonify({"success": False, "msg": "INVALID_ZONE"})
-        kp = _coerce_finite(params.get("kp", params.get("p")))
-        ki = _coerce_finite(params.get("ki", params.get("i")))
-        kd = _coerce_finite(params.get("kd", params.get("d")))
-        for val in (kp, ki, kd):
-            if val is not None and val < 0:
-                return jsonify({"success": False, "msg": "INVALID_PID"}), 400
-        target = pid_z1 if zone == "z1" else pid_z2
-        for key in ("kp", "ki", "kd"):
-            if key in params:
-                val = _safe_float(params.get(key))
-                if val is None or val < 0:
-                    return jsonify({"success": False, "msg": "INVALID_PID_PARAM"}), 400
-                setattr(target, key, val)
-        sys_config[zone] = {"kp": target.kp, "ki": target.ki, "kd": target.kd}
 
     elif cmd == "UPDATE_PINS":
         pins = req.get("pins", {})
@@ -1110,49 +1094,7 @@ def control():
                 400,
             )
         sys_config["logging"] = validated
-            if "poll_interval" in params:
-                poll_interval = _coerce_finite(params.get("poll_interval"))
-                if poll_interval is None or poll_interval <= 0:
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                hal.set_temp_poll_interval(poll_interval)
-            if "avg_window" in params:
-                avg_window = _coerce_finite(params.get("avg_window"))
-                if avg_window is None or avg_window <= 0:
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                hal.set_temp_average_window(avg_window)
-            if "use_average" in params:
-                hal.set_temp_use_average(bool(params["use_average"]))
-            if "decimals_default" in params:
-                decimals_default = params.get("decimals_default")
-                try:
-                    decimals_default = int(decimals_default)
-                except (TypeError, ValueError):
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                if decimals_default < 0:
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                hal.set_temp_decimals_default(decimals_default)
-        except:
-            return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"})
-        sys_config["temp_settings"] = {
-            "poll_interval": hal.temp_poll_interval,
-            "avg_window": hal.temp_avg_window,
-            "use_average": hal.temp_use_average,
-            "decimals_default": hal.temp_decimals_default,
-        }
-
-    elif cmd == "SET_LOGGING_SETTINGS":
-        params = req.get("params", {})
-        if "interval" in params:
-            interval = _coerce_finite(params.get("interval"))
-            if interval is None or interval <= 0:
-                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
-            sys_config["logging"]["interval"] = interval
-        if "flush_interval" in params:
-            flush_interval = _coerce_finite(params.get("flush_interval"))
-            if flush_interval is None or flush_interval <= 0:
-                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
-            sys_config["logging"]["flush_interval"] = flush_interval
-        logger.configure(sys_config["logging"])
+        logger.configure(validated)
 
     elif cmd == "GPIO_CONFIG":
         pin = req.get("pin")
