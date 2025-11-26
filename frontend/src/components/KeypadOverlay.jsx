@@ -30,6 +30,7 @@ export default function KeypadOverlay({
           top: position.y,
         }}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <Keypad
           value={value}
