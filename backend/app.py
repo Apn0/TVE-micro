@@ -1068,6 +1068,61 @@ def control():
         sys_config["logging"] = validated
         logger.configure(validated)
 
+    elif cmd == "SET_SENSOR_CALIBRATION":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_SENSOR_PARAMS"}), 400
+
+        try:
+            channel = int(params.get("channel"))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "msg": "INVALID_SENSOR_CHANNEL"}), 400
+
+        if channel not in getattr(hal, "sensor_config", {}):
+            return jsonify({"success": False, "msg": "INVALID_SENSOR_CHANNEL"}), 400
+
+        current_cfg = sys_config.get("sensors", {}).get(channel) or sys_config.get(
+            "sensors", {}
+        ).get(str(channel))
+        if current_cfg is None:
+            default_cfg = DEFAULT_CONFIG.get("sensors", {}).get(str(channel))
+            if default_cfg is None:
+                return jsonify({"success": False, "msg": "INVALID_SENSOR_CHANNEL"}), 400
+            current_cfg = default_cfg
+
+        merged = {**current_cfg, **{k: v for k, v in params.items() if k != "channel"}}
+        validation_errors: list[str] = []
+        validated = _validate_sensor_section(
+            merged, current_cfg, validation_errors, str(channel)
+        )
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+
+        sys_config.setdefault("sensors", {})[channel] = validated
+
+        try:
+            hal.update_sensor_calibration(
+                channel,
+                r_fixed=validated.get("r_fixed"),
+                r_25=validated.get("r_25"),
+                beta=validated.get("beta"),
+                v_ref=validated.get("v_ref"),
+                wiring=validated.get("wiring"),
+                cal_points=validated.get("cal_points"),
+                decimals=validated.get("decimals"),
+            )
+            hal.sensor_config[channel]["enabled"] = validated.get(
+                "enabled", hal.sensor_config[channel].get("enabled")
+            )
+            hal.sensor_config[channel]["logical"] = validated.get(
+                "logical", hal.sensor_config[channel].get("logical")
+            )
+        except Exception:
+            return jsonify({"success": False, "msg": "SENSOR_CALIBRATION_ERROR"}), 400
+
     elif cmd == "GPIO_CONFIG":
         pin = req.get("pin")
         direction = req.get("direction", "OUT")
