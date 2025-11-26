@@ -26,7 +26,10 @@
         "alm_main": 16,
         "btn_start": 24,
         "btn_emergency": 25,
-        "led_status": 18
+        "led_status": 18,
+        "led_red": null,
+        "led_green": null,
+        "led_yellow": null
     },
     "extruder_sequence": {
         "start_delay_feed": 2.0,
