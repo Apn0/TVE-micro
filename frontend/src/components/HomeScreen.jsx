@@ -15,7 +15,31 @@ function HomeScreen({ data, sendCmd }) {
   const t3 = temps.t3 ?? null;
   const tm = temps.motor ?? null;
 
-  const anyHeaterOn = relays.ssr_z1 || relays.ssr_z2;
+  const mainRpm = motors.main ?? 0;
+  const feedRpm = motors.feed ?? 0;
+
+  const fanSpeed =
+    motors.main_fan ??
+    data.state?.fans?.main ??
+    data.state?.fans?.main_rpm ??
+    data.state?.cooling?.fan_rpm ??
+    null;
+  const fanActive = Boolean(relays.fan || (fanSpeed ?? 0) > 0);
+
+  const heaterZ1On = Boolean(
+    relays.ssr_z1 ??
+      relays.z1 ??
+      relays.heater_z1 ??
+      (data.state?.manual_duty_z1 ?? 0) > 0
+  );
+  const heaterZ2On = Boolean(
+    relays.ssr_z2 ??
+      relays.z2 ??
+      relays.heater_z2 ??
+      (data.state?.manual_duty_z2 ?? 0) > 0
+  );
+
+  const anyHeaterOn = heaterZ1On || heaterZ2On;
 
   const tempBox = (label, value) => {
     const isValid = value !== null && value !== undefined;
@@ -41,8 +65,31 @@ function HomeScreen({ data, sendCmd }) {
     );
   };
 
+  const flowActive = motors.feed > 0 || motors.main > 0;
+
+  const rpmDisplay = (value) => {
+    if (value === null || value === undefined) return "--";
+    if (Math.abs(value) < 0.05) return "0";
+    return value.toFixed(0);
+  };
+
+  const pill = (text, color) => (
+    <span style={{ ...styles.pill, borderColor: color, color }}>
+      <span
+        style={{
+          display: "inline-block",
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: color,
+        }}
+      />
+      {text}
+    </span>
+  );
+
   return (
-    <div>
+    <div className={hasAlarm ? "alarm-glow" : ""}>
       {mode === "MANUAL" && (
         <div style={styles.manualBanner}>
           MANUAL MODE - Interlocks/boundaries not enforced. Use carefully.
@@ -50,10 +97,64 @@ function HomeScreen({ data, sendCmd }) {
       )}
 
       <div style={styles.panel}>
-        <h2>Extruder overview</h2>
-        <p style={{ fontSize: "0.9em", color: "#aaa" }}>
-          Schematic view of the micro-extruder with live temps and main states.
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Extruder overview</h2>
+            <p style={{ fontSize: "0.9em", color: "#aaa", marginTop: "6px" }}>
+              Live snapshot of motion, cooling, and heating states.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {pill(
+              status,
+              status === "READY"
+                ? "#2ecc71"
+                : status === "RUNNING"
+                ? "#27ae60"
+                : status === "ALARM"
+                ? "#e74c3c"
+                : "#f1c40f"
+            )}
+            {pill(mode === "AUTO" ? "AUTO" : "MANUAL", mode === "AUTO" ? "#9b59b6" : "#f39c12")}
+          </div>
+        </div>
+
+        <div style={styles.metricGrid}>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Main motor</div>
+            <div style={{ ...styles.metricValue, color: "#2ecc71" }}>
+              {rpmDisplay(mainRpm)} RPM
+            </div>
+            <div style={{ color: "#8c9fb1", marginTop: 6 }}>Feeder {rpmDisplay(feedRpm)} RPM</div>
+          </div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Cooling fan</div>
+            <div style={{ ...styles.metricValue, color: fanActive ? "#2ecc71" : "#7f8c8d" }}>
+              {fanSpeed !== null ? `${rpmDisplay(fanSpeed)} RPM` : fanActive ? "ON" : "OFF"}
+            </div>
+            <div style={{ color: "#8c9fb1", marginTop: 6 }}>
+              Auto-cooling tied to main screw activity
+            </div>
+          </div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Heater Z1</div>
+            <div style={{ ...styles.metricValue, color: heaterZ1On ? "#e74c3c" : "#7f8c8d" }}>
+              {heaterZ1On ? "ON" : "OFF"}
+            </div>
+            <div style={{ color: "#8c9fb1", marginTop: 6 }}>
+              Target {data.state?.target_z1?.toFixed?.(0) ?? 0}&deg;C
+            </div>
+          </div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Heater Z2</div>
+            <div style={{ ...styles.metricValue, color: heaterZ2On ? "#e74c3c" : "#7f8c8d" }}>
+              {heaterZ2On ? "ON" : "OFF"}
+            </div>
+            <div style={{ color: "#8c9fb1", marginTop: 6 }}>
+              Target {data.state?.target_z2?.toFixed?.(0) ?? 0}&deg;C
+            </div>
+          </div>
+        </div>
 
         {/* full-width schematic */}
         <div>
@@ -66,6 +167,7 @@ function HomeScreen({ data, sendCmd }) {
               height="50"
               fill={motors.main > 0 ? "#27ae60" : "#2c3e50"}
               rx="4"
+              className={motors.main > 0 ? "motor-active" : ""}
             />
             <text
               x="30"
@@ -79,6 +181,16 @@ function HomeScreen({ data, sendCmd }) {
 
             {/* Barrel + feed */}
             <rect x="50" y="60" width="500" height="30" fill="#7f8c8d" rx="5" />
+            <line
+              x1="60"
+              y1="75"
+              x2="540"
+              y2="75"
+              stroke={flowActive ? "#2ecc71" : "#4b4b4b"}
+              strokeWidth="6"
+              className={flowActive ? "flow-line" : ""}
+              opacity={flowActive ? 0.9 : 0.5}
+            />
             <polygon points="90,60 110,60 100,90" fill="#95a5a6" />
             <text
               x="100"
@@ -115,6 +227,7 @@ function HomeScreen({ data, sendCmd }) {
               fill={relays.ssr_z1 ? "#e74c3c" : "#555"}
               opacity="0.5"
               rx="5"
+              className={relays.ssr_z1 ? "heater-on" : ""}
             />
             <text
               x="250"
@@ -151,6 +264,7 @@ function HomeScreen({ data, sendCmd }) {
               fill={relays.ssr_z2 ? "#e74c3c" : "#555"}
               opacity="0.5"
               rx="5"
+              className={relays.ssr_z2 ? "heater-on" : ""}
             />
             <text
               x="370"
@@ -189,6 +303,7 @@ function HomeScreen({ data, sendCmd }) {
               height="20"
               fill={relays.fan ? "#27ae60" : "#2c3e50"}
               rx="4"
+              className={relays.fan ? "fan-spin" : ""}
             />
             <text
               x="40"
@@ -228,11 +343,11 @@ function HomeScreen({ data, sendCmd }) {
             justifyContent: "flex-end",
           }}
         >
-          <div style={{ width: "260px" }}>
-            <div style={styles.row}>
-              <span>Status</span>
-              <span
-                style={{
+            <div style={{ width: "260px" }}>
+              <div style={styles.row}>
+                <span>Status</span>
+                <span
+                  style={{
                   fontWeight: "bold",
                   color:
                     status === "READY"
@@ -247,25 +362,35 @@ function HomeScreen({ data, sendCmd }) {
                 {status}
               </span>
             </div>
-            <div style={styles.row}>
-              <span>Mode</span>
-              <span>{mode}</span>
-            </div>
-            <div style={styles.row}>
-              <span>Main RPM</span>
-              <span>{motors.main?.toFixed(1) ?? "0.0"}</span>
-            </div>
-            <div style={styles.row}>
-              <span>Feeder RPM</span>
-              <span>{motors.feed?.toFixed(1) ?? "0.0"}</span>
-            </div>
-            <div style={styles.row}>
-              <span>Heaters</span>
-              <span>{anyHeaterOn ? "ON" : "OFF"}</span>
-            </div>
-            <div style={styles.row}>
-              <span>Motor temp</span>
-              <span>
+              <div style={styles.row}>
+                <span>Mode</span>
+                <span>{mode}</span>
+              </div>
+              <div style={styles.row}>
+                <span>Main RPM</span>
+                <span>{rpmDisplay(mainRpm)}</span>
+              </div>
+              <div style={styles.row}>
+                <span>Feeder RPM</span>
+                <span>{rpmDisplay(feedRpm)}</span>
+              </div>
+              <div style={styles.row}>
+                <span>Fan speed</span>
+                <span>
+                  {fanSpeed !== null ? `${rpmDisplay(fanSpeed)} RPM` : fanActive ? "ON" : "OFF"}
+                </span>
+              </div>
+              <div style={styles.row}>
+                <span>Heater Z1</span>
+                <span>{heaterZ1On ? "ON" : "OFF"}</span>
+              </div>
+              <div style={styles.row}>
+                <span>Heater Z2</span>
+                <span>{heaterZ2On ? "ON" : "OFF"}</span>
+              </div>
+              <div style={styles.row}>
+                <span>Motor temp</span>
+                <span>
                 {tm !== null ? (
                   <>
                     {tm.toFixed(1)}&nbsp;&deg;C

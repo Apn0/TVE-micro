@@ -26,7 +26,22 @@
         "alm_main": 16,
         "btn_start": 24,
         "btn_emergency": 25,
-        "led_status": 18
+        "led_status": null,
+        "led_red": null,
+        "led_green": null,
+        "led_yellow": null
+    },
+    "pwm": {
+        "enabled": true,
+        "bus": 1,
+        "address": 128,
+        "frequency": 1000,
+        "channels": {
+            "fan": 0,
+            "fan_nozzle": 1,
+            "pump": 2,
+            "led_status": 3
+        }
     },
     "extruder_sequence": {
         "start_delay_feed": 2.0,

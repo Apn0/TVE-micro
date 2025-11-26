@@ -1,3 +1,6 @@
+import math
+
+
 class SafetyMonitor:
     def __init__(self):
         self.LIMITS = {
@@ -10,18 +13,33 @@ class SafetyMonitor:
 
     def check(self, state, hal):
         """Returns (is_safe, reason)"""
-        
+
         # 1. Hardware Motor Fault (DM556 Alarm Signal)
         if hal.is_motor_fault():
             return self._trigger_alarm("DM556 DRIVER FAULT (Check Blinks)")
 
         # 2. Motor Overheat
-        if state["temps"].get("motor", 0) > self.LIMITS["temp_motor_max"]:
+        motor_temp = state["temps"].get("motor")
+        if motor_temp is None:
+            return self._trigger_alarm("MOTOR_TEMP_SENSOR_FAILURE")
+        motor_temp = self._safe_temp(state["temps"], "motor")
+
+        if motor_temp is None:
+            return self._trigger_alarm("MOTOR_SENSOR_FAILURE")
+
+        if motor_temp > self.LIMITS["temp_motor_max"]:
             return self._trigger_alarm("MOTOR OVERHEAT")
 
         # 3. Runaway Heater
-        if state["temps"].get("t2", 0) > self.LIMITS["temp_heaters_max"] or \
-           state["temps"].get("t3", 0) > self.LIMITS["temp_heaters_max"]:
+        t2 = state["temps"].get("t2")
+        t3 = state["temps"].get("t3")
+        t2 = self._safe_temp(state["temps"], "t2")
+        t3 = self._safe_temp(state["temps"], "t3")
+
+        if t2 is None or t3 is None:
+            return self._trigger_alarm("HEATER_SENSOR_FAILURE")
+
+        if t2 > self.LIMITS["temp_heaters_max"] or t3 > self.LIMITS["temp_heaters_max"]:
             return self._trigger_alarm("HEATER THERMAL RUNAWAY")
 
         return True, "OK"
@@ -29,16 +47,16 @@ class SafetyMonitor:
     def guard_motor_temp(self, temps):
         """Ensure heaters are hot enough before allowing motor to run."""
 
-        heater_temps = []
-        for sensor in ("t2", "t3"):
-            temp = temps.get(sensor)
-            if temp is not None:
-                heater_temps.append(temp)
+        t2 = self._safe_temp(temps, "t2")
+        t3 = self._safe_temp(temps, "t3")
 
-        # If no heater readings are available, err on the side of safety.
-        max_heater_temp = max(heater_temps) if heater_temps else None
+        # Ensure both heater sensors are reporting before starting.
+        if t2 is None or t3 is None:
+            return self._trigger_alarm("HEATER_SENSOR_FAILURE")
 
-        if max_heater_temp is None or max_heater_temp < self.LIMITS["min_temp_for_motor"]:
+        min_heater_temp = min(t2, t3)
+
+        if min_heater_temp < self.LIMITS["min_temp_for_motor"]:
             return self._trigger_alarm("COLD_EXTRUSION_PROTECTION")
 
         return True, "OK"
@@ -47,6 +65,19 @@ class SafetyMonitor:
         self.alarm_active = True
         self.alarm_reason = reason
         return False, reason
+
+    def _safe_temp(self, temps, key):
+        """Return numeric temp value or None if missing/invalid."""
+
+        value = temps.get(key)
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+
+        if math.isnan(value):
+            return None
+
+        return value
 
     def reset(self):
         self.alarm_active = False

@@ -10,6 +10,7 @@ function Nav({ current, setView }) {
     "HISTORY",
     "I/O TEST",
     "SENSORS",
+    "GPIO",
     "SETTINGS",
     "GPIO",
   ];
