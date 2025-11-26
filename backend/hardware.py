@@ -406,8 +406,10 @@ class HardwareInterface:
             self._pwm = None
         self._pwm_available = self._pwm is not None and getattr(self._pwm, "available", False)
         # Only treat PWM channels as active when both enabled in config and the
-        # hardware/driver is actually available.
-        self._pwm_active = self.pwm_cfg.get("enabled", False) and self._pwm_available
+        # hardware/driver is actually available. This allows GPIO SSR control to
+        # remain active when PWM is disabled or the PCA9685 cannot be used.
+        self._pwm_active = bool(self.pwm_cfg.get("enabled", False) and self._pwm_available)
+        self._active_pwm_channels = self.pwm_channels if self._pwm_active else {}
 
         # Temp / averaging settings
         self.temp_poll_interval = 0.25
@@ -428,6 +430,11 @@ class HardwareInterface:
             self._setup_gpio()
         else:
             print("[HAL] Windows or no pins. Simulation Mode.")
+
+    def _is_pwm_channel_active(self, name: str) -> bool:
+        """Return True if the given logical output is using PWM right now."""
+
+        return self._pwm_active and name in self._active_pwm_channels
 
         # Threads (hardware + temperature)
         self.running = True
@@ -497,9 +504,9 @@ class HardwareInterface:
         outs = []
         for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump",
                     "step_main", "dir_main", "step_feed", "dir_feed"):
-            if key == "ssr_fan" and self._pwm_active and "fan" in self.pwm_channels:
+            if key == "ssr_fan" and self._is_pwm_channel_active("fan"):
                 continue
-            if key == "ssr_pump" and self._pwm_active and "pump" in self.pwm_channels:
+            if key == "ssr_pump" and self._is_pwm_channel_active("pump"):
                 continue
             if key in self.pins and self.pins[key] is not None:
                 outs.append(int(self.pins[key]))
@@ -520,7 +527,7 @@ class HardwareInterface:
         if (
             "led_status" in self.pins
             and self.pins["led_status"] is not None
-            and "led_status" not in self.pwm_channels
+            and not self._is_pwm_channel_active("led_status")
         ):
             GPIO.setup(int(self.pins["led_status"]), GPIO.OUT)
             GPIO.output(int(self.pins["led_status"]), GPIO.LOW)
@@ -633,9 +640,9 @@ class HardwareInterface:
 
         safe_out("ssr_z1", GPIO.HIGH if cycle < (self.heaters["z1"] / 100.0) else GPIO.LOW)
         safe_out("ssr_z2", GPIO.HIGH if cycle < (self.heaters["z2"] / 100.0) else GPIO.LOW)
-        if not (self._pwm_active and "fan" in self.pwm_channels):
+        if not self._is_pwm_channel_active("fan"):
             safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
-        if not (self._pwm_active and "pump" in self.pwm_channels):
+        if not self._is_pwm_channel_active("pump"):
             safe_out("ssr_pump", GPIO.HIGH if self.relays["pump"] else GPIO.LOW)
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
@@ -770,7 +777,7 @@ class HardwareInterface:
             self.motors[motor] = float(rpm)
 
     def set_pwm_output(self, name: str, duty: float):
-        if name not in self.pwm_channels:
+        if not self._is_pwm_channel_active(name):
             return
 
         duty = max(0.0, min(100.0, float(duty)))
@@ -802,7 +809,7 @@ class HardwareInterface:
     def set_relay(self, relay, state):
         if relay in self.relays:
             self.relays[relay] = bool(state)
-            if relay in self.pwm_channels:
+            if self._is_pwm_channel_active(relay):
                 self.set_pwm_output(relay, 100.0 if state else 0.0)
 
     def get_temps(self):
@@ -827,7 +834,7 @@ class HardwareInterface:
         return GPIO.input(int(pin)) == GPIO.LOW
 
     def set_led_state(self, led_name, state):
-        if led_name in self.pwm_channels:
+        if self._is_pwm_channel_active(led_name):
             self.set_pwm_output(led_name, 100.0 if state else 0.0)
             return
 
@@ -981,9 +988,9 @@ class HardwareInterface:
 
             safe_out("ssr_z1", GPIO.LOW)
             safe_out("ssr_z2", GPIO.LOW)
-            if not (self._pwm_active and "fan" in self.pwm_channels):
+            if not self._is_pwm_channel_active("fan"):
                 safe_out("ssr_fan", GPIO.LOW)
-            if not (self._pwm_active and "pump" in self.pwm_channels):
+            if not self._is_pwm_channel_active("pump"):
                 safe_out("ssr_pump", GPIO.LOW)
             # NOTE: We specifically DO NOT force led_status off here,
             # because we might want to blink it during an alarm state.
