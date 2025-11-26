@@ -5,6 +5,7 @@ import time
 import threading
 import copy
 import math
+import logging
 
 from flask import Flask, request, jsonify
 import atexit
@@ -81,6 +82,9 @@ DEFAULT_CONFIG = {
         "check_temp_before_start": True,
     },
 }
+
+logging.basicConfig(level=logging.INFO)
+app_logger = logging.getLogger("tve.backend.app")
 
 def _validate_pid_section(section: dict, name: str, errors: list[str]):
     result = copy.deepcopy(DEFAULT_CONFIG[name])
@@ -604,8 +608,8 @@ def control_loop():
                 snapshot = dict(state)
             try:
                 logger.log(snapshot, hal)
-            except:
-                pass
+            except Exception:
+                app_logger.exception("Failed to log snapshot while in alarm loop")
             time.sleep(0.05)
             continue
 
@@ -683,8 +687,8 @@ def control_loop():
                 snap = dict(state)
             try:
                 logger.log(snap, hal)
-            except:
-                pass
+            except Exception:
+                app_logger.exception("Failed to log periodic snapshot")
 
         time.sleep(0.05)
 
@@ -726,12 +730,12 @@ def shutdown():
             hal.set_motor_rpm("feed", 0)
             hal.set_relay("fan", False)
             hal.set_relay("pump", False)
-        except:
-            pass
+        except Exception:
+            app_logger.exception("Failed to put hardware into safe state during shutdown")
         try:
             hal.shutdown()
-        except:
-            pass
+        except Exception:
+            app_logger.exception("Failed to shutdown hardware cleanly")
     globals()["hal"] = None
     globals()["_control_thread"] = None
 
@@ -1174,7 +1178,8 @@ def control():
         try:
             with open(CONFIG_FILE, "w") as f:
                 json.dump(sys_config, f, indent=4)
-        except:
+        except Exception:
+            app_logger.exception("Failed to persist configuration to disk")
             return jsonify({"success": False, "msg": "SAVE_ERROR"})
 
     else:
@@ -1183,7 +1188,10 @@ def control():
     return jsonify({"success": True})
 
 if __name__ == "__main__":
-    debug = True
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    host = os.getenv("FLASK_RUN_HOST", "127.0.0.1")
+    port = int(os.getenv("FLASK_RUN_PORT", "5000"))
+
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         startup()
-    app.run(host="0.0.0.0", port=5000, debug=debug)
+    app.run(host=host, port=port, debug=debug)

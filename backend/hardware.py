@@ -53,6 +53,7 @@ except Exception:
 # --- Logical sensors ----------------------------------------------------------
 
 LOGICAL_SENSORS = ["t1", "t2", "t3", "motor"]
+hardware_logger = logging.getLogger("tve.backend.hardware")
 
 # --- Default sensor + ADC configuration ---------------------------------------
 
@@ -199,8 +200,8 @@ class ADS1115Driver:
         if self.bus is not None:
             try:
                 self.bus.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close ADS1115 bus: %s", exc)
             self.bus = None
 
 # --- PCA9685 PWM driver ------------------------------------------------------
@@ -304,8 +305,8 @@ class PCA9685Driver:
         if self.bus is not None:
             try:
                 self.bus.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close PCA9685 bus: %s", exc)
             self.bus = None
 
 # --- HardwareInterface --------------------------------------------------------
@@ -593,8 +594,8 @@ class HardwareInterface:
         heat_z1 = 0.1 if self.heaters["z1"] > 0 else -0.05
         heat_z2 = 0.1 if self.heaters["z2"] > 0 else -0.05
 
-        self.temps["t2"] += heat_z1 + random.uniform(-0.01, 0.01)
-        self.temps["t3"] += heat_z2 + random.uniform(-0.01, 0.01)
+        self.temps["t2"] += heat_z1 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
+        self.temps["t3"] += heat_z2 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
         self.temps["t1"] += (self.temps["t2"] - self.temps["t1"]) * 0.005
 
         if self.motors["main"] > 0:
@@ -715,7 +716,7 @@ class HardwareInterface:
             ) * 0.05
 
             for k in LOGICAL_SENSORS:
-                self.temps[k] += random.uniform(-0.05, 0.05)
+                self.temps[k] += random.uniform(-0.05, 0.05)  # nosec B311 - simulation noise only
 
     # --- Voltage -> temp -------------------------------------------------
 
@@ -980,13 +981,13 @@ class HardwareInterface:
         if getattr(self, "_ads", None) is not None:
             try:
                 self._ads.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close ADS driver during shutdown: %s", exc)
         if getattr(self, "_pwm", None) is not None:
             try:
                 self._pwm.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                hardware_logger.warning("Failed to close PWM driver during shutdown: %s", exc)
         if self.platform == "PI" and GPIO is not None:
             GPIO.cleanup()
 
