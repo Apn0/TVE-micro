@@ -640,7 +640,7 @@ class HardwareInterface:
                 time.sleep(self.temp_poll_interval)
                 continue
 
-            readings_by_logical: Dict[str, float] = {}
+            readings_by_logical: Dict[str, float | None] = {k: None for k in LOGICAL_SENSORS}
 
             for ch, cfg in self.sensor_config.items():
                 if not cfg.get("enabled", False):
@@ -651,15 +651,27 @@ class HardwareInterface:
 
                 volts = self._ads.read_voltage(ch)
                 if volts is None:
+                    readings_by_logical[logical] = None
                     continue
 
                 temp_raw = self._voltage_to_temp(volts, cfg)
                 temp_corr = cfg["corr_slope"] * temp_raw + cfg["corr_offset"]
+
+                if not math.isfinite(temp_raw) or not math.isfinite(temp_corr):
+                    readings_by_logical[logical] = None
+                    continue
+
                 readings_by_logical[logical] = temp_corr
 
             with self._temp_lock:
                 for logical, val in readings_by_logical.items():
                     samples = self._temp_samples.setdefault(logical, [])
+
+                    if val is None or not math.isfinite(val):
+                        samples.clear()
+                        self.temps[logical] = None
+                        continue
+
                     samples.append((now, float(val)))
 
                     cutoff = now - self.temp_avg_window

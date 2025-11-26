@@ -12,7 +12,7 @@ function Nav({ current, setView }) {
     "SENSORS",
     "GPIO",
     "SETTINGS",
-    "GPIO",
+    "WIRING CALIBRATION",
   ];
 
   return (
