@@ -33,12 +33,14 @@ class ControlLoopEdgeTests(unittest.TestCase):
         app_module.safety.reset()
         app_module._all_outputs_off()
         app_module.last_btn_start_state = False
+        app_module.last_btn_stop_state = False
         app_module._set_status("READY")
 
         self._wait_for_status("READY")
 
         self.hal._sim_btn_start = False
         self.hal._sim_btn_emergency = False
+        self.hal._sim_btn_stop = False
 
     def tearDown(self):
         app_module.sys_config["temp_settings"]["poll_interval"] = self._orig_poll
@@ -141,6 +143,9 @@ class ControlLoopEdgeTests(unittest.TestCase):
         with state_lock:
             self.assertEqual(state["status"], "READY")
             self.assertEqual(state["alarm_msg"], "")
+        deadline = time.time() + 1.0
+        while time.time() < deadline and not app_module.running_event.is_set():
+            time.sleep(0.05)
         self.assertTrue(app_module.running_event.is_set())
         self.assertEqual(self.hal.motors.get("main"), 0.0)
         self.assertEqual(self.hal.motors.get("feed"), 0.0)

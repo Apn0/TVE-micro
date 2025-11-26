@@ -473,11 +473,12 @@ def _set_status(new_status: str):
 
 
 def _latch_alarm(reason: str):
-    global last_btn_start_state
+    global last_btn_start_state, last_btn_stop_state
 
     running_event.clear()
     _all_outputs_off()
     last_btn_start_state = False
+    last_btn_stop_state = False
     with state_lock:
         state["status"] = "ALARM"
         state["alarm_msg"] = reason
@@ -488,9 +489,10 @@ def _ensure_hal_started():
     return True, None
 
 last_btn_start_state = False
+last_btn_stop_state = False
 
 def control_loop():
-    global last_btn_start_state, alarm_clear_pending
+    global last_btn_start_state, last_btn_stop_state, alarm_clear_pending
 
     last_poll_time = 0
     last_log_time = 0
@@ -533,6 +535,10 @@ def control_loop():
         btn_start = hal.get_button_state("btn_start")
         start_event = btn_start and not last_btn_start_state
         last_btn_start_state = btn_start
+
+        btn_stop = hal.get_button_state("btn_stop")
+        stop_event = btn_stop and not last_btn_stop_state
+        last_btn_stop_state = btn_stop
         should_poll = (now - last_poll_time) >= poll_interval or start_event
         if should_poll:
             last_poll_time = now
