@@ -85,6 +85,7 @@ function App() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [history, setHistory] = useState([]);
+  const HISTORY_RETENTION_MS = 1000 * 60 * 60 * 24 * 7; // keep a rolling 7-day window
   const keypad = useKeypad();
 
   // Status polling
@@ -106,12 +107,19 @@ function App() {
             temps: json.state?.temps || {},
             relays: json.state?.relays || {},
             motors: json.state?.motors || {},
+            fans: json.state?.fans || json.state?.cooling || {},
+            pwm: json.state?.pwm || {},
+            manual_duty_z1: json.state?.manual_duty_z1,
+            manual_duty_z2: json.state?.manual_duty_z2,
             target_z1: json.state?.target_z1,
             target_z2: json.state?.target_z2,
+            status: json.state?.status,
+            mode: json.state?.mode,
           };
           setHistory((prev) => {
-            const next = [...prev, entry];
-            return next.length > 600 ? next.slice(next.length - 600) : next;
+            const cutoff = entry.t - HISTORY_RETENTION_MS;
+            const trimmed = prev.filter((h) => h.t >= cutoff);
+            return [...trimmed, entry];
           });
         }
       } catch (e) {
