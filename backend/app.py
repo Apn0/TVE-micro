@@ -92,7 +92,7 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
         if param in section:
             try:
                 value = float(section[param])
-                if value < 0:
+                if not math.isfinite(value) or value < 0:
                     raise ValueError("PID parameters must be non-negative")
                 result[param] = value
             except (TypeError, ValueError):
@@ -464,8 +464,12 @@ def _all_outputs_off():
 
 def _set_status(new_status: str):
     with state_lock:
+        current_status = state.get("status")
         state["status"] = new_status
-        state["seq_start_time"] = time.time()
+        if new_status in ("READY", "RUNNING"):
+            state["seq_start_time"] = 0.0
+        elif current_status != new_status:
+            state["seq_start_time"] = time.time()
 
 
 def _latch_alarm(reason: str):
@@ -561,6 +565,7 @@ def control_loop():
             if not ok:
                 alarm_req = alarm_req or reason
 
+        stop_requested = False
         if (
             running_event.is_set()
             and not alarm_req
@@ -580,7 +585,12 @@ def control_loop():
                         alarm_req = reason
                 else:
                     _set_status("STARTING")
-        elif status in ("STARTING", "RUNNING"):
+            elif status == "RUNNING":
+                stop_requested = True
+        elif start_event and status in ("STARTING", "STOPPING"):
+            stop_requested = True
+
+        if stop_requested:
             _set_status("STOPPING")
 
         if alarm_req:
@@ -883,13 +893,12 @@ def control():
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
-        rpm = _safe_float(req.get("rpm", 0))
+        rpm = _coerce_finite(req.get("rpm", 0))
         if rpm is None:
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
-        rpm = _clamp(rpm, -5000.0, 5000.0)
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
-        if rpm is None or abs(rpm) > MAX_MOTOR_RPM:
+        if abs(rpm) > MAX_MOTOR_RPM:
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
         with state_lock:
             temps = dict(state["temps"])
@@ -933,10 +942,11 @@ def control():
 
     elif cmd == "SET_PWM_OUTPUT":
         name = req.get("name")
-        duty = _safe_float(req.get("duty", 0))
+        duty = _coerce_finite(req.get("duty", 0))
         if duty is None:
             return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
-        duty = _clamp(duty, 0.0, 100.0)
+        if duty < 0.0 or duty > MAX_PWM_DUTY:
+            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
         if name not in getattr(hal, "pwm_channels", {}):
             return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
         fresh, reason = _temps_fresh(request_time)
@@ -975,7 +985,7 @@ def control():
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
-        running_event.clear()
+        running_event.set()
         alarm_clear_pending = True
 
     elif cmd == "UPDATE_PID":
