@@ -17,6 +17,7 @@ class TestControlValidation(unittest.TestCase):
     def setUp(self):
         app.testing = True
         self.client = app.test_client()
+        self.client.post("/api/control", json={"command": "CLEAR_ALARM", "value": {}})
 
     def test_rejects_invalid_heater_duty(self):
         resp = self.client.post(
@@ -42,6 +43,17 @@ class TestControlValidation(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()["success"])
 
+    def test_rejects_non_finite_pid_values(self):
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "UPDATE_PID",
+                "value": {"zone": "z1", "params": {"kp": math.inf, "ki": math.nan}},
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+
     def test_rejects_invalid_pwm_duty(self):
         resp = self.client.post(
             "/api/control",
@@ -60,6 +72,45 @@ class TestControlValidation(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()["success"])
+
+    def test_rejects_non_finite_temp_settings(self):
+        before_cfg = dict(app_module.sys_config.get("temp_settings", {}))
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "SET_TEMP_SETTINGS",
+                "value": {"params": {"poll_interval": math.nan}},
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+        self.assertEqual(before_cfg, app_module.sys_config.get("temp_settings", {}))
+
+    def test_rejects_out_of_range_temp_settings(self):
+        before_cfg = dict(app_module.sys_config.get("temp_settings", {}))
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "SET_TEMP_SETTINGS",
+                "value": {"params": {"poll_interval": 1000.0}},
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+        self.assertEqual(before_cfg, app_module.sys_config.get("temp_settings", {}))
+
+    def test_rejects_invalid_logging_settings(self):
+        before_cfg = dict(app_module.sys_config.get("logging", {}))
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "SET_LOGGING_SETTINGS",
+                "value": {"params": {"interval": math.inf}},
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+        self.assertEqual(before_cfg, app_module.sys_config.get("logging", {}))
 
 
 if __name__ == "__main__":
