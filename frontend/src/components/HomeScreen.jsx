@@ -119,15 +119,41 @@ function HomeScreen({ data, sendCmd }) {
           </div>
         </div>
 
-        <div style={styles.metricGrid}>
-          <div style={styles.metricCard}>
+        {/* schematic + anchored cards */}
+        <div
+          style={{
+            position: "relative",
+            marginTop: "14px",
+            padding: "40px 0 90px",
+          }}
+        >
+          <div
+            style={{
+              ...styles.metricCard,
+              position: "absolute",
+              left: "3%",
+              top: 0,
+              minWidth: 160,
+              zIndex: 2,
+            }}
+          >
             <div style={styles.metricLabel}>Main motor</div>
             <div style={{ ...styles.metricValue, color: "#2ecc71" }}>
               {rpmDisplay(mainRpm)} RPM
             </div>
             <div style={{ color: "#8c9fb1", marginTop: 6 }}>Feeder {rpmDisplay(feedRpm)} RPM</div>
           </div>
-          <div style={styles.metricCard}>
+
+          <div
+            style={{
+              ...styles.metricCard,
+              position: "absolute",
+              left: "5%",
+              top: "60%",
+              minWidth: 180,
+              zIndex: 2,
+            }}
+          >
             <div style={styles.metricLabel}>Cooling fan</div>
             <div style={{ ...styles.metricValue, color: fanActive ? "#2ecc71" : "#7f8c8d" }}>
               {fanSpeed !== null ? `${rpmDisplay(fanSpeed)} RPM` : fanActive ? "ON" : "OFF"}
@@ -136,7 +162,17 @@ function HomeScreen({ data, sendCmd }) {
               Auto-cooling tied to main screw activity
             </div>
           </div>
-          <div style={styles.metricCard}>
+
+          <div
+            style={{
+              ...styles.metricCard,
+              position: "absolute",
+              left: "34%",
+              top: 0,
+              minWidth: 160,
+              zIndex: 2,
+            }}
+          >
             <div style={styles.metricLabel}>Heater Z1</div>
             <div style={{ ...styles.metricValue, color: heaterZ1On ? "#e74c3c" : "#7f8c8d" }}>
               {heaterZ1On ? "ON" : "OFF"}
@@ -145,7 +181,17 @@ function HomeScreen({ data, sendCmd }) {
               Target {data.state?.target_z1?.toFixed?.(0) ?? 0}&deg;C
             </div>
           </div>
-          <div style={styles.metricCard}>
+
+          <div
+            style={{
+              ...styles.metricCard,
+              position: "absolute",
+              left: "60%",
+              top: 0,
+              minWidth: 160,
+              zIndex: 2,
+            }}
+          >
             <div style={styles.metricLabel}>Heater Z2</div>
             <div style={{ ...styles.metricValue, color: heaterZ2On ? "#e74c3c" : "#7f8c8d" }}>
               {heaterZ2On ? "ON" : "OFF"}
@@ -154,10 +200,7 @@ function HomeScreen({ data, sendCmd }) {
               Target {data.state?.target_z2?.toFixed?.(0) ?? 0}&deg;C
             </div>
           </div>
-        </div>
 
-        {/* full-width schematic */}
-        <div>
           <svg width="100%" viewBox="0 0 600 140">
             {/* Motor */}
             <rect
