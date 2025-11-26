@@ -223,24 +223,6 @@ def _validate_sensor_section(
             f"Invalid sensor configuration for key {sensor_key}, using defaults"
         )
         return copy.deepcopy(default_section)
-def _validate_sensor_section(section: dict, errors: list[str]):
-    result = copy.deepcopy(section)
-    try:
-        result["enabled"] = bool(section.get("enabled", True))
-        result["logical"] = str(section.get("logical", ""))
-        result["r_fixed"] = float(section.get("r_fixed", 0))
-        result["r_25"] = float(section.get("r_25", 0))
-        result["beta"] = float(section.get("beta", 0))
-        result["v_ref"] = float(section.get("v_ref", 0))
-        result["wiring"] = str(section.get("wiring", ""))
-        result["decimals"] = int(section.get("decimals", 1))
-        cal_points = section.get("cal_points", [])
-        if not isinstance(cal_points, list):
-            raise ValueError
-        result["cal_points"] = cal_points
-    except (TypeError, ValueError):
-        errors.append("Invalid sensor configuration detected, using defaults for sensor")
-        return None
     return result
 
 
@@ -264,10 +246,6 @@ def _validate_sensors(section: dict, errors: list[str]):
         )
         validated = _validate_sensor_section(cfg, default_section, errors, str(idx))
         result[idx] = validated
-
-        validated = _validate_sensor_section(cfg, errors)
-        if validated:
-            result[idx] = validated
     if not result:
         return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
     return result
@@ -375,18 +353,12 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
-    raw_cfg: dict
     raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
         except Exception:
-            raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
-    else:
-        raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
-
-    return validate_config(raw_cfg)
             raw_cfg = {}
 
     if not isinstance(raw_cfg, dict):
@@ -897,13 +869,11 @@ def control():
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
         rpm = _safe_float(req.get("rpm", 0))
-        if rpm is None:
-            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
-        rpm = _clamp(rpm, -5000.0, 5000.0)
-        if motor not in ("main", "feed"):
-            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         if rpm is None or abs(rpm) > MAX_MOTOR_RPM:
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
+        rpm = _clamp(rpm, -MAX_MOTOR_RPM, MAX_MOTOR_RPM)
+        if motor not in ("main", "feed"):
+            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         with state_lock:
             temps = dict(state["temps"])
             temps_timestamp = state.get("temps_timestamp", 0.0)
@@ -947,7 +917,7 @@ def control():
     elif cmd == "SET_PWM_OUTPUT":
         name = req.get("name")
         duty = _safe_float(req.get("duty", 0))
-        if duty is None:
+        if duty is None or not (0.0 <= duty <= 100.0):
             return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
         duty = _clamp(duty, 0.0, 100.0)
         if name not in getattr(hal, "pwm_channels", {}):
@@ -988,7 +958,6 @@ def control():
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
-        running_event.clear()
         alarm_clear_pending = True
 
     elif cmd == "UPDATE_PID":
@@ -1037,14 +1006,6 @@ def control():
                 400,
             )
         sys_config["extruder_sequence"] = validated
-        sanitized_seq = {}
-        for key in ("start_delay_feed", "stop_delay_motor"):
-            if key in seq:
-                val = _coerce_finite(seq.get(key))
-                if val is None or val < 0:
-                    return jsonify({"success": False, "msg": "INVALID_SEQUENCE"}), 400
-                sanitized_seq[key] = val
-        sys_config["extruder_sequence"].update(sanitized_seq)
 
     elif cmd == "UPDATE_DM556":
         params = req.get("params", {})
@@ -1083,18 +1044,17 @@ def control():
 
     elif cmd == "SET_LOGGING_SETTINGS":
         params = req.get("params", {})
-        if not isinstance(params, dict):
-            return jsonify({"success": False, "msg": "INVALID_LOGGING_PARAMS"}), 400
-        validation_errors: list[str] = []
-        current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
-        validated = _validate_logging({**current, **params}, validation_errors)
-        if validation_errors:
-            return (
-                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
-                400,
-            )
-        sys_config["logging"] = validated
-        logger.configure(validated)
+        if "interval" in params:
+            interval = _coerce_finite(params.get("interval"))
+            if interval is None or interval <= 0:
+                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
+            sys_config["logging"]["interval"] = interval
+        if "flush_interval" in params:
+            flush_interval = _coerce_finite(params.get("flush_interval"))
+            if flush_interval is None or flush_interval <= 0:
+                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
+            sys_config["logging"]["flush_interval"] = flush_interval
+        logger.configure(sys_config["logging"])
 
     elif cmd == "GPIO_CONFIG":
         pin = req.get("pin")

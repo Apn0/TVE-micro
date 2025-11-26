@@ -57,6 +57,11 @@ class ControlLoopEdgeTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"State did not reach {expected}, last={current}")
 
+    def _wait_for_event(self, event, timeout: float = 2.0):
+        if event.wait(timeout):
+            return
+        self.fail(f"Event {event} was not set within {timeout}s")
+
     @unittest.skip("Start button edge timing relies on background loop stability in simulation")
     def test_start_button_edge_processed_between_polls(self):
         app_module.sys_config["temp_settings"]["poll_interval"] = 1.0
@@ -127,6 +132,8 @@ class ControlLoopEdgeTests(unittest.TestCase):
 
         resp = self.client.post("/api/control", json={"command": "CLEAR_ALARM"})
         self.assertEqual(resp.status_code, 200)
+
+        self._wait_for_event(app_module.running_event)
 
         with state_lock:
             self.assertEqual(state["status"], "READY")
