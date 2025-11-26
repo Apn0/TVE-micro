@@ -396,8 +396,10 @@ class HardwareInterface:
             self._pwm = None
         self._pwm_available = self._pwm is not None and getattr(self._pwm, "available", False)
         # Only treat PWM channels as active when both enabled in config and the
-        # hardware/driver is actually available.
+        # hardware/driver is actually available. This allows GPIO SSR control to
+        # remain active when PWM is disabled or the PCA9685 cannot be used.
         self._pwm_active = bool(self.pwm_cfg.get("enabled", False) and self._pwm_available)
+        self._active_pwm_channels = self.pwm_channels if self._pwm_active else {}
 
         # Temp / averaging settings
         self.temp_poll_interval = 0.25
@@ -421,7 +423,7 @@ class HardwareInterface:
     def _is_pwm_channel_active(self, name: str) -> bool:
         """Return True if the given logical output is using PWM right now."""
 
-        return self._pwm_active and name in self.pwm_channels
+        return self._pwm_active and name in self._active_pwm_channels
 
         # Threads (hardware + temperature)
         self.running = True
