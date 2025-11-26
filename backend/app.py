@@ -540,7 +540,7 @@ def control_loop():
 
             with state_lock:
                 state["temps"] = temps
-                state["temps_timestamp"] = now
+                state["temps_timestamp"] = hal.get_last_temp_timestamp() or now
                 status = state["status"]
                 mode = state["mode"]
                 target_z1 = state["target_z1"]
@@ -675,21 +675,32 @@ def control_loop():
             freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
             temps_age = now - temps_timestamp if temps_timestamp else float("inf")
             temps_fresh = temps_timestamp and temps_age <= freshness_timeout
+            stale_detected = not temps_fresh
 
-            def apply_heater(temp_val, controller, heater_name):
-                if not temps_fresh or temp_val is None:
+            def apply_heater(temp_val, controller, heater_name, logical):
+                sensor_ts = hal.get_sensor_timestamp(logical)
+                sensor_age = now - sensor_ts if sensor_ts else float("inf")
+                sensor_fresh = sensor_ts and sensor_age <= freshness_timeout
+
+                if not temps_fresh or not sensor_fresh or temp_val is None:
                     controller.reset()
                     hal.set_heater_duty(heater_name, 0.0)
-                    return
+                    return not sensor_fresh
 
                 out = controller.compute(temp_val)
                 if out is None:
-                    return
+                    return False
 
                 hal.set_heater_duty(heater_name, out)
+                return False
 
-            apply_heater(t2, pid_z1, "z1")
-            apply_heater(t3, pid_z2, "z2")
+            stale_detected = apply_heater(t2, pid_z1, "z1", "t2") or stale_detected
+            stale_detected = apply_heater(t3, pid_z2, "z2", "t3") or stale_detected
+
+            if stale_detected:
+                _latch_alarm(alarm_req or "TEMP_DATA_STALE")
+                time.sleep(0.05)
+                continue
 
         if now - last_log_time >= log_interval:
             last_log_time = now
