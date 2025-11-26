@@ -99,6 +99,7 @@ sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
 
 running_event = threading.Event()
 running_event.set()
+alarm_clear_pending = False
 
 hal: HardwareInterface | None = None
 
@@ -163,7 +164,7 @@ def _ensure_hal_started():
 last_btn_start_state = False
 
 def control_loop():
-    global last_btn_start_state
+    global last_btn_start_state, alarm_clear_pending
 
     last_poll_time = 0
     last_log_time = 0
@@ -183,6 +184,21 @@ def control_loop():
 
         btn_em = hal.get_button_state("btn_emergency")
         alarm_req = "EMERGENCY_STOP_BTN" if btn_em else None
+
+        if alarm_clear_pending:
+            if btn_em:
+                _latch_alarm("EMERGENCY_STOP_BTN")
+                alarm_clear_pending = False
+                time.sleep(0.05)
+                continue
+            running_event.set()
+            safety.reset()
+            with state_lock:
+                state["status"] = "READY"
+                state["alarm_msg"] = ""
+            alarm_clear_pending = False
+            time.sleep(0.05)
+            continue
 
         btn_start = hal.get_button_state("btn_start")
         start_event = btn_start and not last_btn_start_state
@@ -429,7 +445,7 @@ def control():
     cmd = data.get("command")
     req = data.get("value", {})
 
-    global state, sys_config
+    global state, sys_config, alarm_clear_pending
 
     ok, resp = _ensure_hal_started()
     if not ok:
@@ -532,7 +548,8 @@ def control():
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
-        running_event.set()
+        running_event.clear()
+        alarm_clear_pending = True
 
     elif cmd == "UPDATE_PID":
         zone = req.get("zone")
