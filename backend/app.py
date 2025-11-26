@@ -872,7 +872,9 @@ def control():
     with state_lock:
         alarm = state["status"] == "ALARM"
 
-    if alarm and cmd not in ("CLEAR_ALARM", "EMERGENCY_STOP"):
+    # Allow setpoint adjustments while latched in ALARM so the operator can
+    # safely reduce heater targets without having to clear alarms first.
+    if alarm and cmd not in ("CLEAR_ALARM", "EMERGENCY_STOP", "SET_TARGET"):
         return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
 
     if cmd == "SET_MODE":
