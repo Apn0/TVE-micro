@@ -260,6 +260,10 @@ class HardwareInterface:
         self.temp_avg_window = 2.0
         self.temp_decimals_default = 1
 
+        # Simple in-memory store for simulated GPIO values when running without
+        # real hardware. Keys are BCM pin numbers, values are booleans.
+        self._sim_gpio_state: Dict[int, bool] = {}
+
         self._temp_lock = threading.Lock()
         self._temp_samples: Dict[str, List[tuple]] = {k: [] for k in LOGICAL_SENSORS}
 
@@ -358,6 +362,52 @@ class HardwareInterface:
             GPIO.output(int(self.pins["led_status"]), GPIO.LOW)
 
         print("[HAL] GPIO Initialized with Config.")
+
+    # --- Generic GPIO helpers (for manual poking / diagnostics) -----------
+
+    def configure_pin(self, pin: int, direction: str = "OUT", pull: str | None = None):
+        """Configure a GPIO pin on the fly.
+
+        Args:
+            pin: BCM pin number
+            direction: "OUT" or "IN"
+            pull: Optional pull setting ("UP", "DOWN", or None)
+        """
+        if pin is None:
+            return
+
+        if self.platform == "PI" and GPIO is not None:
+            mode = GPIO.OUT if direction == "OUT" else GPIO.IN
+            kwargs = {}
+            if direction == "IN" and pull:
+                if pull == "UP":
+                    kwargs["pull_up_down"] = GPIO.PUD_UP
+                elif pull == "DOWN":
+                    kwargs["pull_up_down"] = GPIO.PUD_DOWN
+            GPIO.setup(int(pin), mode, **kwargs)
+        else:
+            # Simulated environment, just ensure default value exists
+            self._sim_gpio_state.setdefault(int(pin), False)
+
+    def gpio_write(self, pin: int, state: bool):
+        """Set a pin high/low. Assumes output mode."""
+        if pin is None:
+            return
+        if self.platform == "PI" and GPIO is not None:
+            GPIO.output(int(pin), GPIO.HIGH if state else GPIO.LOW)
+        else:
+            self._sim_gpio_state[int(pin)] = bool(state)
+
+    def gpio_read(self, pin: int) -> bool:
+        """Read a pin. If not configured, returns False."""
+        if pin is None:
+            return False
+        if self.platform == "PI" and GPIO is not None:
+            try:
+                return bool(GPIO.input(int(pin)))
+            except Exception:
+                return False
+        return bool(self._sim_gpio_state.get(int(pin), False))
 
     # --- Hardware loop (motors, relays, fault) ---------------------------
 

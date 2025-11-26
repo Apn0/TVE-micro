@@ -48,6 +48,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
+import GpioScreen from "./components/GpioScreen";
 
 function App() {
   const [view, setView] = useState("HOME");
@@ -104,8 +105,10 @@ function App() {
       if (!json.success && json.ok !== true) throw new Error(json.msg || "Failed");
 
       setMessage(command + " OK");
+      return json;
     } catch (e) {
       setError("Cmd error: " + e.message);
+      throw e;
     }
   };
 
@@ -121,6 +124,7 @@ function App() {
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
+          {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
           {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
         </div>
       ) : (
