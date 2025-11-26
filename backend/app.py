@@ -63,6 +63,7 @@ DEFAULT_CONFIG = {
         "avg_window": 2.0,
         "use_average": True,
         "decimals_default": 1,
+        "freshness_timeout": 1.0,
     },
     "logging": {
         "interval": 0.25,
@@ -92,6 +93,11 @@ def load_config():
     if "extruder_sequence" not in cfg:
         cfg["extruder_sequence"] = copy.deepcopy(DEFAULT_CONFIG["extruder_sequence"])
 
+    cfg["temp_settings"] = {
+        **DEFAULT_CONFIG.get("temp_settings", {}),
+        **(cfg.get("temp_settings") or {}),
+    }
+
     return cfg
 
 sys_config = load_config()
@@ -119,6 +125,7 @@ state = {
     "manual_duty_z1": 0.0,
     "manual_duty_z2": 0.0,
     "temps": {},
+    "temps_timestamp": 0.0,
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
     "pwm": {k: 0.0 for k in sys_config.get("pwm", {}).get("channels", {})},
@@ -210,6 +217,7 @@ def control_loop():
 
             with state_lock:
                 state["temps"] = temps
+                state["temps_timestamp"] = now
                 status = state["status"]
                 mode = state["mode"]
                 target_z1 = state["target_z1"]
@@ -248,6 +256,8 @@ def control_loop():
             mode = state["mode"]
             target_z1 = state["target_z1"]
             target_z2 = state["target_z2"]
+            temps = dict(state.get("temps", {}))
+            temps_timestamp = state.get("temps_timestamp", 0.0)
 
         now = time.time()
 
@@ -296,25 +306,30 @@ def control_loop():
                     state["status"] = "READY"
 
         if mode == "AUTO":
-            t2 = state["temps"].get("t2")
-            t3 = state["temps"].get("t3")
+            t2 = temps.get("t2")
+            t3 = temps.get("t3")
 
             pid_z1.setpoint = target_z1
             pid_z2.setpoint = target_z2
 
-            if t2 is not None:
-                out = pid_z1.compute(t2)
-                if out is not None:
-                    hal.set_heater_duty("z1", out)
-            else:
-                hal.set_heater_duty("z1", 0.0)
+            freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
+            temps_age = now - temps_timestamp if temps_timestamp else float("inf")
+            temps_fresh = temps_timestamp and temps_age <= freshness_timeout
 
-            if t3 is not None:
-                out = pid_z2.compute(t3)
-                if out is not None:
-                    hal.set_heater_duty("z2", out)
-            else:
-                hal.set_heater_duty("z2", 0.0)
+            def apply_heater(temp_val, controller, heater_name):
+                if not temps_fresh or temp_val is None:
+                    controller.reset()
+                    hal.set_heater_duty(heater_name, 0.0)
+                    return
+
+                out = controller.compute(temp_val)
+                if out is None:
+                    return
+
+                hal.set_heater_duty(heater_name, out)
+
+            apply_heater(t2, pid_z1, "z1")
+            apply_heater(t3, pid_z2, "z2")
 
         if now - last_log_time >= log_interval:
             last_log_time = now
