@@ -542,6 +542,19 @@ function HomeScreen({ data, sendCmd, keypad }) {
 
       <div style={styles.panel}>
         <h3>Quick actions</h3>
+        {hasAlarm && (
+          <div style={{marginBottom: '10px'}}>
+            <div style={{color: '#e74c3c', fontWeight: 'bold', marginBottom: '5px'}}>
+              ALARM: {data.state?.alarm_msg || "Unknown alarm"}
+            </div>
+            <button
+              style={{...styles.button, background: '#f1c40f', color: '#000'}}
+              onClick={() => sendCmd("CLEAR_ALARM")}
+            >
+              Clear Alarm
+            </button>
+          </div>
+        )}
         <button
           style={styles.button}
           onClick={() =>
