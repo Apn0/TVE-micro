@@ -218,30 +218,12 @@ def _validate_sensor_section(
                 result["cal_points"] = validated_points
             else:
                 raise ValueError
+        return result
     except (TypeError, ValueError):
         errors.append(
             f"Invalid sensor configuration for key {sensor_key}, using defaults"
         )
         return copy.deepcopy(default_section)
-def _validate_sensor_section(section: dict, errors: list[str]):
-    result = copy.deepcopy(section)
-    try:
-        result["enabled"] = bool(section.get("enabled", True))
-        result["logical"] = str(section.get("logical", ""))
-        result["r_fixed"] = float(section.get("r_fixed", 0))
-        result["r_25"] = float(section.get("r_25", 0))
-        result["beta"] = float(section.get("beta", 0))
-        result["v_ref"] = float(section.get("v_ref", 0))
-        result["wiring"] = str(section.get("wiring", ""))
-        result["decimals"] = int(section.get("decimals", 1))
-        cal_points = section.get("cal_points", [])
-        if not isinstance(cal_points, list):
-            raise ValueError
-        result["cal_points"] = cal_points
-    except (TypeError, ValueError):
-        errors.append("Invalid sensor configuration detected, using defaults for sensor")
-        return None
-    return result
 
 
 def _validate_sensors(section: dict, errors: list[str]):
@@ -264,10 +246,6 @@ def _validate_sensors(section: dict, errors: list[str]):
         )
         validated = _validate_sensor_section(cfg, default_section, errors, str(idx))
         result[idx] = validated
-
-        validated = _validate_sensor_section(cfg, errors)
-        if validated:
-            result[idx] = validated
     if not result:
         return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
     return result
@@ -385,12 +363,6 @@ def load_config():
             raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
     else:
         raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
-
-    return validate_config(raw_cfg)
-            raw_cfg = {}
-
-    if not isinstance(raw_cfg, dict):
-        raw_cfg = {}
 
     return validate_config(raw_cfg)
 
