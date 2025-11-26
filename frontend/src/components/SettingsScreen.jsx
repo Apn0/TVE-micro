@@ -15,12 +15,14 @@ function SettingsScreen({ data, sendCmd, setView }) {
     avg_window: 2.0,
     ...data.config?.temp_settings,
   });
+  const [tempDirty, setTempDirty] = useState(false);
 
   const [logSettings, setLogSettings] = useState({
     interval: 0.25,
     flush_interval: 60.0,
     ...data.config?.logging,
   });
+  const [logDirty, setLogDirty] = useState(false);
 
   const [seq, setSeq] = useState({
     start_delay_feed: 2.0,
@@ -33,14 +35,23 @@ function SettingsScreen({ data, sendCmd, setView }) {
     ...(data.config?.pins || {}),
   });
 
+  const shallowEqual = (a, b) => {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every((k) => a[k] === b[k]);
+  };
+
   useEffect(() => {
-    if (data.config?.temp_settings) {
-      setTempSettings((prev) => ({ ...prev, ...data.config.temp_settings }));
+    if (data.config?.temp_settings && !tempDirty) {
+      const incoming = { poll_interval: 0.25, avg_window: 2.0, ...data.config.temp_settings };
+      setTempSettings((prev) => (shallowEqual(prev, incoming) ? prev : incoming));
     }
-    if (data.config?.logging) {
-      setLogSettings((prev) => ({ ...prev, ...data.config.logging }));
+    if (data.config?.logging && !logDirty) {
+      const incoming = { interval: 0.25, flush_interval: 60.0, ...data.config.logging };
+      setLogSettings((prev) => (shallowEqual(prev, incoming) ? prev : incoming));
     }
-  }, [data.config]);
+  }, [data.config, tempDirty, logDirty]);
 
   const getSwitchState = () => {
     const swCurr = DM556_TABLE.current[dm.current_peak] || [false, false, false];
@@ -49,8 +60,14 @@ function SettingsScreen({ data, sendCmd, setView }) {
   };
 
   const handleApplyDM = () => sendCmd("UPDATE_DM556", { params: dm });
-  const handleApplyTemp = () => sendCmd("SET_TEMP_SETTINGS", { params: tempSettings });
-  const handleApplyLog = () => sendCmd("SET_LOGGING_SETTINGS", { params: logSettings });
+  const handleApplyTemp = async () => {
+    await sendCmd("SET_TEMP_SETTINGS", { params: tempSettings });
+    setTempDirty(false);
+  };
+  const handleApplyLog = async () => {
+    await sendCmd("SET_LOGGING_SETTINGS", { params: logSettings });
+    setLogDirty(false);
+  };
   const handleSaveConfig = () => sendCmd("SAVE_CONFIG");
   const handleSeqApply = () => sendCmd("UPDATE_EXTRUDER_SEQ", { sequence: seq });
   const handlePinsApply = () => sendCmd("UPDATE_PINS", { pins });
@@ -86,9 +103,10 @@ function SettingsScreen({ data, sendCmd, setView }) {
               min="0.05"
               style={styles.input}
               value={tempSettings.poll_interval}
-              onChange={(e) =>
-                setTempSettings({ ...tempSettings, poll_interval: parseFloat(e.target.value) })
-              }
+              onChange={(e) => {
+                setTempDirty(true);
+                setTempSettings({ ...tempSettings, poll_interval: parseFloat(e.target.value) });
+              }}
             />
             <div style={styles.label}>Averaging Window (s)</div>
             <input
@@ -97,9 +115,10 @@ function SettingsScreen({ data, sendCmd, setView }) {
               min="0.0"
               style={styles.input}
               value={tempSettings.avg_window}
-              onChange={(e) =>
-                setTempSettings({ ...tempSettings, avg_window: parseFloat(e.target.value) })
-              }
+              onChange={(e) => {
+                setTempDirty(true);
+                setTempSettings({ ...tempSettings, avg_window: parseFloat(e.target.value) });
+              }}
             />
             <button style={{ ...styles.button, marginTop: "10px" }} onClick={handleApplyTemp}>
               Apply Polling Config
@@ -115,9 +134,10 @@ function SettingsScreen({ data, sendCmd, setView }) {
               min="0.05"
               style={styles.input}
               value={logSettings.interval}
-              onChange={(e) =>
-                setLogSettings({ ...logSettings, interval: parseFloat(e.target.value) })
-              }
+              onChange={(e) => {
+                setLogDirty(true);
+                setLogSettings({ ...logSettings, interval: parseFloat(e.target.value) });
+              }}
             />
             <div style={styles.label}>Flush to Disk Interval (s)</div>
             <input
@@ -126,9 +146,10 @@ function SettingsScreen({ data, sendCmd, setView }) {
               min="1"
               style={styles.input}
               value={logSettings.flush_interval}
-              onChange={(e) =>
-                setLogSettings({ ...logSettings, flush_interval: parseFloat(e.target.value) })
-              }
+              onChange={(e) => {
+                setLogDirty(true);
+                setLogSettings({ ...logSettings, flush_interval: parseFloat(e.target.value) });
+              }}
             />
             <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: "5px" }}>
               {'Flushes early if temperature deviates > 2 SD.'}
