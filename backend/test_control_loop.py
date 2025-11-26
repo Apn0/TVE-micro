@@ -57,6 +57,11 @@ class ControlLoopEdgeTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"State did not reach {expected}, last={current}")
 
+    def _pulse_start_button(self):
+        self.hal._sim_btn_start = True
+        time.sleep(0.05)
+        self.hal._sim_btn_start = False
+
     @unittest.skip("Start button edge timing relies on background loop stability in simulation")
     def test_start_button_edge_processed_between_polls(self):
         app_module.sys_config["temp_settings"]["poll_interval"] = 1.0
@@ -134,6 +139,40 @@ class ControlLoopEdgeTests(unittest.TestCase):
         self.assertTrue(app_module.running_event.is_set())
         self.assertEqual(self.hal.motors.get("main"), 0.0)
         self.assertEqual(self.hal.motors.get("feed"), 0.0)
+
+    def test_ready_state_remains_stable_without_commands(self):
+        time.sleep(0.2)
+
+        with state_lock:
+            self.assertEqual(state["status"], "READY")
+            self.assertEqual(state["seq_start_time"], 0.0)
+            self.assertEqual(state["motors"]["main"], 0.0)
+            self.assertEqual(state["motors"]["feed"], 0.0)
+        self.assertTrue(app_module.running_event.is_set())
+
+        time.sleep(0.2)
+        with state_lock:
+            self.assertEqual(state["status"], "READY")
+        self.assertTrue(app_module.running_event.is_set())
+
+    def test_explicit_stop_follows_running_state(self):
+        self._pulse_start_button()
+        self._wait_for_status("RUNNING")
+
+        # Ensure RUNNING remains steady without additional input
+        time.sleep(0.2)
+        with state_lock:
+            self.assertEqual(state["status"], "RUNNING")
+
+        # Second button press requests a stop
+        self._pulse_start_button()
+        self._wait_for_status("READY")
+
+        with state_lock:
+            self.assertEqual(state["status"], "READY")
+            self.assertEqual(state["motors"]["main"], 0.0)
+            self.assertEqual(state["motors"]["feed"], 0.0)
+        self.assertTrue(app_module.running_event.is_set())
 
 
 if __name__ == "__main__":

@@ -464,8 +464,12 @@ def _all_outputs_off():
 
 def _set_status(new_status: str):
     with state_lock:
+        current_status = state.get("status")
         state["status"] = new_status
-        state["seq_start_time"] = time.time()
+        if new_status in ("READY", "RUNNING"):
+            state["seq_start_time"] = 0.0
+        elif current_status != new_status:
+            state["seq_start_time"] = time.time()
 
 
 def _latch_alarm(reason: str):
@@ -561,6 +565,7 @@ def control_loop():
             if not ok:
                 alarm_req = alarm_req or reason
 
+        stop_requested = False
         if (
             running_event.is_set()
             and not alarm_req
@@ -580,7 +585,12 @@ def control_loop():
                         alarm_req = reason
                 else:
                     _set_status("STARTING")
-        elif status in ("STARTING", "RUNNING"):
+            elif status == "RUNNING":
+                stop_requested = True
+        elif start_event and status in ("STARTING", "STOPPING"):
+            stop_requested = True
+
+        if stop_requested:
             _set_status("STOPPING")
 
         if alarm_req:
@@ -964,7 +974,7 @@ def control():
             state["status"] = "READY"
             state["alarm_msg"] = ""
         safety.reset()
-        running_event.clear()
+        running_event.set()
         alarm_clear_pending = True
 
     elif cmd == "UPDATE_PID":
