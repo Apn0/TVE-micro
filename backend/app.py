@@ -397,7 +397,7 @@ def _temps_fresh(now: float) -> tuple[bool, str | None]:
     poll_interval = float(sys_config.get("temp_settings", {}).get("poll_interval", 0.25))
     allowed_age = max(1.0, poll_interval * 4)
     with state_lock:
-        ts = state.get("temps_ts", 0.0)
+        ts = state.get("temps_timestamp", 0.0)
     if ts <= 0 or now - ts > allowed_age:
         return False, "TEMP_DATA_STALE"
     return True, None
@@ -839,12 +839,12 @@ def control():
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
         with state_lock:
             temps = dict(state["temps"])
-            temps_ts = state.get("temps_ts", 0.0)
+            temps_timestamp = state.get("temps_timestamp", 0.0)
         if rpm != 0:
             fresh, reason = _temps_fresh(request_time)
             if not fresh:
                 return jsonify({"success": False, "msg": reason}), 400
-            if request_time - temps_ts > 0:
+            if request_time - temps_timestamp > 0:
                 allowed, reason = safety.guard_motor_temp(temps)
             else:
                 allowed, reason = False, "TEMP_DATA_STALE"
