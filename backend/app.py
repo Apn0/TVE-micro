@@ -312,15 +312,13 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
-    raw_cfg: dict
+    raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
         except Exception:
             raw_cfg = {}
-    else:
-        raw_cfg = {}
 
     if not isinstance(raw_cfg, dict):
         raw_cfg = {}
