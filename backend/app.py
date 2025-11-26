@@ -39,8 +39,8 @@ DEFAULT_CONFIG = {
         "idle_half": True,
     },
     "pins": {
-        "ssr_z1": 17,
-        "ssr_z2": 27,
+        "ssr_z1": None,
+        "ssr_z2": None,
         "ssr_fan": 22,
         "ssr_pump": 23,
         "step_main": 5,
@@ -55,10 +55,12 @@ DEFAULT_CONFIG = {
         "address": 0x40,
         "frequency": 1000,
         "channels": {
-            "fan": 0,
-            "fan_nozzle": 1,
-            "pump": 2,
-            "led_status": 3,
+            "z1": 0,
+            "z2": 1,
+            "fan": 2,
+            "fan_nozzle": 3,
+            "pump": 4,
+            "led_status": 5,
         },
     },
     "sensors": {
@@ -137,6 +139,9 @@ def _validate_pins(section: dict, errors: list[str]):
     result = copy.deepcopy(DEFAULT_CONFIG["pins"])
     for name, default_pin in result.items():
         if name in section:
+            if section[name] is None:
+                result[name] = None
+                continue
             try:
                 pin = int(section[name])
                 if 0 <= pin <= 40:
