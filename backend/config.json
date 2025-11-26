@@ -15,8 +15,8 @@
         "microsteps": 1600
     },
     "pins": {
-        "ssr_z1": 17,
-        "ssr_z2": 27,
+        "ssr_z1": null,
+        "ssr_z2": null,
         "ssr_fan": 22,
         "ssr_pump": 23,
         "step_main": 5,
@@ -37,10 +37,12 @@
         "address": 64,
         "frequency": 1000,
         "channels": {
-            "fan": 0,
-            "fan_nozzle": 1,
-            "pump": 2,
-            "led_status": 3
+            "z1": 0,
+            "z2": 1,
+            "fan": 2,
+            "fan_nozzle": 3,
+            "pump": 4,
+            "led_status": 5
         }
     },
     "extruder_sequence": {

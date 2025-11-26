@@ -21,7 +21,7 @@ Returns current state snapshot and validated configuration.
     "temps_timestamp": 0.0,
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": false, "pump": false},
-    "pwm": {"fan": 0.0, "fan_nozzle": 0.0, "pump": 0.0, "led_status": 0.0},
+    "pwm": {"z1": 0.0, "z2": 0.0, "fan": 0.0, "fan_nozzle": 0.0, "pump": 0.0, "led_status": 0.0},
     "seq_start_time": 0.0
   },
   "config": { /* validated config.json content */ }

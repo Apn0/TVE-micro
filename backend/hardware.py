@@ -114,10 +114,12 @@ DEFAULT_PWM_CONFIG: Dict[str, Any] = {
     "address": 0x40,
     "frequency": 1000,
     "channels": {
-        "fan": 0,
-        "fan_nozzle": 1,
-        "pump": 2,
-        "led_status": 3,
+        "z1": 0,
+        "z2": 1,
+        "fan": 2,
+        "fan_nozzle": 3,
+        "pump": 4,
+        "led_status": 5,
     },
 }
 
@@ -511,6 +513,10 @@ class HardwareInterface:
         outs = []
         for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump",
                     "step_main", "dir_main", "step_feed", "dir_feed"):
+            if key == "ssr_z1" and self._is_pwm_channel_active("z1"):
+                continue
+            if key == "ssr_z2" and self._is_pwm_channel_active("z2"):
+                continue
             if key == "ssr_fan" and self._is_pwm_channel_active("fan"):
                 continue
             if key == "ssr_pump" and self._is_pwm_channel_active("pump"):
@@ -645,8 +651,15 @@ class HardwareInterface:
             if pin is not None:
                 GPIO.output(int(pin), value)
 
-        safe_out("ssr_z1", GPIO.HIGH if cycle < (self.heaters["z1"] / 100.0) else GPIO.LOW)
-        safe_out("ssr_z2", GPIO.HIGH if cycle < (self.heaters["z2"] / 100.0) else GPIO.LOW)
+        if self._is_pwm_channel_active("z1"):
+            self.set_pwm_output("z1", self.heaters["z1"])
+        else:
+            safe_out("ssr_z1", GPIO.HIGH if cycle < (self.heaters["z1"] / 100.0) else GPIO.LOW)
+
+        if self._is_pwm_channel_active("z2"):
+            self.set_pwm_output("z2", self.heaters["z2"])
+        else:
+            safe_out("ssr_z2", GPIO.HIGH if cycle < (self.heaters["z2"] / 100.0) else GPIO.LOW)
         if not self._is_pwm_channel_active("fan"):
             safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
         if not self._is_pwm_channel_active("pump"):
@@ -777,7 +790,10 @@ class HardwareInterface:
 
     def set_heater_duty(self, heater, duty):
         if heater in self.heaters:
-            self.heaters[heater] = max(0.0, min(100.0, float(duty)))
+            clamped = max(0.0, min(100.0, float(duty)))
+            self.heaters[heater] = clamped
+            if self._is_pwm_channel_active(heater):
+                self.set_pwm_output(heater, clamped)
 
     def set_motor_rpm(self, motor, rpm):
         if motor in self.motors:
