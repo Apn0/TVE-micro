@@ -576,7 +576,7 @@ def control_loop():
                         alarm_req = reason
                 else:
                     _set_status("STARTING")
-        else:
+        elif status in ("STARTING", "RUNNING"):
             _set_status("STOPPING")
 
         if alarm_req:
@@ -981,22 +981,6 @@ def control():
         target.ki = validated["ki"]
         target.kd = validated["kd"]
         sys_config[zone] = validated
-        if zone not in ("z1", "z2"):
-            return jsonify({"success": False, "msg": "INVALID_ZONE"})
-        kp = _coerce_finite(params.get("kp", params.get("p")))
-        ki = _coerce_finite(params.get("ki", params.get("i")))
-        kd = _coerce_finite(params.get("kd", params.get("d")))
-        for val in (kp, ki, kd):
-            if val is not None and val < 0:
-                return jsonify({"success": False, "msg": "INVALID_PID"}), 400
-        target = pid_z1 if zone == "z1" else pid_z2
-        for key in ("kp", "ki", "kd"):
-            if key in params:
-                val = _safe_float(params.get(key))
-                if val is None or val < 0:
-                    return jsonify({"success": False, "msg": "INVALID_PID_PARAM"}), 400
-                setattr(target, key, val)
-        sys_config[zone] = {"kp": target.kp, "ki": target.ki, "kd": target.kd}
 
     elif cmd == "UPDATE_PINS":
         pins = req.get("pins", {})
@@ -1071,17 +1055,18 @@ def control():
 
     elif cmd == "SET_LOGGING_SETTINGS":
         params = req.get("params", {})
-        if "interval" in params:
-            interval = _coerce_finite(params.get("interval"))
-            if interval is None or interval <= 0:
-                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
-            sys_config["logging"]["interval"] = interval
-        if "flush_interval" in params:
-            flush_interval = _coerce_finite(params.get("flush_interval"))
-            if flush_interval is None or flush_interval <= 0:
-                return jsonify({"success": False, "msg": "INVALID_LOG_INTERVAL"}), 400
-            sys_config["logging"]["flush_interval"] = flush_interval
-        logger.configure(sys_config["logging"])
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_LOGGING_PARAMS"}), 400
+        validation_errors: list[str] = []
+        current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
+        validated = _validate_logging({**current, **params}, validation_errors)
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        sys_config["logging"] = validated
+        logger.configure(validated)
 
     elif cmd == "GPIO_CONFIG":
         pin = req.get("pin")
