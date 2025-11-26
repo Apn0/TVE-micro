@@ -604,7 +604,7 @@ def control_loop():
                         alarm_req = reason
                 else:
                     _set_status("STARTING")
-        else:
+        elif status in ("STARTING", "RUNNING"):
             _set_status("STOPPING")
 
         if alarm_req:
