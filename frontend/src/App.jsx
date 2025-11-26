@@ -48,6 +48,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
+import GpioScreen from "./components/GpioScreen";
 
 function App() {
   const [view, setView] = useState("HOME");
@@ -121,6 +122,7 @@ function App() {
           {view === "HISTORY" && <HistoryScreen history={history} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
+          {view === "GPIO" && <GpioScreen data={data} sendCmd={sendCmd} />}
           {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
         </div>
       ) : (
