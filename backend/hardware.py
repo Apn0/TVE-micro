@@ -340,6 +340,8 @@ class HardwareInterface:
         self.motor_fault_active = False
         self.pin_pull_up_down = {}
         self.pin_modes = {}
+        # Simulated GPIO storage so the API remains usable off-device
+        self._sim_gpio_values = {}
 
         # Manual motor control state
         self._manual_move_lock = threading.Lock()
@@ -822,50 +824,59 @@ class HardwareInterface:
 
     def get_gpio_status(self):
         """Returns the status of all GPIO pins."""
-        if self.platform != "PI" or GPIO is None:
-            return {}
-
         status = {}
         for pin_name, pin_num in self.pins.items():
             if pin_num is not None:
                 try:
                     mode = self.pin_modes.get(pin_num, "IN")
                     value = self.get_gpio_value(pin_num)
-                    pull_up_down = self.pin_pull_up_down.get(pin_num)
-                    status[pin_num] = {"name": pin_name, "mode": mode, "value": value, "pull_up_down": pull_up_down}
+                    pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else None
+                    status[pin_num] = {
+                        "name": pin_name,
+                        "mode": mode,
+                        "value": value,
+                        "pull_up_down": pull_up_down,
+                    }
                 except Exception as e:
                     logging.warning(f"Could not get status for pin {pin_num}: {e}")
         return status
 
     def set_gpio_mode(self, pin, mode, pull_up_down='up'):
         """Sets the mode of a GPIO pin."""
-        if self.platform != "PI" or GPIO is None:
+        normalized_mode = mode.upper()
+        if normalized_mode not in ("IN", "OUT"):
             return
 
-        if mode.upper() == "IN":
+        self.pin_modes[pin] = normalized_mode
+        self.pin_pull_up_down[pin] = pull_up_down if normalized_mode == "IN" else None
+
+        if self.platform != "PI" or GPIO is None:
+            # Keep a simulated value around so status endpoints are populated
+            if pin not in self._sim_gpio_values:
+                self._sim_gpio_values[pin] = 0
+            return
+
+        if normalized_mode == "IN":
             pud = GPIO.PUD_UP
             if pull_up_down == 'down':
                 pud = GPIO.PUD_DOWN
             elif pull_up_down == 'off':
                 pud = GPIO.PUD_OFF
             GPIO.setup(pin, GPIO.IN, pull_up_down=pud)
-            self.pin_pull_up_down[pin] = pull_up_down
-            self.pin_modes[pin] = "IN"
-        elif mode.upper() == "OUT":
+        elif normalized_mode == "OUT":
             GPIO.setup(pin, GPIO.OUT)
-            self.pin_pull_up_down[pin] = None
-            self.pin_modes[pin] = "OUT"
 
     def get_gpio_value(self, pin):
         """Gets the value of a GPIO pin."""
         if self.platform != "PI" or GPIO is None:
-            return None
+            return self._sim_gpio_values.get(pin)
 
         return GPIO.input(pin)
 
     def set_gpio_value(self, pin, value):
         """Sets the value of a GPIO pin."""
         if self.platform != "PI" or GPIO is None:
+            self._sim_gpio_values[pin] = 1 if value else 0
             return
 
         GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
