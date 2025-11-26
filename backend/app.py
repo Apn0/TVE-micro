@@ -173,6 +173,56 @@ def _validate_pwm(section: dict, errors: list[str]):
     return result
 
 
+def _validate_sensor_section(
+    section: dict, default_section: dict, errors: list[str], sensor_key: str
+):
+    result = copy.deepcopy(default_section)
+    try:
+        if "enabled" in section:
+            result["enabled"] = bool(section.get("enabled", result["enabled"]))
+        if "logical" in section:
+            result["logical"] = str(section.get("logical", result["logical"]))
+        if "r_fixed" in section:
+            rf = float(section.get("r_fixed", result["r_fixed"]))
+            if rf > 0:
+                result["r_fixed"] = rf
+        if "r_25" in section:
+            r25 = float(section.get("r_25", result["r_25"]))
+            if r25 > 0:
+                result["r_25"] = r25
+        if "beta" in section:
+            beta = float(section.get("beta", result["beta"]))
+            if beta > 0:
+                result["beta"] = beta
+        if "v_ref" in section:
+            vref = float(section.get("v_ref", result["v_ref"]))
+            if vref > 0:
+                result["v_ref"] = vref
+        if "wiring" in section:
+            result["wiring"] = str(section.get("wiring", result["wiring"]))
+        if "decimals" in section:
+            dec = int(section.get("decimals", result["decimals"]))
+            if dec >= 0:
+                result["decimals"] = dec
+
+        if "cal_points" in section:
+            cal_points = section.get("cal_points", result.get("cal_points", []))
+            if isinstance(cal_points, list):
+                validated_points = []
+                for pt in cal_points:
+                    if isinstance(pt, dict) and "x" in pt and "y" in pt:
+                        try:
+                            validated_points.append({"x": float(pt["x"]), "y": float(pt["y"])})
+                        except (TypeError, ValueError):
+                            continue
+                result["cal_points"] = validated_points
+            else:
+                raise ValueError
+    except (TypeError, ValueError):
+        errors.append(
+            f"Invalid sensor configuration for key {sensor_key}, using defaults"
+        )
+        return copy.deepcopy(default_section)
 def _validate_sensor_section(section: dict, errors: list[str]):
     result = copy.deepcopy(section)
     try:
@@ -195,6 +245,10 @@ def _validate_sensor_section(section: dict, errors: list[str]):
 
 
 def _validate_sensors(section: dict, errors: list[str]):
+    if not isinstance(section, dict):
+        errors.append("Invalid sensors configuration, using defaults")
+        return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
+
     result: dict[int, dict] = {}
     for key, cfg in section.items():
         try:
@@ -202,6 +256,15 @@ def _validate_sensors(section: dict, errors: list[str]):
         except (TypeError, ValueError):
             errors.append(f"Invalid sensor key {key}, skipping")
             continue
+        if not isinstance(cfg, dict):
+            errors.append(f"Invalid sensor entry for key {key}, using defaults")
+            cfg = {}
+        default_section = DEFAULT_CONFIG["sensors"].get(str(idx)) or next(
+            iter(DEFAULT_CONFIG["sensors"].values())
+        )
+        validated = _validate_sensor_section(cfg, default_section, errors, str(idx))
+        result[idx] = validated
+
         validated = _validate_sensor_section(cfg, errors)
         if validated:
             result[idx] = validated
@@ -312,12 +375,18 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
+    raw_cfg: dict
     raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
         except Exception:
+            raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+    else:
+        raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+
+    return validate_config(raw_cfg)
             raw_cfg = {}
 
     if not isinstance(raw_cfg, dict):
@@ -925,6 +994,21 @@ def control():
     elif cmd == "UPDATE_PID":
         zone = req.get("zone")
         params = req.get("params", {})
+        if zone not in ("z1", "z2") or not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_ZONE_OR_PARAMS"}), 400
+        validation_errors: list[str] = []
+        current = sys_config.get(zone, DEFAULT_CONFIG[zone])
+        validated = _validate_pid_section({**current, **params}, zone, validation_errors)
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        target = pid_z1 if zone == "z1" else pid_z2
+        target.kp = validated["kp"]
+        target.ki = validated["ki"]
+        target.kd = validated["kd"]
+        sys_config[zone] = validated
         if zone not in ("z1", "z2"):
             return jsonify({"success": False, "msg": "INVALID_ZONE"})
         kp = _coerce_finite(params.get("kp", params.get("p")))
@@ -958,6 +1042,17 @@ def control():
 
     elif cmd == "UPDATE_EXTRUDER_SEQ":
         seq = req.get("sequence", {})
+        if not isinstance(seq, dict):
+            return jsonify({"success": False, "msg": "INVALID_SEQUENCE"}), 400
+        validation_errors: list[str] = []
+        current = sys_config.get("extruder_sequence", DEFAULT_CONFIG["extruder_sequence"])
+        validated = _validate_extruder_sequence({**current, **seq}, validation_errors)
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        sys_config["extruder_sequence"] = validated
         sanitized_seq = {}
         for key in ("start_delay_feed", "stop_delay_motor"):
             if key in seq:
@@ -994,6 +1089,27 @@ def control():
                 400,
             )
         try:
+            hal.set_temp_poll_interval(validated["poll_interval"])
+            hal.set_temp_average_window(validated["avg_window"])
+            hal.set_temp_use_average(validated["use_average"])
+            hal.set_temp_decimals_default(validated["decimals_default"])
+        except Exception:
+            return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
+        sys_config["temp_settings"] = validated
+
+    elif cmd == "SET_LOGGING_SETTINGS":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_LOGGING_PARAMS"}), 400
+        validation_errors: list[str] = []
+        current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
+        validated = _validate_logging({**current, **params}, validation_errors)
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        sys_config["logging"] = validated
             if "poll_interval" in params:
                 poll_interval = _coerce_finite(params.get("poll_interval"))
                 if poll_interval is None or poll_interval <= 0:
