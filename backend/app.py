@@ -218,30 +218,12 @@ def _validate_sensor_section(
                 result["cal_points"] = validated_points
             else:
                 raise ValueError
+        return result
     except (TypeError, ValueError):
         errors.append(
             f"Invalid sensor configuration for key {sensor_key}, using defaults"
         )
         return copy.deepcopy(default_section)
-def _validate_sensor_section(section: dict, errors: list[str]):
-    result = copy.deepcopy(section)
-    try:
-        result["enabled"] = bool(section.get("enabled", True))
-        result["logical"] = str(section.get("logical", ""))
-        result["r_fixed"] = float(section.get("r_fixed", 0))
-        result["r_25"] = float(section.get("r_25", 0))
-        result["beta"] = float(section.get("beta", 0))
-        result["v_ref"] = float(section.get("v_ref", 0))
-        result["wiring"] = str(section.get("wiring", ""))
-        result["decimals"] = int(section.get("decimals", 1))
-        cal_points = section.get("cal_points", [])
-        if not isinstance(cal_points, list):
-            raise ValueError
-        result["cal_points"] = cal_points
-    except (TypeError, ValueError):
-        errors.append("Invalid sensor configuration detected, using defaults for sensor")
-        return None
-    return result
 
 
 def _validate_sensors(section: dict, errors: list[str]):
@@ -264,10 +246,6 @@ def _validate_sensors(section: dict, errors: list[str]):
         )
         validated = _validate_sensor_section(cfg, default_section, errors, str(idx))
         result[idx] = validated
-
-        validated = _validate_sensor_section(cfg, errors)
-        if validated:
-            result[idx] = validated
     if not result:
         return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
     return result
@@ -385,12 +363,6 @@ def load_config():
             raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
     else:
         raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
-
-    return validate_config(raw_cfg)
-            raw_cfg = {}
-
-    if not isinstance(raw_cfg, dict):
-        raw_cfg = {}
 
     return validate_config(raw_cfg)
 
@@ -1096,49 +1068,6 @@ def control():
         except Exception:
             return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
         sys_config["temp_settings"] = validated
-
-    elif cmd == "SET_LOGGING_SETTINGS":
-        params = req.get("params", {})
-        if not isinstance(params, dict):
-            return jsonify({"success": False, "msg": "INVALID_LOGGING_PARAMS"}), 400
-        validation_errors: list[str] = []
-        current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
-        validated = _validate_logging({**current, **params}, validation_errors)
-        if validation_errors:
-            return (
-                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
-                400,
-            )
-        sys_config["logging"] = validated
-            if "poll_interval" in params:
-                poll_interval = _coerce_finite(params.get("poll_interval"))
-                if poll_interval is None or poll_interval <= 0:
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                hal.set_temp_poll_interval(poll_interval)
-            if "avg_window" in params:
-                avg_window = _coerce_finite(params.get("avg_window"))
-                if avg_window is None or avg_window <= 0:
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                hal.set_temp_average_window(avg_window)
-            if "use_average" in params:
-                hal.set_temp_use_average(bool(params["use_average"]))
-            if "decimals_default" in params:
-                decimals_default = params.get("decimals_default")
-                try:
-                    decimals_default = int(decimals_default)
-                except (TypeError, ValueError):
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                if decimals_default < 0:
-                    return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"}), 400
-                hal.set_temp_decimals_default(decimals_default)
-        except:
-            return jsonify({"success": False, "msg": "TEMP_SETTINGS_ERROR"})
-        sys_config["temp_settings"] = {
-            "poll_interval": hal.temp_poll_interval,
-            "avg_window": hal.temp_avg_window,
-            "use_average": hal.temp_use_average,
-            "decimals_default": hal.temp_decimals_default,
-        }
 
     elif cmd == "SET_LOGGING_SETTINGS":
         params = req.get("params", {})
