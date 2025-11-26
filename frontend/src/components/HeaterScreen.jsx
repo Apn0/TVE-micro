@@ -66,6 +66,81 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
       return segments;
     };
 
+    const getAverageTemp = (sample) => {
+      const vals = [sample.temps?.t1, sample.temps?.t2, sample.temps?.t3].filter(
+        (v) => v !== null && v !== undefined && !Number.isNaN(v)
+      );
+      if (vals.length === 0) return null;
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    };
+
+    const getSetpoint = (sample, fallback) => {
+      const targets = [sample.target_z1, sample.target_z2].filter(
+        (v) => v !== null && v !== undefined && !Number.isNaN(v)
+      );
+      if (targets.length === 0) return fallback;
+      const avg = targets.reduce((a, b) => a + b, 0) / targets.length;
+      return avg > 0 ? avg : fallback;
+    };
+
+    const phaseBands = (() => {
+      const tolerance = 5; // degrees C allowance around setpoint
+      let lastSetpoint = getSetpoint(history[0], null);
+      let reachedSetpoint = false;
+
+      const phaseForSample = (sample) => {
+        const setpoint = getSetpoint(sample, lastSetpoint);
+        if (setpoint !== null && setpoint !== undefined) {
+          lastSetpoint = setpoint;
+        }
+
+        const avgTemp = getAverageTemp(sample);
+        const motorRpm = (sample.motors?.main || 0) ?? 0;
+        const atTemp =
+          avgTemp !== null && lastSetpoint !== null && avgTemp >= lastSetpoint - tolerance;
+        const belowTemp =
+          avgTemp !== null && lastSetpoint !== null && avgTemp < lastSetpoint - tolerance;
+
+        if (atTemp) reachedSetpoint = true;
+
+        if (motorRpm > 0.1) return "production";
+        if ((reachedSetpoint || atTemp) && belowTemp) return "cooldown";
+        if (reachedSetpoint || atTemp) return "production_ready";
+        return "warm_up";
+      };
+
+      let currentPhase = phaseForSample(history[0]);
+      let phaseStart = history[0].t;
+      const segments = [];
+
+      for (let i = 1; i < history.length; i++) {
+        const sample = history[i];
+        const phase = phaseForSample(sample);
+        if (phase !== currentPhase) {
+          segments.push({ phase: currentPhase, start: phaseStart, end: sample.t });
+          currentPhase = phase;
+          phaseStart = sample.t;
+        }
+      }
+
+      segments.push({ phase: currentPhase, start: phaseStart, end: xMax });
+      return segments;
+    })();
+
+    const phaseColors = {
+      warm_up: "rgba(241, 196, 15, 0.08)",
+      production_ready: "rgba(46, 204, 113, 0.08)",
+      production: "rgba(52, 152, 219, 0.08)",
+      cooldown: "rgba(155, 89, 182, 0.08)",
+    };
+
+    const phaseLabels = {
+      warm_up: "Warm up",
+      production_ready: "Production-ready (idle)",
+      production: "Production (main motor running)",
+      cooldown: "Cooldown",
+    };
+
     const shadingColor = {
       ssr_z1: "rgba(52, 152, 219, 0.12)",
       ssr_z2: "rgba(155, 89, 182, 0.12)",
@@ -87,7 +162,9 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
         <p style={{ fontSize: "0.9em", color: "#aaa", marginTop: "6px" }}>
           Transparent bands show when each heater SSR was active. Use this to see
           how zone 1 and zone 2 firing impacts barrel thermocouples T1, T2, and T3
-          over time.
+          over time. Stage shading marks warm up, production readiness, production,
+          and cooldown so you can correlate temperature behavior with the line
+          lifecycle.
         </p>
         <svg
           width="100%"
@@ -109,6 +186,36 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
             y2={height - padding}
             stroke="#555"
           />
+
+          {phaseBands.map((band, idx) => {
+            const xStart = mapX(band.start);
+            const xEnd = mapX(band.end);
+            const labelX = (xStart + xEnd) / 2;
+            const labelY = padding + 14;
+            const showLabel = xEnd - xStart > 60;
+            return (
+              <g key={`phase-${idx}`}>
+                <rect
+                  x={xStart}
+                  y={padding}
+                  width={Math.max(xEnd - xStart, 0)}
+                  height={height - 2 * padding}
+                  fill={phaseColors[band.phase] || "rgba(255,255,255,0.05)"}
+                />
+                {showLabel && (
+                  <text
+                    x={labelX}
+                    y={labelY}
+                    fill="#ccc"
+                    fontSize="10"
+                    textAnchor="middle"
+                  >
+                    {phaseLabels[band.phase] || band.phase}
+                  </text>
+                )}
+              </g>
+            );
+          })}
 
           {buildSegments("ssr_z1")
             .filter((s) => s.on)
@@ -255,6 +362,54 @@ function HeaterScreen({ data, sendCmd, history = [] }) {
               }}
             />
             <span>Zone 2 SSR active</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                width: "14px",
+                height: "14px",
+                background: phaseColors.warm_up,
+                border: "1px solid #f1c40f",
+                display: "inline-block",
+              }}
+            />
+            <span>Warm up</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                width: "14px",
+                height: "14px",
+                background: phaseColors.production_ready,
+                border: "1px solid #2ecc71",
+                display: "inline-block",
+              }}
+            />
+            <span>Production-ready (not producing)</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                width: "14px",
+                height: "14px",
+                background: phaseColors.production,
+                border: "1px solid #3498db",
+                display: "inline-block",
+              }}
+            />
+            <span>Production (main motor running)</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                width: "14px",
+                height: "14px",
+                background: phaseColors.cooldown,
+                border: "1px solid #9b59b6",
+                display: "inline-block",
+              }}
+            />
+            <span>Cooldown</span>
           </div>
         </div>
       </div>
