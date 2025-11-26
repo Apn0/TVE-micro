@@ -1295,6 +1295,16 @@ if __name__ == "__main__":
     host = os.getenv("FLASK_RUN_HOST", "127.0.0.1")
     port = int(os.getenv("FLASK_RUN_PORT", "5000"))
 
-    if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    eager_start = (
+        os.getenv("TVE_EAGER_STARTUP", "false").lower() == "true"
+    )
+
+    if eager_start and (not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"):
         startup()
+    app_logger.info(
+        "Starting Flask app on %s:%s (hardware init %s)",
+        host,
+        port,
+        "eager" if eager_start else "lazy",
+    )
     app.run(host=host, port=port, debug=debug)
