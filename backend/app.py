@@ -374,11 +374,42 @@ def log_stop():
     logger.stop()
     return jsonify({"success": True})
 
+@app.route("/api/gpio", methods=["GET", "POST"])
+def gpio_control():
+    ok, resp = _ensure_hal_started()
+    if not ok:
+        return resp
+
+    if request.method == "GET":
+        status = hal.get_gpio_status()
+        return jsonify({"success": True, "status": status})
+
+    data = request.get_json(force=True) or {}
+    cmd = data.get("command")
+    req = data.get("value", {})
+
+    try:
+        if cmd == "SET_GPIO_MODE":
+            pin = int(req.get("pin"))
+            mode = req.get("mode")
+            pull_up_down = req.get("pull_up_down", "up")
+            hal.set_gpio_mode(pin, mode, pull_up_down)
+        elif cmd == "SET_GPIO_VALUE":
+            pin = int(req.get("pin"))
+            value = int(req.get("value"))
+            hal.set_gpio_value(pin, value)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "msg": "INVALID_PIN_OR_VALUE"}), 400
+    if cmd not in ("SET_GPIO_MODE", "SET_GPIO_VALUE"):
+        return jsonify({"success": False, "msg": "UNKNOWN_GPIO_COMMAND"})
+
+    return jsonify({"success": True})
+
 @app.route("/api/control", methods=["POST"])
 def control():
     data = request.get_json(force=True) or {}
     cmd = data.get("command")
-    req = data.get("value", {}) or {}
+    req = data.get("value", {})
 
     global state, sys_config
 
