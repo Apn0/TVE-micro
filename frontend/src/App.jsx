@@ -76,7 +76,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
-import GpioScreen from "./components/GpioScreen";
+import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 
 function App() {
