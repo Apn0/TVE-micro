@@ -19,47 +19,17 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import atexit
 
-from backend.hardware import HardwareInterface, HARDWARE_DEFAULTS
+from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
 from backend.logger import DataLogger
 from backend.pid import PID
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
 MAX_HEATER_DUTY = 100.0
 MIN_HEATER_DUTY = 0.0
 MAX_PWM_DUTY = 100.0
 MAX_MOTOR_RPM = 5000.0
-
-APP_DEFAULTS = {
-    "z1": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    "z2": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    "dm556": {
-        "microsteps": 1600,
-        "current_peak": 2.7,
-        "idle_half": True,
-    },
-    "temp_settings": {
-        "poll_interval": 0.25,
-        "avg_window": 2.0,
-        "use_average": True,
-        "decimals_default": 1,
-        "freshness_timeout": 1.0,
-    },
-    "logging": {
-        "interval": 0.25,
-        "flush_interval": 60.0,
-    },
-    "extruder_sequence": {
-        "start_delay_feed": 2.0,
-        "stop_delay_motor": 5.0,
-        "check_temp_before_start": True,
-    },
-}
-
-# Merge hardware defaults (pins, sensors, etc.) with app defaults (PID, logging, etc.)
-# We deepcopy to avoid mutating the original HARDWARE_DEFAULTS if they are modified later.
-SYSTEM_DEFAULTS = {**APP_DEFAULTS, **copy.deepcopy(HARDWARE_DEFAULTS)}
 
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
@@ -105,19 +75,18 @@ def _validate_dm556(section: dict, errors: list[str]):
 
 def _validate_pins(section: dict, errors: list[str]):
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
-    for name, val in section.items():
-        if val is None:
-            result[name] = None
-            continue
-        try:
-            pin = int(val)
-            if 0 <= pin <= 40:
-                result[name] = pin
-            else:
-                raise ValueError
-        except (TypeError, ValueError):
-            if name in SYSTEM_DEFAULTS["pins"]:
-                default_pin = SYSTEM_DEFAULTS["pins"][name]
+    for name, default_pin in result.items():
+        if name in section:
+            if section[name] is None:
+                result[name] = None
+                continue
+            try:
+                pin = int(section[name])
+                if 0 <= pin <= 40:
+                    result[name] = pin
+                else:
+                    raise ValueError
+            except (TypeError, ValueError):
                 errors.append(f"Invalid pin {name}, using default {default_pin}")
             else:
                 errors.append(f"Invalid pin {name}, skipping")
@@ -340,17 +309,25 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
-    raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
+            return validate_config(raw_cfg)
         except Exception:
-            raw_cfg = copy.deepcopy(SYSTEM_DEFAULTS)
+            app_logger.exception("Failed to load config.json")
+            sys.exit(1)
     else:
-        raw_cfg = copy.deepcopy(SYSTEM_DEFAULTS)
+        print(f"Configuration file {CONFIG_FILE} not found.")
+        try:
+            resp = input("Use default configuration from hardware.py? [y/N] ")
+            if resp.lower().startswith("y"):
+                return validate_config({})
+        except (EOFError, OSError):
+            pass
 
-    return validate_config(raw_cfg)
+        print("Startup aborted: No configuration file.")
+        sys.exit(1)
 
 
 def _coerce_finite(value):
@@ -405,6 +382,8 @@ state = {
     "target_z2": 0.0,
     "manual_duty_z1": 0.0,
     "manual_duty_z2": 0.0,
+    "heater_duty_z1": 0.0,
+    "heater_duty_z2": 0.0,
     "temps": {},
     "temps_timestamp": 0.0,
     "motors": {"main": 0.0, "feed": 0.0},
@@ -687,6 +666,33 @@ def control_loop():
                     state["motors"]["feed"] = 0.0
                     state["status"] = "READY"
 
+        # Global safety check for stale temperatures (AUTO or MANUAL)
+        freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
+        temps_age = now - temps_timestamp if temps_timestamp else float("inf")
+        temps_fresh = temps_timestamp and temps_age <= freshness_timeout
+
+        # Check individual sensors used for heating control
+        t2_ts = hal.get_sensor_timestamp("t2")
+        t3_ts = hal.get_sensor_timestamp("t3")
+        t2_age = now - t2_ts if t2_ts else float("inf")
+        t3_age = now - t3_ts if t3_ts else float("inf")
+
+        sensors_fresh = (
+            t2_ts and t2_age <= freshness_timeout and
+            t3_ts and t3_age <= freshness_timeout
+        )
+
+        if not temps_fresh or not sensors_fresh:
+            _latch_alarm(alarm_req or "TEMP_DATA_STALE")
+            # Explicitly force heaters off now to be safe, although _latch_alarm does it too
+            hal.set_heater_duty("z1", 0.0)
+            hal.set_heater_duty("z2", 0.0)
+            with state_lock:
+                state["heater_duty_z1"] = 0.0
+                state["heater_duty_z2"] = 0.0
+            time.sleep(0.05)
+            continue
+
         if mode == "AUTO":
             t2 = temps.get("t2")
             t3 = temps.get("t3")
@@ -694,35 +700,36 @@ def control_loop():
             pid_z1.setpoint = target_z1
             pid_z2.setpoint = target_z2
 
-            freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
-            temps_age = now - temps_timestamp if temps_timestamp else float("inf")
-            temps_fresh = temps_timestamp and temps_age <= freshness_timeout
-            stale_detected = not temps_fresh
-
-            def apply_heater(temp_val, controller, heater_name, logical):
-                sensor_ts = hal.get_sensor_timestamp(logical)
-                sensor_age = now - sensor_ts if sensor_ts else float("inf")
-                sensor_fresh = sensor_ts and sensor_age <= freshness_timeout
-
-                if not temps_fresh or not sensor_fresh or temp_val is None:
+            def apply_heater(temp_val, controller, heater_name):
+                if temp_val is None:
                     controller.reset()
                     hal.set_heater_duty(heater_name, 0.0)
-                    return not sensor_fresh
+                    with state_lock:
+                        state[f"heater_duty_{heater_name}"] = 0.0
+                    return
 
                 out = controller.compute(temp_val)
                 if out is None:
-                    return False
+                    return
 
                 hal.set_heater_duty(heater_name, out)
-                return False
+                with state_lock:
+                    state[f"heater_duty_{heater_name}"] = out
 
-            stale_detected = apply_heater(t2, pid_z1, "z1", "t2") or stale_detected
-            stale_detected = apply_heater(t3, pid_z2, "z2", "t3") or stale_detected
+            apply_heater(t2, pid_z1, "z1")
+            apply_heater(t3, pid_z2, "z2")
 
-            if stale_detected:
-                _latch_alarm(alarm_req or "TEMP_DATA_STALE")
-                time.sleep(0.05)
-                continue
+        elif mode == "MANUAL":
+            # In manual mode, ensure the hardware reflects the state
+            # This is redundant if SET_HEATER worked, but adds robustness against resets
+            with state_lock:
+                d1 = state.get("manual_duty_z1", 0.0)
+                d2 = state.get("manual_duty_z2", 0.0)
+            hal.set_heater_duty("z1", d1)
+            hal.set_heater_duty("z2", d2)
+            with state_lock:
+                state["heater_duty_z1"] = d1
+                state["heater_duty_z2"] = d2
 
         if now - last_log_time >= log_interval:
             last_log_time = now
@@ -916,8 +923,10 @@ def control():
         with state_lock:
             if zone == "z1":
                 state["manual_duty_z1"] = duty
+                state["heater_duty_z1"] = duty
             else:
                 state["manual_duty_z2"] = duty
+                state["heater_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
@@ -1059,6 +1068,12 @@ def control():
         pins = req.get("pins", {})
         if not isinstance(pins, dict):
             return jsonify({"success": False, "msg": "INVALID_PINS"}), 400
+
+        known_pins = set(SYSTEM_DEFAULTS["pins"].keys())
+        unknown_pins = set(pins.keys()) - known_pins
+        if unknown_pins:
+            msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
+            return jsonify({"success": False, "msg": msg}), 400
 
         validation_errors: list[str] = []
         current = sys_config.get("pins", SYSTEM_DEFAULTS["pins"])
