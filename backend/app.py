@@ -441,6 +441,8 @@ state = {
     "target_z2": 0.0,
     "manual_duty_z1": 0.0,
     "manual_duty_z2": 0.0,
+    "heater_duty_z1": 0.0,
+    "heater_duty_z2": 0.0,
     "temps": {},
     "temps_timestamp": 0.0,
     "motors": {"main": 0.0, "feed": 0.0},
@@ -723,6 +725,33 @@ def control_loop():
                     state["motors"]["feed"] = 0.0
                     state["status"] = "READY"
 
+        # Global safety check for stale temperatures (AUTO or MANUAL)
+        freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
+        temps_age = now - temps_timestamp if temps_timestamp else float("inf")
+        temps_fresh = temps_timestamp and temps_age <= freshness_timeout
+
+        # Check individual sensors used for heating control
+        t2_ts = hal.get_sensor_timestamp("t2")
+        t3_ts = hal.get_sensor_timestamp("t3")
+        t2_age = now - t2_ts if t2_ts else float("inf")
+        t3_age = now - t3_ts if t3_ts else float("inf")
+
+        sensors_fresh = (
+            t2_ts and t2_age <= freshness_timeout and
+            t3_ts and t3_age <= freshness_timeout
+        )
+
+        if not temps_fresh or not sensors_fresh:
+            _latch_alarm(alarm_req or "TEMP_DATA_STALE")
+            # Explicitly force heaters off now to be safe, although _latch_alarm does it too
+            hal.set_heater_duty("z1", 0.0)
+            hal.set_heater_duty("z2", 0.0)
+            with state_lock:
+                state["heater_duty_z1"] = 0.0
+                state["heater_duty_z2"] = 0.0
+            time.sleep(0.05)
+            continue
+
         if mode == "AUTO":
             t2 = temps.get("t2")
             t3 = temps.get("t3")
@@ -730,35 +759,36 @@ def control_loop():
             pid_z1.setpoint = target_z1
             pid_z2.setpoint = target_z2
 
-            freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
-            temps_age = now - temps_timestamp if temps_timestamp else float("inf")
-            temps_fresh = temps_timestamp and temps_age <= freshness_timeout
-            stale_detected = not temps_fresh
-
-            def apply_heater(temp_val, controller, heater_name, logical):
-                sensor_ts = hal.get_sensor_timestamp(logical)
-                sensor_age = now - sensor_ts if sensor_ts else float("inf")
-                sensor_fresh = sensor_ts and sensor_age <= freshness_timeout
-
-                if not temps_fresh or not sensor_fresh or temp_val is None:
+            def apply_heater(temp_val, controller, heater_name):
+                if temp_val is None:
                     controller.reset()
                     hal.set_heater_duty(heater_name, 0.0)
-                    return not sensor_fresh
+                    with state_lock:
+                        state[f"heater_duty_{heater_name}"] = 0.0
+                    return
 
                 out = controller.compute(temp_val)
                 if out is None:
-                    return False
+                    return
 
                 hal.set_heater_duty(heater_name, out)
-                return False
+                with state_lock:
+                    state[f"heater_duty_{heater_name}"] = out
 
-            stale_detected = apply_heater(t2, pid_z1, "z1", "t2") or stale_detected
-            stale_detected = apply_heater(t3, pid_z2, "z2", "t3") or stale_detected
+            apply_heater(t2, pid_z1, "z1")
+            apply_heater(t3, pid_z2, "z2")
 
-            if stale_detected:
-                _latch_alarm(alarm_req or "TEMP_DATA_STALE")
-                time.sleep(0.05)
-                continue
+        elif mode == "MANUAL":
+            # In manual mode, ensure the hardware reflects the state
+            # This is redundant if SET_HEATER worked, but adds robustness against resets
+            with state_lock:
+                d1 = state.get("manual_duty_z1", 0.0)
+                d2 = state.get("manual_duty_z2", 0.0)
+            hal.set_heater_duty("z1", d1)
+            hal.set_heater_duty("z2", d2)
+            with state_lock:
+                state["heater_duty_z1"] = d1
+                state["heater_duty_z2"] = d2
 
         if now - last_log_time >= log_interval:
             last_log_time = now
@@ -952,8 +982,10 @@ def control():
         with state_lock:
             if zone == "z1":
                 state["manual_duty_z1"] = duty
+                state["heater_duty_z1"] = duty
             else:
                 state["manual_duty_z2"] = duty
+                state["heater_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
