@@ -997,7 +997,12 @@ def control():
 
     # Allow setpoint adjustments while latched in ALARM so the operator can
     # safely reduce heater targets without having to clear alarms first.
-    if alarm and cmd not in ("CLEAR_ALARM", "EMERGENCY_STOP", "SET_TARGET"):
+    if alarm and cmd not in (
+        "CLEAR_ALARM",
+        "EMERGENCY_STOP",
+        "SET_TARGET",
+        "ACKNOWLEDGE_ALARM",
+    ):
         return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
 
     if cmd == "SET_MODE":
