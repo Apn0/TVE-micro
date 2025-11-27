@@ -19,92 +19,23 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import atexit
 
-from backend.hardware import HardwareInterface
+from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
 from backend.logger import DataLogger
 from backend.pid import PID
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
 MAX_HEATER_DUTY = 100.0
 MIN_HEATER_DUTY = 0.0
 MAX_PWM_DUTY = 100.0
 MAX_MOTOR_RPM = 5000.0
 
-DEFAULT_CONFIG = {
-    "z1": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    "z2": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    "dm556": {
-        "microsteps": 1600,
-        "current_peak": 2.7,
-        "idle_half": True,
-    },
-    "pins": {
-        "ssr_z1": None,
-        "ssr_z2": None,
-        "ssr_fan": None,
-        "ssr_pump": None,
-        "step_main": 5,
-        "dir_main": 6,
-        "step_feed": None,
-        "dir_feed": None,
-        "alm_main": None,
-        "btn_start": 25,
-        "btn_emergency": 8,
-        "led_status": None,
-        "led_red": None,
-        "led_green": None,
-        "led_yellow": None
-    },
-    "pwm": {
-        "enabled": True,
-        "bus": 1,
-        "address": 0x40,
-        "frequency": 1000,
-        "channels": {
-            "z1": 0,
-            "z2": 1,
-            "fan": 2,
-            "fan_nozzle": 3,
-            "pump": 4,
-            "led_status": 5,
-        },
-    },
-    "sensors": {
-        "0": {"enabled": True, "logical": "t1", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-        "1": {"enabled": True, "logical": "t2", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-        "2": {"enabled": True, "logical": "t3", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-        "3": {"enabled": True, "logical": "motor", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-    },
-    "adc": {
-        "enabled": True,
-        "bus": 1,
-        "address": 0x48,
-        "fsr": 4.096,
-    },
-    "temp_settings": {
-        "poll_interval": 0.25,
-        "avg_window": 2.0,
-        "use_average": True,
-        "decimals_default": 1,
-        "freshness_timeout": 1.0,
-    },
-    "logging": {
-        "interval": 0.25,
-        "flush_interval": 60.0,
-    },
-    "extruder_sequence": {
-        "start_delay_feed": 2.0,
-        "stop_delay_motor": 5.0,
-        "check_temp_before_start": True,
-    },
-}
-
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
 
 def _validate_pid_section(section: dict, name: str, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG[name])
+    result = copy.deepcopy(SYSTEM_DEFAULTS[name])
     for param in ("kp", "ki", "kd"):
         if param in section:
             try:
@@ -118,7 +49,7 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
 
 
 def _validate_dm556(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["dm556"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
     if "microsteps" in section:
         try:
             microsteps = int(section["microsteps"])
@@ -143,7 +74,7 @@ def _validate_dm556(section: dict, errors: list[str]):
 
 
 def _validate_pins(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["pins"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
             if section[name] is None:
@@ -161,7 +92,7 @@ def _validate_pins(section: dict, errors: list[str]):
 
 
 def _validate_pwm(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["pwm"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
     if "enabled" in section:
         result["enabled"] = bool(section.get("enabled", result["enabled"]))
     if "bus" in section:
@@ -252,7 +183,7 @@ def _validate_sensor_section(
 def _validate_sensors(section: dict, errors: list[str]):
     if not isinstance(section, dict):
         errors.append("Invalid sensors configuration, using defaults")
-        return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
+        return copy.deepcopy({int(k): v for k, v in SYSTEM_DEFAULTS["sensors"].items()})
 
     result: dict[int, dict] = {}
     for key, cfg in section.items():
@@ -264,18 +195,18 @@ def _validate_sensors(section: dict, errors: list[str]):
         if not isinstance(cfg, dict):
             errors.append(f"Invalid sensor entry for key {key}, using defaults")
             cfg = {}
-        default_section = DEFAULT_CONFIG["sensors"].get(str(idx)) or next(
-            iter(DEFAULT_CONFIG["sensors"].values())
+        default_section = SYSTEM_DEFAULTS["sensors"].get(str(idx)) or next(
+            iter(SYSTEM_DEFAULTS["sensors"].values())
         )
         validated = _validate_sensor_section(cfg, default_section, errors, str(idx))
         result[idx] = validated
     if not result:
-        return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
+        return copy.deepcopy({int(k): v for k, v in SYSTEM_DEFAULTS["sensors"].items()})
     return result
 
 
 def _validate_temp_settings(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["temp_settings"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
     for key in ("poll_interval", "avg_window"):
         if key in section:
             try:
@@ -299,7 +230,7 @@ def _validate_temp_settings(section: dict, errors: list[str]):
 
 
 def _validate_logging(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["logging"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
     for key in ("interval", "flush_interval"):
         if key in section:
             try:
@@ -314,7 +245,7 @@ def _validate_logging(section: dict, errors: list[str]):
 
 
 def _validate_extruder_sequence(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["extruder_sequence"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
     for key in ("start_delay_feed", "stop_delay_motor"):
         if key in section:
             try:
@@ -334,7 +265,7 @@ def _validate_extruder_sequence(section: dict, errors: list[str]):
 
 def validate_config(raw_cfg: dict):
     errors: list[str] = []
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg = copy.deepcopy(SYSTEM_DEFAULTS)
 
     cfg["z1"] = _validate_pid_section(raw_cfg.get("z1", {}), "z1", errors)
     cfg["z2"] = _validate_pid_section(raw_cfg.get("z2", {}), "z2", errors)
@@ -342,10 +273,10 @@ def validate_config(raw_cfg: dict):
     cfg["pins"] = _validate_pins(raw_cfg.get("pins", {}), errors)
     cfg["pwm"] = _validate_pwm(raw_cfg.get("pwm", {}), errors)
     cfg["sensors"] = _validate_sensors(raw_cfg.get("sensors", {}), errors)
-    cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
+    cfg["adc"] = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
     if "adc" in raw_cfg:
         try:
-            result = copy.deepcopy(DEFAULT_CONFIG["adc"])
+            result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
             if "enabled" in raw_cfg["adc"]:
                 result["enabled"] = bool(raw_cfg["adc"].get("enabled", result["enabled"]))
             if "bus" in raw_cfg["adc"]:
@@ -376,17 +307,25 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
-    raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
+            return validate_config(raw_cfg)
         except Exception:
-            raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+            app_logger.exception("Failed to load config.json")
+            sys.exit(1)
     else:
-        raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+        print(f"Configuration file {CONFIG_FILE} not found.")
+        try:
+            resp = input("Use default configuration from hardware.py? [y/N] ")
+            if resp.lower().startswith("y"):
+                return validate_config({})
+        except (EOFError, OSError):
+            pass
 
-    return validate_config(raw_cfg)
+        print("Startup aborted: No configuration file.")
+        sys.exit(1)
 
 
 def _coerce_finite(value):
@@ -1108,7 +1047,7 @@ def control():
         if pid_errors:
             return jsonify({"success": False, "msg": "; ".join(pid_errors)}), 400
         validation_errors: list[str] = []
-        current = sys_config.get(zone, DEFAULT_CONFIG[zone])
+        current = sys_config.get(zone, SYSTEM_DEFAULTS[zone])
         validated = _validate_pid_section(
             {**current, **sanitized_params}, zone, validation_errors
         )
@@ -1128,14 +1067,14 @@ def control():
         if not isinstance(pins, dict):
             return jsonify({"success": False, "msg": "INVALID_PINS"}), 400
 
-        known_pins = set(DEFAULT_CONFIG["pins"].keys())
+        known_pins = set(SYSTEM_DEFAULTS["pins"].keys())
         unknown_pins = set(pins.keys()) - known_pins
         if unknown_pins:
             msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
             return jsonify({"success": False, "msg": msg}), 400
 
         validation_errors: list[str] = []
-        current = sys_config.get("pins", DEFAULT_CONFIG["pins"])
+        current = sys_config.get("pins", SYSTEM_DEFAULTS["pins"])
         validated = _validate_pins({**current, **pins}, validation_errors)
         if validation_errors:
             return (
@@ -1149,7 +1088,7 @@ def control():
         if not isinstance(seq, dict):
             return jsonify({"success": False, "msg": "INVALID_SEQUENCE"}), 400
         validation_errors: list[str] = []
-        current = sys_config.get("extruder_sequence", DEFAULT_CONFIG["extruder_sequence"])
+        current = sys_config.get("extruder_sequence", SYSTEM_DEFAULTS["extruder_sequence"])
         validated = _validate_extruder_sequence({**current, **seq}, validation_errors)
         if validation_errors:
             return (
@@ -1163,7 +1102,7 @@ def control():
         if not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_DM556_PARAMS"}), 400
         validation_errors: list[str] = []
-        current = sys_config.get("dm556", DEFAULT_CONFIG["dm556"])
+        current = sys_config.get("dm556", SYSTEM_DEFAULTS["dm556"])
         validated = _validate_dm556({**current, **params}, validation_errors)
         if validation_errors:
             return (
@@ -1205,7 +1144,7 @@ def control():
         if temp_errors:
             return jsonify({"success": False, "msg": "; ".join(temp_errors)}), 400
         validation_errors: list[str] = []
-        current = sys_config.get("temp_settings", DEFAULT_CONFIG["temp_settings"])
+        current = sys_config.get("temp_settings", SYSTEM_DEFAULTS["temp_settings"])
         validated = _validate_temp_settings({**current, **sanitized}, validation_errors)
         if validation_errors:
             return (
@@ -1246,7 +1185,7 @@ def control():
                 400,
             )
         validation_errors: list[str] = []
-        current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
+        current = sys_config.get("logging", SYSTEM_DEFAULTS["logging"])
         validated = _validate_logging({**current, **sanitized_logging}, validation_errors)
         if validation_errors:
             return (
@@ -1273,7 +1212,7 @@ def control():
             "sensors", {}
         ).get(str(channel))
         if current_cfg is None:
-            default_cfg = DEFAULT_CONFIG.get("sensors", {}).get(str(channel))
+            default_cfg = SYSTEM_DEFAULTS.get("sensors", {}).get(str(channel))
             if default_cfg is None:
                 return jsonify({"success": False, "msg": "INVALID_SENSOR_CHANNEL"}), 400
             current_cfg = default_cfg
