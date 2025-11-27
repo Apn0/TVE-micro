@@ -26,6 +26,7 @@ class ControlLoopEdgeTests(unittest.TestCase):
         self._orig_start_delay = seq_cfg.get("start_delay_feed", 2.0)
         self._orig_stop_delay = seq_cfg.get("stop_delay_motor", 5.0)
         self._orig_check_temp = seq_cfg.get("check_temp_before_start", True)
+        app_module.sys_config["extruder_sequence"]["check_temp_before_start"] = False
         seq_cfg["start_delay_feed"] = 0.1
         seq_cfg["stop_delay_motor"] = 0.1
         seq_cfg["check_temp_before_start"] = False

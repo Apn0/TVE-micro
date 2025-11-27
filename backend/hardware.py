@@ -872,19 +872,24 @@ class HardwareInterface:
         """Returns the status of all GPIO pins."""
         status = {}
         for pin_name, pin_num in self.pins.items():
-            if pin_num is not None:
-                try:
-                    mode = self.pin_modes.get(pin_num, "IN")
-                    value = self.get_gpio_value(pin_num)
-                    pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else None
-                    status[pin_num] = {
-                        "name": pin_name,
-                        "mode": mode,
-                        "value": value,
-                        "pull_up_down": pull_up_down,
-                    }
-                except Exception as e:
-                    logging.warning(f"Could not get status for pin {pin_num}: {e}")
+            if pin_num is None:
+                continue
+
+            try:
+                pin_num = int(pin_num)
+                mode = self.pin_modes.get(pin_num, "IN")
+                value = self.get_gpio_value(pin_num)
+                pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else "off"
+                status[pin_num] = {
+                    "name": pin_name,
+                    "mode": mode,
+                    "value": value,
+                    "pull_up_down": pull_up_down,
+                }
+            except (ValueError, TypeError) as e:
+                logging.warning(f"Skipping status for invalid pin {pin_name} ({pin_num}): {e}")
+            except Exception as e:
+                logging.warning(f"Could not get status for pin {pin_num}: {e}")
         return status
 
     def set_gpio_mode(self, pin, mode, pull_up_down='up'):
