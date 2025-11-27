@@ -636,14 +636,8 @@ function HomeScreen({ data, sendCmd, keypad }) {
         {hasAlarm && (
           <div style={{marginBottom: '10px'}}>
             <div style={{color: '#e74c3c', fontWeight: 'bold', marginBottom: '5px'}}>
-              ALARM: {data.state?.alarm_msg || "Unknown alarm"}
+              ALARM ACTIVE - Check Alarms Tab
             </div>
-            <button
-              style={{...styles.button, background: '#f1c40f', color: '#000'}}
-              onClick={() => sendCmd("CLEAR_ALARM")}
-            >
-              Clear Alarm
-            </button>
           </div>
         )}
         <button
@@ -662,33 +656,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
         </button>
       </div>
 
-      {hasAlarm && (
-        <div style={styles.alarmOverlay}>
-          <div style={{ color: "white", fontSize: "2em", fontWeight: "bold" }}>
-            ALARM
-          </div>
-          <div style={{ color: "#ecf0f1", marginTop: "10px" }}>
-            {data.state?.alarm_msg || "Unknown alarm"}
-          </div>
-          <button
-            style={{
-              ...styles.button,
-              marginTop: "20px",
-              background: "#f1c40f",
-              color: "#000",
-            }}
-            onClick={() => sendCmd("CLEAR_ALARM")}
-          >
-            Clear alarm
-          </button>
-          <button
-            style={{ ...styles.buttonDanger, marginTop: "10px" }}
-            onClick={() => sendCmd("EMERGENCY_STOP")}
-          >
-            Maintain STOP
-          </button>
-        </div>
-      )}
     </div>
   );
 }

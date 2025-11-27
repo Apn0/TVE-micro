@@ -1,4 +1,4 @@
-﻿// file: frontend/src/App.jsx
+// file: frontend/src/App.jsx
 import React, { useState, useEffect } from "react";
 
 import useKeypad from "./hooks/useKeypad";
@@ -78,6 +78,7 @@ import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
 import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
+import AlarmsScreen from "./components/AlarmsScreen";
 
 function App() {
   const [view, setView] = useState("HOME");
@@ -87,6 +88,24 @@ function App() {
   const [history, setHistory] = useState([]);
   const HISTORY_RETENTION_MS = 1000 * 60 * 60 * 24 * 7; // keep a rolling 7-day window
   const keypad = useKeypad();
+
+  // Initial historic data fetch
+  useEffect(() => {
+    async function fetchHistory() {
+      try {
+        const res = await fetch("/api/history/sensors");
+        if (res.ok) {
+           const json = await res.json();
+           if (Array.isArray(json)) {
+             setHistory(json);
+           }
+        }
+      } catch (e) {
+        console.error("Failed to load sensor history", e);
+      }
+    }
+    fetchHistory();
+  }, []);
 
   // Status polling
   useEffect(() => {
@@ -152,14 +171,30 @@ function App() {
     }
   };
 
+  const activeAlarms = data?.state?.active_alarms || [];
+  const alarmHistory = data?.state?.alarm_history || [];
+
+  // Critical alarm overlay logic
+  const criticalAlarm = activeAlarms.find(
+    (a) => a.severity === "CRITICAL" && !a.acknowledged
+  );
+  const showCriticalOverlay = !!criticalAlarm && view !== "ALARMS";
+
   return (
     <div style={styles.layout}>
-      <Nav current={view} setView={setView} />
+      <Nav current={view} setView={setView} hasActiveAlarms={activeAlarms.length > 0} />
 
       {data ? (
         <div style={styles.content}>
           {view === "HOME" && (
             <HomeScreen data={data} sendCmd={sendCmd} keypad={keypad} />
+          )}
+          {view === "ALARMS" && (
+            <AlarmsScreen
+              activeAlarms={activeAlarms}
+              alarmHistory={alarmHistory}
+              sendCmd={sendCmd}
+            />
           )}
           {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
           {view === "HEATERS" && (
@@ -181,6 +216,33 @@ function App() {
         <div style={styles.disconnectOverlay}>
           <div style={{ color: "#f1c40f", fontSize: "1.5em" }}>Connecting…</div>
         </div>
+      )}
+
+      {showCriticalOverlay && (
+         <div style={styles.alarmOverlay}>
+            <div style={{ color: "white", fontSize: "2em", fontWeight: "bold", textAlign: "center" }}>
+              CRITICAL ALARM
+            </div>
+            <div style={{ color: "#ecf0f1", marginTop: "10px", fontSize: "1.2em" }}>
+              {criticalAlarm.type}
+            </div>
+            <div style={{ color: "#ccc", marginTop: "5px" }}>
+              {criticalAlarm.message}
+            </div>
+            <button
+              style={{
+                ...styles.button,
+                marginTop: "30px",
+                background: "#f1c40f",
+                color: "#000",
+                fontSize: "1.2em",
+                padding: "15px 30px"
+              }}
+              onClick={() => sendCmd("ACKNOWLEDGE_ALARM", { alarm_id: criticalAlarm.id })}
+            >
+              ACKNOWLEDGE
+            </button>
+         </div>
       )}
 
       <div style={styles.statusBar}>
