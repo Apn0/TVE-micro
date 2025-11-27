@@ -913,23 +913,37 @@ class HardwareInterface:
     def get_gpio_status(self):
         """Returns the status of all GPIO pins."""
         status = {}
-        for pin_name, pin_num in self.pins.items():
-            if pin_num is None:
-                continue
+        # Define the set of pins to scan (BCM 0-27 plus any others in config)
+        scan_pins = set(range(28))
 
+        # Build reverse map: pin -> list of names, and add configured pins to scan list
+        pin_to_names = {}
+        for name, p in self.pins.items():
+            if p is not None:
+                try:
+                    p_int = int(p)
+                    scan_pins.add(p_int)
+                    pin_to_names.setdefault(p_int, []).append(name)
+                except (ValueError, TypeError):
+                    pass
+
+        sorted_pins = sorted(list(scan_pins))
+
+        for pin_num in sorted_pins:
             try:
-                pin_num = int(pin_num)
                 mode = self.pin_modes.get(pin_num, "IN")
                 value = self.get_gpio_value(pin_num)
                 pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else "off"
+
+                names = pin_to_names.get(pin_num, [])
+                name_str = ", ".join(names)
+
                 status[pin_num] = {
-                    "name": pin_name,
+                    "name": name_str,
                     "mode": mode,
                     "value": value,
                     "pull_up_down": pull_up_down,
                 }
-            except (ValueError, TypeError) as e:
-                logging.warning(f"Skipping status for invalid pin {pin_name} ({pin_num}): {e}")
             except Exception as e:
                 logging.warning(f"Could not get status for pin {pin_num}: {e}")
         return status
@@ -972,7 +986,15 @@ class HardwareInterface:
             self._sim_gpio_values[pin] = 1 if value else 0
             return
 
-        GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+        # Ensure pin is set to output mode before writing if not already?
+        # The frontend calls SET_GPIO_MODE separately.
+        # But we should ensure the pin is set up if it wasn't by _setup_gpio.
+        try:
+             GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+        except RuntimeError:
+             # Pin might not be set up as output. Try setting it up.
+             GPIO.setup(pin, GPIO.OUT)
+             GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
 
     # --- Config hooks ----------------------------------------------------
 

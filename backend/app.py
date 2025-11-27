@@ -144,19 +144,22 @@ def _validate_dm556(section: dict, errors: list[str]):
 
 def _validate_pins(section: dict, errors: list[str]):
     result = copy.deepcopy(DEFAULT_CONFIG["pins"])
-    for name, default_pin in result.items():
-        if name in section:
-            if section[name] is None:
-                result[name] = None
-                continue
-            try:
-                pin = int(section[name])
-                if 0 <= pin <= 40:
-                    result[name] = pin
-                else:
-                    raise ValueError
-            except (TypeError, ValueError):
+    for name, val in section.items():
+        if val is None:
+            result[name] = None
+            continue
+        try:
+            pin = int(val)
+            if 0 <= pin <= 40:
+                result[name] = pin
+            else:
+                raise ValueError
+        except (TypeError, ValueError):
+            if name in DEFAULT_CONFIG["pins"]:
+                default_pin = DEFAULT_CONFIG["pins"][name]
                 errors.append(f"Invalid pin {name}, using default {default_pin}")
+            else:
+                errors.append(f"Invalid pin {name}, skipping")
     return result
 
 
@@ -1096,12 +1099,6 @@ def control():
         if not isinstance(pins, dict):
             return jsonify({"success": False, "msg": "INVALID_PINS"}), 400
 
-        known_pins = set(DEFAULT_CONFIG["pins"].keys())
-        unknown_pins = set(pins.keys()) - known_pins
-        if unknown_pins:
-            msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
-            return jsonify({"success": False, "msg": msg}), 400
-
         validation_errors: list[str] = []
         current = sys_config.get("pins", DEFAULT_CONFIG["pins"])
         validated = _validate_pins({**current, **pins}, validation_errors)
@@ -1111,6 +1108,38 @@ def control():
                 400,
             )
         sys_config["pins"] = validated
+        if hal:
+            hal.pins = validated
+
+    elif cmd == "SET_PIN_NAME":
+        try:
+            pin = int(req.get("pin"))
+            name = str(req.get("name", "")).strip()
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "msg": "INVALID_ARGS"}), 400
+
+        current_pins = sys_config.get("pins", DEFAULT_CONFIG["pins"]).copy()
+
+        # Remove any existing keys mapping to this pin
+        keys_to_remove = [k for k, v in current_pins.items() if v == pin]
+        for k in keys_to_remove:
+            if k in DEFAULT_CONFIG["pins"]:
+                current_pins[k] = None
+            else:
+                del current_pins[k]
+
+        # Add new mapping if name provided
+        if name:
+            current_pins[name] = pin
+
+        validation_errors: list[str] = []
+        validated = _validate_pins(current_pins, validation_errors)
+        if validation_errors:
+            return jsonify({"success": False, "msg": "; ".join(validation_errors)}), 400
+
+        sys_config["pins"] = validated
+        if hal:
+            hal.pins = validated
 
     elif cmd == "UPDATE_EXTRUDER_SEQ":
         seq = req.get("sequence", {})
@@ -1303,10 +1332,8 @@ def control():
         except (TypeError, ValueError):
             return jsonify({"success": False, "msg": "INVALID_PIN"}), 400
 
-        known_pins = {v for v in hal.pins.values() if v is not None}
-        known_pins.update(getattr(hal, "pin_modes", {}).keys())
-        if int_pin not in known_pins:
-            return jsonify({"success": False, "msg": "UNKNOWN_PIN"}), 400
+        # Allow control of any pin
+        # known_pins check removed
 
         last_toggle = gpio_write_times.get(int_pin, 0.0)
         if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
