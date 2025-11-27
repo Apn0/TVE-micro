@@ -441,6 +441,8 @@ state = {
     "target_z2": 0.0,
     "manual_duty_z1": 0.0,
     "manual_duty_z2": 0.0,
+    "heater_duty_z1": 0.0,
+    "heater_duty_z2": 0.0,
     "temps": {},
     "temps_timestamp": 0.0,
     "motors": {"main": 0.0, "feed": 0.0},
@@ -743,6 +745,8 @@ def control_loop():
                 if not temps_fresh or not sensor_fresh or temp_val is None:
                     controller.reset()
                     hal.set_heater_duty(heater_name, 0.0)
+                    with state_lock:
+                        state[f"heater_duty_{heater_name}"] = 0.0
                     return not sensor_fresh
 
                 out = controller.compute(temp_val)
@@ -750,6 +754,8 @@ def control_loop():
                     return False
 
                 hal.set_heater_duty(heater_name, out)
+                with state_lock:
+                    state[f"heater_duty_{heater_name}"] = out
                 return False
 
             stale_detected = apply_heater(t2, pid_z1, "z1", "t2") or stale_detected
@@ -952,8 +958,10 @@ def control():
         with state_lock:
             if zone == "z1":
                 state["manual_duty_z1"] = duty
+                state["heater_duty_z1"] = duty
             else:
                 state["manual_duty_z2"] = duty
+                state["heater_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
         motor = req.get("motor")
