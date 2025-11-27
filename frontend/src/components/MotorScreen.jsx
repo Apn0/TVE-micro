@@ -102,6 +102,19 @@ function MotorScreen({ data, sendCmd }) {
     };
   }, [motionConfig.max_accel, motionConfig.max_accel_per_s, motionConfig.max_accel_per_s2, motionConfig.max_jerk, motionConfig.ramp_down, motionConfig.ramp_down_s, motionConfig.ramp_up, motionConfig.ramp_up_s]);
 
+  const formatStepsPerSecond = (rpm) => {
+    if (!Number.isFinite(rpm)) return "--";
+    return ((rpm / 60) * dm.microsteps).toFixed(0);
+  };
+
+  const stepsPerSecond = useMemo(
+    () => ({
+      main: formatStepsPerSecond(mainRpm),
+      feed: formatStepsPerSecond(feedRpm),
+    }),
+    [feedRpm, mainRpm, dm.microsteps]
+  );
+
   return (
     <div>
       <div style={styles.panel}>
@@ -209,22 +222,36 @@ function MotorScreen({ data, sendCmd }) {
           the backend exposes motion limits they are shown below; otherwise the
           fields will read "Not provided".
         </p>
-        <div style={styles.grid2}>
-          <div>
-            <div style={styles.label}>Ramp up</div>
+        <div style={{ ...styles.cardGrid, marginTop: 12 }}>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Ramp up</div>
             <div style={styles.metricBig}>{motionMetrics.rampUp}</div>
+            <div style={styles.cardHint}>Seconds needed to accelerate</div>
           </div>
-          <div>
-            <div style={styles.label}>Ramp down</div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Ramp down</div>
             <div style={styles.metricBig}>{motionMetrics.rampDown}</div>
+            <div style={styles.cardHint}>Seconds needed to decelerate</div>
           </div>
-          <div>
-            <div style={styles.label}>Max accel</div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Max accel</div>
             <div style={styles.metricBig}>{motionMetrics.accelPerSec}</div>
+            <div style={styles.cardHint}>RPM per second</div>
           </div>
-          <div>
-            <div style={styles.label}>Max accel rate</div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Max accel rate</div>
             <div style={styles.metricBig}>{motionMetrics.accelPerSec2}</div>
+            <div style={styles.cardHint}>RPM per second²</div>
+          </div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Speed (steps/s) - Main</div>
+            <div style={styles.metricBig}>{stepsPerSecond.main}</div>
+            <div style={styles.cardHint}>Based on current RPM and microsteps</div>
+          </div>
+          <div style={styles.metricCard}>
+            <div style={styles.metricLabel}>Speed (steps/s) - Feeder</div>
+            <div style={styles.metricBig}>{stepsPerSecond.feed}</div>
+            <div style={styles.cardHint}>Based on current RPM and microsteps</div>
           </div>
         </div>
       </div>

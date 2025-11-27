@@ -459,13 +459,6 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     });
   };
 
-  const fieldBox = {
-    background: "#111",
-    borderRadius: "8px",
-    padding: "12px",
-    border: "1px solid #1f2a36",
-  };
-
   const renderZone = (label, temp, target, zoneKey, relayOn) => {
     const tempIsValid = temp !== null && temp !== undefined && Number.isFinite(temp);
     let color = "#7f8c8d";
@@ -476,17 +469,16 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     }
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        <div
-          style={{
-            ...fieldBox,
-            cursor: "pointer",
-            boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
-            transition: "box-shadow 0.2s ease",
-          }}
-          onClick={() => toggleZoneExpansion(zoneKey)}
-          data-testid={`heater-card-${zoneKey}`}
-        >
+      <div
+        style={{
+          ...styles.metricCard,
+          cursor: "pointer",
+          boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
+        }}
+        onClick={() => toggleZoneExpansion(zoneKey)}
+        data-testid={`heater-card-${zoneKey}`}
+      >
+        <div>
           <div style={{ ...styles.label, marginBottom: 6 }}>{label} temperature</div>
           <div
             style={{
@@ -497,9 +489,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           >
             {tempIsValid ? `${temp.toFixed(1)} °C` : "--.- °C"}
           </div>
-          <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
-            SSR {relayOn ? "active" : "idle"}
-          </div>
+          <div style={styles.cardHint}>SSR {relayOn ? "active" : "idle"}</div>
         </div>
 
         {expandedZone === zoneKey && (
@@ -508,10 +498,12 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
               if (expandedZone === zoneKey) setpointRef.current = node;
             }}
             style={{
-              ...fieldBox,
               background: "#0c0f15",
               border: "1px solid #3498db",
+              borderRadius: 8,
+              padding: 12,
               cursor: "pointer",
+              marginTop: 6,
             }}
             onClick={(e) => handleSetpointClick(zoneKey, target, e)}
             data-testid={`setpoint-dropdown-${zoneKey}`}
@@ -544,7 +536,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           Set temperature targets for each zone. PID loop will eventually drive
           SSR duty; for now we just pass targets to the backend.
         </p>
-        <div style={styles.grid2}>
+        <div style={{ ...styles.cardGrid, marginTop: 12 }}>
           {renderZone("Zone 1", temps.t1 ?? null, targetZ1, "z1", relays.ssr_z1)}
           {renderZone("Zone 2", temps.t2 ?? null, targetZ2, "z2", relays.ssr_z2)}
         </div>
