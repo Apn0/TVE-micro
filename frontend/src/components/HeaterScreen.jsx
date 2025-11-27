@@ -506,16 +506,20 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     }
 
     return (
-      <div
-        style={{
-          ...styles.metricCard,
-          cursor: "pointer",
-          boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
-        }}
-        onClick={() => toggleZoneExpansion(zoneKey)}
-        data-testid={`heater-card-${zoneKey}`}
-      >
-        <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div
+          style={{
+            ...fieldBox,
+            cursor: "pointer",
+            boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
+            transition: "box-shadow 0.2s ease",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleZoneExpansion(zoneKey);
+          }}
+          data-testid={`heater-card-${zoneKey}`}
+        >
           <div style={{ ...styles.label, marginBottom: 6 }}>{label} temperature</div>
           <div
             style={{
