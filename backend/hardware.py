@@ -221,6 +221,7 @@ class PCA9685Driver:
         self.address = int(address)
         self.frequency = frequency
         self.bus = None
+        self._error_count = 0
 
         if self.available:
             if not 0x03 <= self.address <= 0x77:
@@ -300,8 +301,14 @@ class PCA9685Driver:
                     (off_count >> 8) & 0x0F,
                 ],
             )
+            self._error_count = 0
         except Exception as e:
             print(f"[PCA9685] set_duty failed ch{channel}: {e}")
+            self._error_count += 1
+            if self._error_count >= 3:
+                print("[PCA9685] disabling PWM after repeated I2C errors")
+                self.available = False
+                self.close()
 
     def all_off(self):
         if not self.available or self.bus is None:
