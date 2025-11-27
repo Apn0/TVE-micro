@@ -93,8 +93,6 @@ def _validate_pins(section: dict, errors: list[str]):
                     raise ValueError
             except (TypeError, ValueError):
                 errors.append(f"Invalid pin {name}, using default {default_pin}")
-            else:
-                errors.append(f"Invalid pin {name}, skipping")
     return result
 
 
@@ -1213,12 +1211,15 @@ def control():
         known_pins = set(SYSTEM_DEFAULTS["pins"].keys())
         unknown_pins = set(pins.keys()) - known_pins
         if unknown_pins:
-            msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
-            return jsonify({"success": False, "msg": msg}), 400
+            app_logger.warning(
+                "Ignoring unknown pin names in UPDATE_PINS: %s",
+                ", ".join(sorted(unknown_pins)),
+            )
 
         validation_errors: list[str] = []
         current = sys_config.get("pins", SYSTEM_DEFAULTS["pins"])
-        validated = _validate_pins({**current, **pins}, validation_errors)
+        sanitized_pins = {k: v for k, v in pins.items() if k in known_pins}
+        validated = _validate_pins({**current, **sanitized_pins}, validation_errors)
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),
