@@ -59,7 +59,25 @@ LOGICAL_SENSORS = ["t1", "t2", "t3", "motor"]
 ALL_GPIO_PINS_BCM = tuple(range(0, 28))
 hardware_logger = logging.getLogger("tve.backend.hardware")
 
-# --- Default sensor + ADC configuration ---------------------------------------
+# --- Default Hardware Configuration -------------------------------------------
+
+DEFAULT_PINS: Dict[str, int | None] = {
+    "ssr_z1": None,
+    "ssr_z2": None,
+    "ssr_fan": None,
+    "ssr_pump": None,
+    "step_main": 5,
+    "dir_main": 6,
+    "step_feed": None,
+    "dir_feed": None,
+    "alm_main": None,
+    "btn_start": 25,
+    "btn_emergency": 8,
+    "led_status": None,
+    "led_red": None,
+    "led_green": None,
+    "led_yellow": None
+}
 
 DEFAULT_SENSOR_CONFIG: Dict[int, Dict[str, Any]] = {
     0: {
@@ -1070,7 +1088,15 @@ class HardwareInterface:
             self._sim_gpio_values[pin] = 1 if value else 0
             return
 
-        GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+        # Ensure pin is set to output mode before writing if not already?
+        # The frontend calls SET_GPIO_MODE separately.
+        # But we should ensure the pin is set up if it wasn't by _setup_gpio.
+        try:
+             GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+        except RuntimeError:
+             # Pin might not be set up as output. Try setting it up.
+             GPIO.setup(pin, GPIO.OUT)
+             GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
 
     # --- Config hooks ----------------------------------------------------
 

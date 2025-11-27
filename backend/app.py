@@ -88,6 +88,8 @@ def _validate_pins(section: dict, errors: list[str]):
                     raise ValueError
             except (TypeError, ValueError):
                 errors.append(f"Invalid pin {name}, using default {default_pin}")
+            else:
+                errors.append(f"Invalid pin {name}, skipping")
     return result
 
 
@@ -1082,6 +1084,38 @@ def control():
                 400,
             )
         sys_config["pins"] = validated
+        if hal:
+            hal.pins = validated
+
+    elif cmd == "SET_PIN_NAME":
+        try:
+            pin = int(req.get("pin"))
+            name = str(req.get("name", "")).strip()
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "msg": "INVALID_ARGS"}), 400
+
+        current_pins = sys_config.get("pins", SYSTEM_DEFAULTS["pins"]).copy()
+
+        # Remove any existing keys mapping to this pin
+        keys_to_remove = [k for k, v in current_pins.items() if v == pin]
+        for k in keys_to_remove:
+            if k in SYSTEM_DEFAULTS["pins"]:
+                current_pins[k] = None
+            else:
+                del current_pins[k]
+
+        # Add new mapping if name provided
+        if name:
+            current_pins[name] = pin
+
+        validation_errors: list[str] = []
+        validated = _validate_pins(current_pins, validation_errors)
+        if validation_errors:
+            return jsonify({"success": False, "msg": "; ".join(validation_errors)}), 400
+
+        sys_config["pins"] = validated
+        if hal:
+            hal.pins = validated
 
     elif cmd == "UPDATE_EXTRUDER_SEQ":
         seq = req.get("sequence", {})
@@ -1274,10 +1308,8 @@ def control():
         except (TypeError, ValueError):
             return jsonify({"success": False, "msg": "INVALID_PIN"}), 400
 
-        known_pins = {v for v in hal.pins.values() if v is not None}
-        known_pins.update(getattr(hal, "pin_modes", {}).keys())
-        if int_pin not in known_pins:
-            return jsonify({"success": False, "msg": "UNKNOWN_PIN"}), 400
+        # Allow control of any pin
+        # known_pins check removed
 
         last_toggle = gpio_write_times.get(int_pin, 0.0)
         if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
