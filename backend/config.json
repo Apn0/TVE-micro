@@ -12,20 +12,20 @@
     "dm556": {
         "current_peak": 3.2,
         "idle_half": true,
-        "microsteps": 1600
+        "microsteps": 3200
     },
     "pins": {
-        "ssr_z1": null,
-        "ssr_z2": null,
-        "ssr_fan": null,
-        "ssr_pump": null,
+        "ssr_z1": 23,
+        "ssr_z2": 24,
+        "ssr_fan": 25,
+        "ssr_pump": 8,
         "step_main": 21,
         "dir_main": 20,
         "step_feed": null,
         "dir_feed": null,
-        "alm_main": 26,
-        "btn_start": 28,
-        "btn_emergency": 26,
+        "alm_main": null,
+        "btn_start": null,
+        "btn_emergency": null,
         "led_status": null,
         "led_red": null,
         "led_green": null,
@@ -37,18 +37,16 @@
         "address": 64,
         "frequency": 1000,
         "channels": {
-            "z1": 0,
-            "z2": 1,
-            "fan": 2,
-            "fan_nozzle": 3,
-            "pump": 4,
-            "led_status": 5
+            "fan": 0,
+            "fan_nozzle": 1,
+            "pump": 2,
+            "led_status": 3
         }
     },
     "extruder_sequence": {
         "start_delay_feed": 2.0,
         "stop_delay_motor": 5.0,
-        "check_temp_before_start": true
+        "check_temp_before_start": false
     },
     "sensors": {
         "0": {

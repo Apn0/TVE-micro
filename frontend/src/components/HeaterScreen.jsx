@@ -485,6 +485,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
             transition: "box-shadow 0.2s ease",
           }}
           onClick={() => toggleZoneExpansion(zoneKey)}
+          data-testid={`heater-card-${zoneKey}`}
         >
           <div style={{ ...styles.label, marginBottom: 6 }}>{label} temperature</div>
           <div
@@ -513,6 +514,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
               cursor: "pointer",
             }}
             onClick={(e) => handleSetpointClick(zoneKey, target, e)}
+            data-testid={`setpoint-dropdown-${zoneKey}`}
           >
             <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
             <div
