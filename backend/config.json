@@ -32,10 +32,10 @@
         "led_yellow": null
     },
     "pwm": {
-        "enabled": true,
+        "enabled": false,
         "bus": 1,
         "address": 64,
-        "frequency": 1000,
+        "frequency": 60,
         "channels": {
             "fan": 0,
             "fan_nozzle": 1,
@@ -52,7 +52,7 @@
         "0": {
             "enabled": true,
             "logical": "t1",
-            "r_fixed": 100000.0,
+            "r_fixed": 1000.0,
             "r_25": 100000.0,
             "beta": 3950.0,
             "v_ref": 3.3,
@@ -63,7 +63,7 @@
         "1": {
             "enabled": true,
             "logical": "t2",
-            "r_fixed": 100000.0,
+            "r_fixed": 1000.0,
             "r_25": 100000.0,
             "beta": 3950.0,
             "v_ref": 3.3,
@@ -74,7 +74,7 @@
         "2": {
             "enabled": true,
             "logical": "t3",
-            "r_fixed": 100000.0,
+            "r_fixed": 1000.0,
             "r_25": 100000.0,
             "beta": 3950.0,
             "v_ref": 3.3,
@@ -85,7 +85,7 @@
         "3": {
             "enabled": true,
             "logical": "motor",
-            "r_fixed": 100000.0,
+            "r_fixed": 1000.0,
             "r_25": 100000.0,
             "beta": 3950.0,
             "v_ref": 3.3,
