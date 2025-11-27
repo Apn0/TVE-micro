@@ -723,7 +723,7 @@ def control_loop():
                     state["motors"]["feed"] = 0.0
                     state["status"] = "READY"
 
-        if mode == "AUTO":
+        if mode == "AUTO" and status == "RUNNING":
             t2 = temps.get("t2")
             t3 = temps.get("t3")
 
@@ -759,6 +759,11 @@ def control_loop():
                 _latch_alarm(alarm_req or "TEMP_DATA_STALE")
                 time.sleep(0.05)
                 continue
+        elif mode == "AUTO":
+            pid_z1.reset()
+            pid_z2.reset()
+            hal.set_heater_duty("z1", 0.0)
+            hal.set_heater_duty("z2", 0.0)
 
         if now - last_log_time >= log_interval:
             last_log_time = now
