@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { styles } from "../App";
 
 /*
@@ -15,9 +15,37 @@ import { styles } from "../App";
 function SensorsScreen({ data, sendCmd }) {
   const adc = data.config?.adc || {};
   const sensorsFromBackend = data.config?.sensors || {};
+  const temps = data.state?.temps || {};
   const channels = [0, 1, 2, 3];
 
   const [localSensors, setLocalSensors] = useState(() => sensorsFromBackend);
+
+  const logicalMap = useMemo(() => {
+    const pairs = Object.entries(sensorsFromBackend || {});
+    return pairs.reduce((acc, [ch, cfg]) => {
+      if (cfg?.logical) {
+        acc[cfg.logical] = { channel: Number(ch), cfg };
+      }
+      return acc;
+    }, {});
+  }, [sensorsFromBackend]);
+
+  const formatTemp = (value, decimals = 2) => {
+    if (value === null || value === undefined || Number.isNaN(value)) return "--.--";
+    return Number(value).toFixed(decimals);
+  };
+
+  const sensorCards = [
+    { key: "t1", label: "T1 thermistor", detail: "Barrel / zone 1", value: temps.t1 },
+    { key: "t2", label: "T2 thermistor", detail: "Zone 2 mid-barrel", value: temps.t2 },
+    { key: "t3", label: "T3 thermistor", detail: "Nozzle / zone 3", value: temps.t3 },
+    {
+      key: "motor",
+      label: "Motor thermistor",
+      detail: "Stepper casing",
+      value: temps.motor,
+    },
+  ];
 
   const handleFieldChange = (ch, field, value) => {
     setLocalSensors((prev) => {
@@ -54,7 +82,7 @@ function SensorsScreen({ data, sendCmd }) {
       wiring: cfg.wiring || "",
       decimals:
         cfg.decimals === "" || cfg.decimals === null
-          ? 0
+          ? 2
           : parseInt(cfg.decimals, 10),
     };
   };
@@ -115,47 +143,89 @@ function SensorsScreen({ data, sendCmd }) {
       <div style={styles.panel}>
         <h2>ADS1115 sensors</h2>
         <p style={{ fontSize: "0.9em", color: "#aaa" }}>
-          Configure the 4 NTC channels. Edit values in the table below, then
-          write them to the controller.
+          Live thermistor readings and calibration controls in one place. Values
+          below are shown with two decimals for quick diagnostics.
         </p>
-        <div
-          style={{
-            fontSize: "0.9em",
-            color: "#ccc",
-            marginBottom: "12px",
-          }}
-        >
-          <div>Enabled: {adc.enabled ? "yes" : "no"}</div>
-          <div>Bus: {adc.bus ?? "-"}</div>
-          <div>
-            Address:{" "}
-            {adc.address !== undefined ? `0x${adc.address.toString(16)}` : "-"}
-          </div>
-          <div>FSR (read-only): {adc.fsr ?? "-"} V</div>
+
+        <div style={styles.metricGrid}>
+          {sensorCards.map((card) => {
+            const mapping = logicalMap[card.key];
+            const decimals = mapping?.cfg?.decimals ?? 2;
+            return (
+              <div key={card.key} style={styles.metricCard}>
+                <div style={styles.metricLabel}>{card.label}</div>
+                <div style={{ color: "#b0c4de", fontSize: "0.95em" }}>{card.detail}</div>
+                <div style={styles.metricValue}>
+                  {formatTemp(card.value, 2)}
+                  <span style={{ fontSize: "0.7em", marginLeft: 6, color: "#8c9fb1" }}>
+                    °C
+                  </span>
+                </div>
+                <div style={styles.cardHint}>
+                  {mapping
+                    ? `Mapped to A${mapping.channel} (${mapping.cfg.wiring || "wiring ?"}, ${decimals} dp)`
+                    : "No mapping from ADS to this logical sensor"}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        <button
-          style={styles.buttonSecondary}
-          onClick={() => applyRfixedAll(1000)}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "12px",
+            marginTop: "16px",
+            color: "#ccc",
+            fontSize: "0.9em",
+          }}
         >
-          Set all R_fixed = 1 kΩ
-        </button>
-        <button
-          style={{ ...styles.buttonSecondary, marginLeft: "8px" }}
-          onClick={reloadFromBackend}
-        >
-          Reload from controller
-        </button>
-        <button
-          style={{ ...styles.buttonSecondary, marginLeft: "8px" }}
-          onClick={applyAll}
-        >
-          Write all channels to controller
-        </button>
+          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+            <div style={styles.label}>ADC enabled</div>
+            <div style={styles.metricBig}>{adc.enabled ? "Yes" : "No"}</div>
+          </div>
+          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+            <div style={styles.label}>Bus</div>
+            <div style={styles.metricBig}>{adc.bus ?? "-"}</div>
+          </div>
+          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+            <div style={styles.label}>Address</div>
+            <div style={styles.metricBig}>
+              {adc.address !== undefined ? `0x${adc.address.toString(16)}` : "-"}
+            </div>
+          </div>
+          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+            <div style={styles.label}>FSR (read-only)</div>
+            <div style={styles.metricBig}>{adc.fsr ?? "-"} V</div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "14px" }}>
+          <button
+            style={styles.buttonSecondary}
+            onClick={() => applyRfixedAll(1000)}
+          >
+            Set all R_fixed = 1 kΩ
+          </button>
+          <button
+            style={{ ...styles.buttonSecondary, marginLeft: "8px" }}
+            onClick={reloadFromBackend}
+          >
+            Reload from controller
+          </button>
+          <button
+            style={{ ...styles.buttonSecondary, marginLeft: "8px" }}
+            onClick={applyAll}
+          >
+            Write all channels to controller
+          </button>
+        </div>
 
         <p style={{ fontSize: "0.85em", color: "#aaa", marginTop: "6px" }}>
           "Set all R_fixed" only updates the local table. Use a write button to
-          persist the values on the controller.
+          persist the values on the controller. Decimals default to two places
+          for clearer live readouts.
         </p>
       </div>
 
@@ -204,7 +274,7 @@ function SensorsScreen({ data, sendCmd }) {
                       onChange={(e) =>
                         handleFieldChange(ch, "logical", e.target.value)
                       }
-                      style={{ ...inputStyle, width: "70px" }}
+                      style={{ ...inputStyle, width: "80px" }}
                     />
                   </td>
                   <td style={tdStyle}>
@@ -255,7 +325,7 @@ function SensorsScreen({ data, sendCmd }) {
                       onChange={(e) =>
                         handleFieldChange(ch, "wiring", e.target.value)
                       }
-                      style={{ ...inputStyle, width: "110px" }}
+                      style={{ ...inputStyle, width: "120px" }}
                     >
                       <option value="ntc_to_gnd">ntc_to_gnd</option>
                       <option value="ntc_to_vref">ntc_to_vref</option>
@@ -265,7 +335,7 @@ function SensorsScreen({ data, sendCmd }) {
                   <td style={tdStyle}>
                     <input
                       type="number"
-                      value={cfg.decimals ?? 1}
+                      value={cfg.decimals ?? 2}
                       onChange={(e) =>
                         handleFieldChange(
                           ch,
@@ -273,7 +343,7 @@ function SensorsScreen({ data, sendCmd }) {
                           e.target.value === "" ? "" : e.target.value
                         )
                       }
-                      style={{ ...inputStyle, width: "60px" }}
+                      style={{ ...inputStyle, width: "70px" }}
                     />
                   </td>
                   <td style={tdStyle}>
