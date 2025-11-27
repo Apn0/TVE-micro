@@ -157,6 +157,7 @@ function HomeScreen({ data, sendCmd, keypad }) {
           cursor: "pointer",
         }}
         onClick={(e) => handleSetpointClick(zoneKey, targetValue, e)}
+        data-testid={`setpoint-dropdown-${zoneKey}`}
       >
         <div style={{ ...styles.metricLabel, marginBottom: 6 }}>Set point</div>
         <div style={{ fontSize: "1.4em", fontWeight: "bold" }}>
@@ -333,6 +334,8 @@ function HomeScreen({ data, sendCmd, keypad }) {
               minWidth: 160,
               zIndex: 2,
             }}
+            data-testid="heater-z1-card"
+            onClick={() => toggleHeaterCard("z1")}
           >
             <div style={styles.metricLabel}>Heater Z1</div>
             <div style={{ ...styles.metricValue, color: heaterZ1On ? "#e74c3c" : "#7f8c8d" }}>
@@ -353,6 +356,8 @@ function HomeScreen({ data, sendCmd, keypad }) {
               minWidth: 160,
               zIndex: 2,
             }}
+            data-testid="heater-z2-card"
+            onClick={() => toggleHeaterCard("z2")}
           >
             <div style={styles.metricLabel}>Heater Z2</div>
             <div style={{ ...styles.metricValue, color: heaterZ2On ? "#e74c3c" : "#7f8c8d" }}>

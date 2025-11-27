@@ -16,6 +16,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import atexit
 
 from backend.hardware import HardwareInterface
@@ -41,13 +42,19 @@ DEFAULT_CONFIG = {
     "pins": {
         "ssr_z1": None,
         "ssr_z2": None,
-        "ssr_fan": 22,
-        "ssr_pump": 23,
+        "ssr_fan": None,
+        "ssr_pump": None,
         "step_main": 5,
         "dir_main": 6,
-        "step_feed": 13,
-        "dir_feed": 19,
-        "alm_main": 16,
+        "step_feed": None,
+        "dir_feed": None,
+        "alm_main": None,
+        "btn_start": 25,
+        "btn_emergency": 8,
+        "led_status": None,
+        "led_red": None,
+        "led_green": None,
+        "led_yellow": None
     },
     "pwm": {
         "enabled": True,
@@ -432,6 +439,7 @@ gpio_write_times: dict[int, float] = {}
 TOGGLE_DEBOUNCE_SEC = 0.25
 
 app = Flask(__name__)
+CORS(app)
 
 
 def _safe_float(val: object) -> float | None:
