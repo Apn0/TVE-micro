@@ -201,53 +201,52 @@ def _validate_sensor_section(
     section: dict, default_section: dict, errors: list[str], sensor_key: str
 ):
     result = copy.deepcopy(default_section)
-    try:
-        if "enabled" in section:
-            result["enabled"] = bool(section.get("enabled", result["enabled"]))
-        if "logical" in section:
-            result["logical"] = str(section.get("logical", result["logical"]))
-        if "r_fixed" in section:
-            rf = float(section.get("r_fixed", result["r_fixed"]))
-            if rf > 0:
-                result["r_fixed"] = rf
-        if "r_25" in section:
-            r25 = float(section.get("r_25", result["r_25"]))
-            if r25 > 0:
-                result["r_25"] = r25
-        if "beta" in section:
-            beta = float(section.get("beta", result["beta"]))
-            if beta > 0:
-                result["beta"] = beta
-        if "v_ref" in section:
-            vref = float(section.get("v_ref", result["v_ref"]))
-            if vref > 0:
-                result["v_ref"] = vref
-        if "wiring" in section:
-            result["wiring"] = str(section.get("wiring", result["wiring"]))
-        if "decimals" in section:
-            dec = int(section.get("decimals", result["decimals"]))
-            if dec >= 0:
-                result["decimals"] = dec
 
-        if "cal_points" in section:
-            cal_points = section.get("cal_points", result.get("cal_points", []))
-            if isinstance(cal_points, list):
-                validated_points = []
-                for pt in cal_points:
-                    if isinstance(pt, dict) and "x" in pt and "y" in pt:
-                        try:
-                            validated_points.append({"x": float(pt["x"]), "y": float(pt["y"])})
-                        except (TypeError, ValueError):
-                            continue
-                result["cal_points"] = validated_points
-            else:
+    if "enabled" in section:
+        result["enabled"] = bool(section.get("enabled", result["enabled"]))
+    if "logical" in section:
+        result["logical"] = str(section.get("logical", result["logical"]))
+
+    for field_name, key in (("r_fixed", "r_fixed"), ("r_25", "r_25"), ("beta", "beta"), ("v_ref", "v_ref")):
+        if key not in section:
+            continue
+        parsed = _parse_float_with_suffix(section.get(key, result.get(key)))
+        if parsed is None or parsed <= 0:
+            errors.append(f"{field_name} must be a positive number")
+            continue
+        result[key] = parsed
+
+    if "wiring" in section:
+        result["wiring"] = str(section.get("wiring", result["wiring"]))
+
+    if "decimals" in section:
+        try:
+            dec = int(section.get("decimals", result["decimals"]))
+            if dec < 0:
                 raise ValueError
-        return result
-    except (TypeError, ValueError):
-        errors.append(
-            f"Invalid sensor configuration for key {sensor_key}, using defaults"
-        )
+            result["decimals"] = dec
+        except (TypeError, ValueError):
+            errors.append("decimals must be a non-negative integer")
+
+    if "cal_points" in section:
+        cal_points = section.get("cal_points", result.get("cal_points", []))
+        if isinstance(cal_points, list):
+            validated_points = []
+            for pt in cal_points:
+                if isinstance(pt, dict) and "x" in pt and "y" in pt:
+                    try:
+                        validated_points.append({"x": float(pt["x"]), "y": float(pt["y"])})
+                    except (TypeError, ValueError):
+                        continue
+            result["cal_points"] = validated_points
+        else:
+            errors.append("cal_points must be an array of {x, y} objects")
+
+    if errors:
+        errors.append(f"Invalid sensor configuration for key {sensor_key}, using defaults")
         return copy.deepcopy(default_section)
+
+    return result
 
 
 def _validate_sensors(section: dict, errors: list[str]):
@@ -396,6 +395,27 @@ def _coerce_finite(value):
     except (TypeError, ValueError):
         return None
     return coerced if math.isfinite(coerced) else None
+
+
+def _parse_float_with_suffix(value: object) -> float | None:
+    """Coerce a value to float, allowing engineering suffixes like 'k' or 'M'."""
+
+    multiplier = 1.0
+
+    if isinstance(value, str):
+        trimmed = value.strip().lower()
+        if trimmed.endswith("k"):
+            multiplier = 1e3
+            trimmed = trimmed[:-1]
+        elif trimmed.endswith("m"):
+            multiplier = 1e6
+            trimmed = trimmed[:-1]
+        value = trimmed
+
+    coerced = _coerce_finite(value)
+    if coerced is None:
+        return None
+    return coerced * multiplier
 
 sys_config = load_config()
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
