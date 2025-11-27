@@ -21,7 +21,7 @@
         "ssr_pump": 8,
         "step_main": 21,
         "dir_main": 20,
-        "en_main": null,
+        "en_main": 26,
         "step_feed": null,
         "dir_feed": null,
         "en_feed": null,
@@ -59,7 +59,7 @@
             "beta": 3950.0,
             "v_ref": 3.3,
             "wiring": "ntc_to_gnd",
-            "decimals": 1,
+            "decimals": 2,
             "cal_points": []
         },
         "1": {
@@ -70,21 +70,10 @@
             "beta": 3950.0,
             "v_ref": 3.3,
             "wiring": "ntc_to_gnd",
-            "decimals": 1,
+            "decimals": 2,
             "cal_points": []
         },
         "2": {
-            "enabled": true,
-            "logical": "t3",
-            "r_fixed": 1000.0,
-            "r_25": 100000.0,
-            "beta": 3950.0,
-            "v_ref": 3.3,
-            "wiring": "ntc_to_gnd",
-            "decimals": 1,
-            "cal_points": []
-        },
-        "3": {
             "enabled": true,
             "logical": "motor",
             "r_fixed": 1000.0,
@@ -92,7 +81,18 @@
             "beta": 3950.0,
             "v_ref": 3.3,
             "wiring": "ntc_to_gnd",
-            "decimals": 1,
+            "decimals": 2,
+            "cal_points": []
+        },
+        "3": {
+            "enabled": true,
+            "logical": "t3",
+            "r_fixed": 1000.0,
+            "r_25": 100000.0,
+            "beta": 3950.0,
+            "v_ref": 3.3,
+            "wiring": "ntc_to_gnd",
+            "decimals": 2,
             "cal_points": []
         }
     },
