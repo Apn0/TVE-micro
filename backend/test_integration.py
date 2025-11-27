@@ -50,12 +50,16 @@ class TestApp(unittest.TestCase):
             "command": "UPDATE_EXTRUDER_SEQ",
             "value": {
                 "sequence": {
-                    "start_delay_feed": 10.0
+                    "startup": [
+                        {"device": "feed_motor", "action": "on", "delay": 10.0, "enabled": True}
+                    ]
                 }
             }
         })
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(app_module.sys_config["extruder_sequence"]["start_delay_feed"], 10.0)
+        startup = app_module.sys_config["extruder_sequence"].get("startup", [])
+        delay = next((s.get("delay") for s in startup if s.get("device") == "feed_motor"), None)
+        self.assertEqual(delay, 10.0)
 
 if __name__ == '__main__':
     unittest.main()

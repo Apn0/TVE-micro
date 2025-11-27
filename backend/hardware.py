@@ -209,8 +209,24 @@ SYSTEM_DEFAULTS = {
         "flush_interval": 60.0,
     },
     "extruder_sequence": {
-        "start_delay_feed": 2.0,
-        "stop_delay_motor": 5.0,
+        "startup": [
+            {"device": "main_motor", "action": "on", "delay": 0.0, "enabled": True},
+            {"device": "feed_motor", "action": "on", "delay": 2.0, "enabled": True},
+            {"device": "fan", "action": "on", "delay": 0.0, "enabled": False},
+            {"device": "pump", "action": "on", "delay": 0.0, "enabled": False},
+        ],
+        "shutdown": [
+            {"device": "feed_motor", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "main_motor", "action": "off", "delay": 5.0, "enabled": True},
+            {"device": "fan", "action": "off", "delay": 0.0, "enabled": False},
+            {"device": "pump", "action": "off", "delay": 0.0, "enabled": False},
+        ],
+        "emergency": [
+            {"device": "feed_motor", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "main_motor", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "fan", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "pump", "action": "off", "delay": 0.0, "enabled": True},
+        ],
         "check_temp_before_start": True,
     },
 }

@@ -249,22 +249,110 @@ def _validate_logging(section: dict, errors: list[str]):
     return result
 
 
+ALLOWED_SEQUENCE_DEVICES = {"main_motor", "feed_motor", "fan", "pump"}
+ALLOWED_SEQUENCE_ACTIONS = {"on", "off"}
+
+
+def _validate_seq_steps(value, phase: str, errors: list[str]):
+    if not isinstance(value, list):
+        errors.append(f"extruder_sequence.{phase} must be a list of steps")
+        return []
+
+    validated: list[dict] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            errors.append(f"Invalid step in extruder_sequence.{phase}; expected object")
+            continue
+
+        device = str(raw.get("device", ""))
+        action = str(raw.get("action", "")).lower()
+        delay = _coerce_finite(raw.get("delay"))
+        enabled = bool(raw.get("enabled", True))
+
+        if device not in ALLOWED_SEQUENCE_DEVICES:
+            errors.append(f"Unknown device in extruder_sequence.{phase}: {device}")
+            continue
+        if action not in ALLOWED_SEQUENCE_ACTIONS:
+            errors.append(f"Invalid action for {device} in extruder_sequence.{phase}")
+            continue
+        if delay is not None and delay < 0:
+            errors.append(
+                f"Delay for {device} in extruder_sequence.{phase} must be non-negative"
+            )
+            continue
+
+        validated.append(
+            {
+                "device": device,
+                "action": action,
+                "delay": max(0.0, delay if delay is not None else 0.0),
+                "enabled": enabled,
+            }
+        )
+
+    return validated
+
+
+def _merge_seq_steps(base: list[dict], incoming: list[dict]):
+    merged = {step.get("device"): step for step in base if step.get("device")}
+    for step in incoming:
+        dev = step.get("device")
+        if not dev:
+            continue
+        merged[dev] = {**merged.get(dev, {}), **step}
+    return list(merged.values())
+
+
 def _validate_extruder_sequence(section: dict, errors: list[str]):
     result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
-    for key in ("start_delay_feed", "stop_delay_motor"):
-        if key in section:
-            try:
-                value = float(section[key])
-                if value >= 0:
-                    result[key] = value
-                else:
-                    raise ValueError
-            except (TypeError, ValueError):
-                errors.append(f"Invalid extruder_sequence.{key}, using default")
+
     if "check_temp_before_start" in section:
         result["check_temp_before_start"] = bool(
             section.get("check_temp_before_start", result["check_temp_before_start"])
         )
+
+    # Legacy support for simple delays
+    legacy_start = section.get("start_delay_feed")
+    legacy_stop = section.get("stop_delay_motor")
+    if legacy_start is not None or legacy_stop is not None:
+        legacy_steps = {
+            "startup": [
+                {
+                    "device": "main_motor",
+                    "action": "on",
+                    "delay": 0.0,
+                    "enabled": True,
+                },
+                {
+                    "device": "feed_motor",
+                    "action": "on",
+                    "delay": max(0.0, legacy_start or 0.0),
+                    "enabled": True,
+                },
+            ],
+            "shutdown": [
+                {
+                    "device": "feed_motor",
+                    "action": "off",
+                    "delay": 0.0,
+                    "enabled": True,
+                },
+                {
+                    "device": "main_motor",
+                    "action": "off",
+                    "delay": max(0.0, legacy_stop or 0.0),
+                    "enabled": True,
+                },
+            ],
+        }
+        for phase, steps in legacy_steps.items():
+            result[phase] = _merge_seq_steps(result.get(phase, []), steps)
+
+    for phase in ("startup", "shutdown", "emergency"):
+        if phase in section:
+            validated_steps = _validate_seq_steps(section[phase], phase, errors)
+            result[phase] = _merge_seq_steps(result.get(phase, []), validated_steps)
+
     return result
 
 
@@ -449,6 +537,69 @@ def _all_outputs_off():
         for name in state.get("pwm", {}):
             state["pwm"][name] = 0.0
 
+
+def _capture_output_snapshot():
+    with state_lock:
+        motors_copy = dict(state.get("motors", {}))
+        relays_copy = dict(state.get("relays", {}))
+        pwm_copy = dict(state.get("pwm", {}))
+    return {"motors": motors_copy, "relays": relays_copy, "pwm": pwm_copy}
+
+
+def _apply_sequence_action(step: dict, snapshot: dict):
+    device = step.get("device")
+    action = step.get("action")
+    enabled = step.get("enabled", True)
+    if not enabled:
+        return
+
+    on = action == "on"
+    if device == "main_motor":
+        target = snapshot.get("motors", {}).get("main", 0.0) or 10.0
+        value = target if on else 0.0
+        hal.set_motor_rpm("main", value)
+        with state_lock:
+            state["motors"]["main"] = value
+    elif device == "feed_motor":
+        target = snapshot.get("motors", {}).get("feed", 0.0) or 10.0
+        value = target if on else 0.0
+        hal.set_motor_rpm("feed", value)
+        with state_lock:
+            state["motors"]["feed"] = value
+    elif device == "fan":
+        hal.set_relay("fan", on)
+        with state_lock:
+            state["relays"]["fan"] = on
+    elif device == "pump":
+        hal.set_relay("pump", on)
+        with state_lock:
+            state["relays"]["pump"] = on
+
+
+def _process_sequence_phase(phase: str, seq_cfg: dict, start_time: float, now: float, actions_done: set[str], snapshot: dict):
+    steps = [s for s in seq_cfg.get(phase, []) if s.get("enabled", True)]
+    if not steps and phase in ("shutdown", "emergency"):
+        steps = [
+            {"device": "feed_motor", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "main_motor", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "fan", "action": "off", "delay": 0.0, "enabled": True},
+            {"device": "pump", "action": "off", "delay": 0.0, "enabled": True},
+        ]
+    max_delay = max([s.get("delay", 0.0) for s in steps], default=0.0)
+    elapsed = now - start_time if start_time else 0.0
+
+    for step in steps:
+        delay = max(0.0, float(step.get("delay", 0.0)))
+        key = f"{phase}:{step.get('device')}"
+        if key in actions_done:
+            continue
+        if elapsed + 1e-9 >= delay:
+            _apply_sequence_action(step, snapshot)
+            actions_done.add(key)
+
+    done = len(actions_done) >= len(steps) or elapsed >= max_delay + 1.0
+    return done
+
 def _set_status(new_status: str):
     with state_lock:
         current_status = state.get("status")
@@ -469,6 +620,8 @@ def _latch_alarm(reason: str):
 
     running_event.clear()
     _all_outputs_off()
+    with state_lock:
+        state["seq_start_time"] = time.time()
     last_btn_start_state = False
     last_btn_stop_state = False
 
@@ -512,6 +665,9 @@ def control_loop():
     last_poll_time = 0
     last_log_time = 0
     temps = {}
+    prev_status = None
+    seq_actions_done: set[str] = set()
+    seq_snapshot: dict = _capture_output_snapshot()
 
     while not _control_stop.is_set():
         now = time.time()
@@ -643,15 +799,34 @@ def control_loop():
             target_z2 = state["target_z2"]
             temps = dict(state.get("temps", {}))
             temps_timestamp = state.get("temps_timestamp", 0.0)
+            seq_start_time = state.get("seq_start_time", 0.0)
 
         now = time.time()
+
+        if status != prev_status:
+            seq_actions_done.clear()
+            seq_snapshot = _capture_output_snapshot()
+            prev_status = status
+            if status in ("STARTING", "STOPPING", "ALARM") and not seq_start_time:
+                with state_lock:
+                    state["seq_start_time"] = now
+                    seq_start_time = now
 
         if not running_event.is_set() and status != "ALARM":
             with state_lock:
                 state["status"] = "ALARM"
                 status = "ALARM"
+                seq_start_time = state.get("seq_start_time", now) or now
+
+        seq_cfg = sys_config.get("extruder_sequence", {})
 
         if status == "ALARM" or not running_event.is_set():
+            if status == "ALARM":
+                if not seq_start_time:
+                    with state_lock:
+                        state["seq_start_time"] = now
+                        seq_start_time = now
+                _process_sequence_phase("emergency", seq_cfg, seq_start_time, now, seq_actions_done, seq_snapshot)
             led = (int(now * 10) % 2) == 0
             hal.set_led_state("led_status", led)
             with state_lock:
@@ -663,6 +838,29 @@ def control_loop():
             time.sleep(0.05)
             continue
 
+        if status in ("STARTING", "STOPPING") and not seq_start_time:
+            with state_lock:
+                state["seq_start_time"] = now
+                seq_start_time = now
+            seq_snapshot = _capture_output_snapshot()
+
+        if status == "STARTING":
+            if _process_sequence_phase("startup", seq_cfg, seq_start_time, now, seq_actions_done, seq_snapshot):
+                with state_lock:
+                    state["status"] = "RUNNING"
+                    state["seq_start_time"] = 0.0
+                seq_actions_done.clear()
+                status = "RUNNING"
+                prev_status = status
+        elif status == "STOPPING":
+            if _process_sequence_phase("shutdown", seq_cfg, seq_start_time, now, seq_actions_done, seq_snapshot):
+                with state_lock:
+                    state["status"] = "READY"
+                    state["seq_start_time"] = 0.0
+                seq_actions_done.clear()
+                status = "READY"
+                prev_status = status
+
         if status == "RUNNING":
             led = True
         elif status in ("STARTING", "STOPPING"):
@@ -670,40 +868,6 @@ def control_loop():
         else:
             led = False
         hal.set_led_state("led_status", led)
-
-        seq = sys_config.get("extruder_sequence", {})
-        with state_lock:
-            seq_start_time = state.get("seq_start_time", 0.0)
-            motors_snapshot = dict(state.get("motors", {}))
-        if status in ("STARTING", "STOPPING") and not seq_start_time:
-            _set_status(status)
-            with state_lock:
-                seq_start_time = state.get("seq_start_time", now)
-                motors_snapshot = dict(state.get("motors", {}))
-        elapsed = now - (seq_start_time or now)
-        max_start_time = seq.get("start_delay_feed", 2.0) + 1.0
-        max_stop_time = seq.get("stop_delay_motor", 5.0) + 1.0
-
-        if status == "STARTING":
-            main_rpm = motors_snapshot.get("main", 0.0) or 10.0
-            hal.set_motor_rpm("main", main_rpm)
-
-            if elapsed >= seq.get("start_delay_feed", 2.0) or elapsed >= max_start_time:
-                feed_rpm = motors_snapshot.get("feed", 0.0) or 10.0
-                hal.set_motor_rpm("feed", feed_rpm)
-                with state_lock:
-                    state["motors"]["main"] = main_rpm
-                    state["motors"]["feed"] = feed_rpm
-                    state["status"] = "RUNNING"
-
-        elif status == "STOPPING":
-            hal.set_motor_rpm("feed", 0.0)
-            if elapsed >= seq.get("stop_delay_motor", 5.0) or elapsed >= max_stop_time:
-                hal.set_motor_rpm("main", 0.0)
-                with state_lock:
-                    state["motors"]["main"] = 0.0
-                    state["motors"]["feed"] = 0.0
-                    state["status"] = "READY"
 
         # Global safety check for stale temperatures (AUTO or MANUAL)
         freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))

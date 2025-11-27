@@ -46,8 +46,24 @@
         }
     },
     "extruder_sequence": {
-        "start_delay_feed": 2.0,
-        "stop_delay_motor": 5.0,
+        "startup": [
+            {"device": "main_motor", "action": "on", "delay": 0.0, "enabled": true},
+            {"device": "feed_motor", "action": "on", "delay": 2.0, "enabled": true},
+            {"device": "fan", "action": "on", "delay": 0.0, "enabled": false},
+            {"device": "pump", "action": "on", "delay": 0.0, "enabled": false}
+        ],
+        "shutdown": [
+            {"device": "feed_motor", "action": "off", "delay": 0.0, "enabled": true},
+            {"device": "main_motor", "action": "off", "delay": 5.0, "enabled": true},
+            {"device": "fan", "action": "off", "delay": 0.0, "enabled": false},
+            {"device": "pump", "action": "off", "delay": 0.0, "enabled": false}
+        ],
+        "emergency": [
+            {"device": "feed_motor", "action": "off", "delay": 0.0, "enabled": true},
+            {"device": "main_motor", "action": "off", "delay": 0.0, "enabled": true},
+            {"device": "fan", "action": "off", "delay": 0.0, "enabled": true},
+            {"device": "pump", "action": "off", "delay": 0.0, "enabled": true}
+        ],
         "check_temp_before_start": false
     },
     "sensors": {

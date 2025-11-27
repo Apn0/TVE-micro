@@ -1,3 +1,4 @@
+import copy
 import time
 import unittest
 from unittest import mock
@@ -23,12 +24,19 @@ class ControlLoopEdgeTests(unittest.TestCase):
 
         self._orig_poll = app_module.sys_config["temp_settings"].get("poll_interval", 0.25)
         seq_cfg = app_module.sys_config.get("extruder_sequence", {})
-        self._orig_start_delay = seq_cfg.get("start_delay_feed", 2.0)
-        self._orig_stop_delay = seq_cfg.get("stop_delay_motor", 5.0)
-        self._orig_check_temp = seq_cfg.get("check_temp_before_start", True)
-        app_module.sys_config["extruder_sequence"]["check_temp_before_start"] = False
-        seq_cfg["start_delay_feed"] = 0.1
-        seq_cfg["stop_delay_motor"] = 0.1
+        self._orig_sequence = copy.deepcopy(seq_cfg)
+
+        def _set_step_delay(phase: str, device: str, delay: float):
+            steps = seq_cfg.get(phase, [])
+            for step in steps:
+                if step.get("device") == device:
+                    step["delay"] = delay
+                    return
+            steps.append({"device": device, "action": "on", "delay": delay, "enabled": True})
+            seq_cfg[phase] = steps
+
+        _set_step_delay("startup", "feed_motor", 0.1)
+        _set_step_delay("shutdown", "main_motor", 0.1)
         seq_cfg["check_temp_before_start"] = False
 
         app_module.safety.reset()
@@ -45,10 +53,7 @@ class ControlLoopEdgeTests(unittest.TestCase):
 
     def tearDown(self):
         app_module.sys_config["temp_settings"]["poll_interval"] = self._orig_poll
-        seq_cfg = app_module.sys_config.get("extruder_sequence", {})
-        seq_cfg["start_delay_feed"] = self._orig_start_delay
-        seq_cfg["stop_delay_motor"] = self._orig_stop_delay
-        seq_cfg["check_temp_before_start"] = self._orig_check_temp
+        app_module.sys_config["extruder_sequence"] = copy.deepcopy(self._orig_sequence)
         app_module.shutdown()
 
     def _wait_for_status(self, expected: str, timeout: float = 2.0):
@@ -71,11 +76,20 @@ class ControlLoopEdgeTests(unittest.TestCase):
         time.sleep(0.05)
         self.hal._sim_btn_stop = False
 
+    def _set_sequence_delay(self, phase: str, device: str, delay: float):
+        seq_cfg = app_module.sys_config.get("extruder_sequence", {})
+        steps = seq_cfg.get(phase, [])
+        for step in steps:
+            if step.get("device") == device:
+                step["delay"] = delay
+                return
+        steps.append({"device": device, "action": "on", "delay": delay, "enabled": True})
+        seq_cfg[phase] = steps
+
     @unittest.skip("Start button edge timing relies on background loop stability in simulation")
     def test_start_button_edge_processed_between_polls(self):
         app_module.sys_config["temp_settings"]["poll_interval"] = 1.0
-        seq_cfg = app_module.sys_config.get("extruder_sequence", {})
-        seq_cfg["start_delay_feed"] = 0.1
+        self._set_sequence_delay("startup", "feed_motor", 0.1)
 
         with state_lock:
             state["status"] = "STOPPING"
@@ -108,9 +122,8 @@ class ControlLoopEdgeTests(unittest.TestCase):
             self.assertEqual(state["status"], "RUNNING")
 
     def test_alarm_latches_outputs_until_cleared(self):
-        seq_cfg = app_module.sys_config.get("extruder_sequence", {})
-        seq_cfg["start_delay_feed"] = 0.05
-        seq_cfg["stop_delay_motor"] = 0.05
+        self._set_sequence_delay("startup", "feed_motor", 0.05)
+        self._set_sequence_delay("shutdown", "main_motor", 0.05)
 
         self.hal.set_motor_rpm("main", 80.0)
         self.hal.set_motor_rpm("feed", 60.0)

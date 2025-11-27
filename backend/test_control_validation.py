@@ -95,7 +95,7 @@ class TestControlValidation(unittest.TestCase):
             "/api/control",
             json={
                 "command": "UPDATE_EXTRUDER_SEQ",
-                "value": {"sequence": {"start_delay_feed": -5}},
+                "value": {"sequence": {"startup": [{"device": "feed_motor", "action": "on", "delay": -5}]}},
             },
         )
         self.assertEqual(resp.status_code, 400)

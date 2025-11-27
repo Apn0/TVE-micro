@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { styles } from "../App";
 import DipSwitchBlock from "./DipSwitchBlock";
 import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
+import SequencingConfig, { normalizeSequenceConfig } from "./SequencingConfig";
 
 function SettingsScreen({ data, sendCmd, setView }) {
   const [dm, setDm] = useState({
@@ -24,12 +25,8 @@ function SettingsScreen({ data, sendCmd, setView }) {
   });
   const [logDirty, setLogDirty] = useState(false);
 
-  const [seq, setSeq] = useState({
-    start_delay_feed: 2.0,
-    stop_delay_motor: 5.0,
-    check_temp_before_start: true,
-    ...(data.config?.extruder_sequence || {}),
-  });
+  const [seq, setSeq] = useState(normalizeSequenceConfig(data.config?.extruder_sequence));
+  const [showSequencing, setShowSequencing] = useState(false);
 
   const [pins, setPins] = useState({
     ...(data.config?.pins || {}),
@@ -51,6 +48,12 @@ function SettingsScreen({ data, sendCmd, setView }) {
       const incoming = { interval: 0.25, flush_interval: 60.0, ...data.config.logging };
       setLogSettings((prev) => (shallowEqual(prev, incoming) ? prev : incoming));
     }
+    if (data.config?.extruder_sequence) {
+      setSeq((prev) => {
+        const incoming = normalizeSequenceConfig(data.config.extruder_sequence);
+        return shallowEqual(prev, incoming) ? prev : incoming;
+      });
+    }
   }, [data.config, tempDirty, logDirty]);
 
   const getSwitchState = () => {
@@ -69,7 +72,12 @@ function SettingsScreen({ data, sendCmd, setView }) {
     setLogDirty(false);
   };
   const handleSaveConfig = () => sendCmd("SAVE_CONFIG");
-  const handleSeqApply = () => sendCmd("UPDATE_EXTRUDER_SEQ", { sequence: seq });
+  const handleSeqSave = async (newSeq) => {
+    const normalized = normalizeSequenceConfig(newSeq);
+    await sendCmd("UPDATE_EXTRUDER_SEQ", { sequence: normalized });
+    setSeq(normalized);
+    setShowSequencing(false);
+  };
   const handlePinsApply = () => sendCmd("UPDATE_PINS", { pins });
 
   const { swCurr, swSteps } = getSwitchState();
@@ -157,56 +165,24 @@ function SettingsScreen({ data, sendCmd, setView }) {
       </div>
 
       <div style={styles.panel}>
-        <h2>Extruder Sequence</h2>
-        <div style={{ color: "#ccc", marginTop: "-5px", maxWidth: "640px" }}>
-          Startup sequencing currently controls just the two motors: the main screw
-          starts first, the feed screw waits for the start delay, and on stop the
-          feed halts immediately while the main motor waits for the stop delay.
-          Other devices are not yet sequenced.
-        </div>
-        <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <div>
-            <div style={styles.label}>Start Delay Feed [s]</div>
-            <input
-              type="number"
-              step="0.1"
-              style={{ ...styles.input, width: "80px" }}
-              value={seq.start_delay_feed}
-              onChange={(e) =>
-                setSeq({ ...seq, start_delay_feed: parseFloat(e.target.value) })
-              }
-            />
+            <h2 style={{ margin: 0 }}>Extruder Sequence</h2>
+            <div style={{ color: "#ccc", marginTop: "-5px", maxWidth: "720px" }}>
+              Startup, power-down, and emergency cycles now sequence motors along with fan and pump
+              outputs. Open the Sequencing Config to adjust ordering, delays, and whether temps must
+              be checked before start.
+            </div>
+            <div style={{ marginTop: 10, color: "#aaa" }}>
+              Temp check before start: {seq.check_temp_before_start ? "Enabled" : "Bypassed"}
+            </div>
           </div>
-
-          <div>
-            <div style={styles.label}>Stop Delay Motor [s]</div>
-            <input
-              type="number"
-              step="0.1"
-              style={{ ...styles.input, width: "80px" }}
-              value={seq.stop_delay_motor}
-              onChange={(e) =>
-                setSeq({ ...seq, stop_delay_motor: parseFloat(e.target.value) })
-              }
-            />
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", marginTop: "24px" }}>
-            <label>
-              <input
-                type="checkbox"
-                checked={seq.check_temp_before_start}
-                onChange={(e) =>
-                  setSeq({ ...seq, check_temp_before_start: e.target.checked })
-                }
-                style={{ marginRight: "8px", transform: "scale(1.2)" }}
-              />
-              Check Temps before Start
-            </label>
-          </div>
-
-          <button style={styles.button} onClick={handleSeqApply}>
-            Apply Sequence Config
+          <button
+            style={{ ...styles.buttonSecondary, display: "flex", alignItems: "center", gap: 8, fontSize: "0.95em" }}
+            onClick={() => setShowSequencing(true)}
+          >
+            <span role="img" aria-label="configure">🔧</span>
+            Sequencing Config
           </button>
         </div>
       </div>
@@ -352,6 +328,13 @@ function SettingsScreen({ data, sendCmd, setView }) {
           Wiring calibration check
         </button>
       </div>
+      {showSequencing && (
+        <SequencingConfig
+          sequence={seq}
+          onClose={() => setShowSequencing(false)}
+          onSave={handleSeqSave}
+        />
+      )}
     </div>
   );
 }
