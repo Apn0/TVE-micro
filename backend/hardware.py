@@ -448,11 +448,6 @@ class HardwareInterface:
         else:
             print("[HAL] Windows or no pins. Simulation Mode.")
 
-    def _is_pwm_channel_active(self, name: str) -> bool:
-        """Return True if the given logical output is using PWM right now."""
-
-        return self._pwm_active and name in self._active_pwm_channels
-
         # Threads (hardware + temperature)
         self.running = True
         self.running_event = running_event or threading.Event()
@@ -469,9 +464,14 @@ class HardwareInterface:
             self._stepper_threads[motor_name] = threading.Thread(
                 target=self._stepper_loop,
                 args=(motor_name,),
-                daemon=True
+                daemon=True,
             )
             self._stepper_threads[motor_name].start()
+
+    def _is_pwm_channel_active(self, name: str) -> bool:
+        """Return True if the given logical output is using PWM right now."""
+
+        return self._pwm_active and name in self._active_pwm_channels
 
     def _stepper_loop(self, motor_name):
         while self.running:
