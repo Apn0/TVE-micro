@@ -480,6 +480,7 @@ state = {
     "temps_timestamp": 0.0,
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
+    "peltier_duty": 0.0,
     "pwm": {k: 0.0 for k in sys_config.get("pwm", {}).get("channels", {})},
     "seq_start_time": 0.0,
 }
@@ -527,6 +528,7 @@ def _all_outputs_off():
     hal.set_motor_rpm("feed", 0.0)
     hal.set_relay("fan", False)
     hal.set_relay("pump", False)
+    hal.set_peltier_duty(0.0)
     for name in getattr(hal, "pwm_channels", {}):
         hal.set_pwm_output(name, 0.0)
     with state_lock:
@@ -534,6 +536,7 @@ def _all_outputs_off():
         state["motors"]["feed"] = 0.0
         state["relays"]["fan"] = False
         state["relays"]["pump"] = False
+        state["peltier_duty"] = 0.0
         for name in state.get("pwm", {}):
             state["pwm"][name] = 0.0
 
@@ -1019,6 +1022,7 @@ def api_data():
         "temps": temps,
         "motors": snap.get("motors", {}),
         "relays": snap.get("relays", {}),
+        "peltier_duty": snap.get("peltier_duty", 0.0),
         "status": snap.get("status", "READY"),
         "mode": snap.get("mode", "AUTO"),
     })
@@ -1261,6 +1265,14 @@ def control():
         relay_toggle_times[relay] = request_time
         with state_lock:
             state["relays"][relay] = st
+
+    elif cmd == "SET_PELTIER":
+        duty = _coerce_finite(req.get("duty", 0))
+        if duty is None or duty < 0.0 or duty > 100.0:
+            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        hal.set_peltier_duty(duty)
+        with state_lock:
+            state["peltier_duty"] = duty
 
     elif cmd == "SET_PWM_OUTPUT":
         name = req.get("name")
