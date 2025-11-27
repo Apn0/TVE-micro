@@ -467,8 +467,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   };
 
   const renderZone = (label, temp, target, zoneKey, relayOn) => {
+    const tempIsValid = temp !== null && temp !== undefined && Number.isFinite(temp);
     let color = "#7f8c8d";
-    if (temp !== null && temp !== undefined) {
+    if (tempIsValid) {
       if (temp > target + 15) color = "#e74c3c";
       else if (temp < target - 15) color = "#f39c12";
       else color = "#2ecc71";
@@ -494,7 +495,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
               color,
             }}
           >
-            {temp !== null && temp !== undefined ? `${temp.toFixed(1)} °C` : "--.- °C"}
+            {tempIsValid ? `${temp.toFixed(1)} °C` : "--.- °C"}
           </div>
           <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
             SSR {relayOn ? "active" : "idle"}

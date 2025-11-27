@@ -377,7 +377,6 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
-    raw_cfg: dict
     raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
@@ -1072,6 +1071,13 @@ def control():
         pins = req.get("pins", {})
         if not isinstance(pins, dict):
             return jsonify({"success": False, "msg": "INVALID_PINS"}), 400
+
+        known_pins = set(DEFAULT_CONFIG["pins"].keys())
+        unknown_pins = set(pins.keys()) - known_pins
+        if unknown_pins:
+            msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
+            return jsonify({"success": False, "msg": msg}), 400
+
         validation_errors: list[str] = []
         current = sys_config.get("pins", DEFAULT_CONFIG["pins"])
         validated = _validate_pins({**current, **pins}, validation_errors)
@@ -1095,14 +1101,6 @@ def control():
                 400,
             )
         sys_config["extruder_sequence"] = validated
-        sanitized_seq = {}
-        for key in ("start_delay_feed", "stop_delay_motor"):
-            if key in seq:
-                val = _coerce_finite(seq.get(key))
-                if val is None or val < 0:
-                    return jsonify({"success": False, "msg": "INVALID_SEQUENCE"}), 400
-                sanitized_seq[key] = val
-        sys_config["extruder_sequence"].update(sanitized_seq)
 
     elif cmd == "UPDATE_DM556":
         params = req.get("params", {})

@@ -27,6 +27,17 @@ class TestControlValidation(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()["success"])
 
+    def test_rejects_unknown_pin_name(self):
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "UPDATE_PINS",
+                "value": {"pins": {"unknown_pin": 12}},
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+
     def test_rejects_excessive_motor_rpm(self):
         resp = self.client.post(
             "/api/control",
@@ -121,6 +132,34 @@ class TestControlValidation(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()["success"])
+
+    def test_update_pins_does_not_pollute_config_on_error(self):
+        # Get original config
+        resp = self.client.get("/api/status")
+        self.assertEqual(resp.status_code, 200)
+        original_config = resp.get_json()["config"]["pins"]
+
+        # Send invalid update
+        resp = self.client.post(
+            "/api/control",
+            json={
+                "command": "UPDATE_PINS",
+                "value": {
+                    "pins": {
+                        "ssr_z1": 99,
+                        "ssr_z2": original_config["ssr_z2"],
+                    }
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["success"])
+
+        # Verify config is unchanged
+        resp = self.client.get("/api/status")
+        self.assertEqual(resp.status_code, 200)
+        new_config = resp.get_json()["config"]["pins"]
+        self.assertEqual(original_config, new_config)
 
 
 if __name__ == "__main__":
