@@ -123,6 +123,72 @@ DEFAULT_PWM_CONFIG: Dict[str, Any] = {
     },
 }
 
+# --- Full System Defaults (Moved from app.py) ---------------------------------
+
+SYSTEM_DEFAULTS = {
+    "z1": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
+    "z2": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
+    "dm556": {
+        "microsteps": 1600,
+        "current_peak": 2.7,
+        "idle_half": True,
+    },
+    "pins": {
+        "ssr_z1": None,
+        "ssr_z2": None,
+        "ssr_fan": None,
+        "ssr_pump": None,
+        "step_main": 5,
+        "dir_main": 6,
+        "step_feed": None,
+        "dir_feed": None,
+        "alm_main": None,
+        "btn_start": 25,
+        "btn_emergency": 8,
+        "led_status": None,
+        "led_red": None,
+        "led_green": None,
+        "led_yellow": None
+    },
+    "pwm": {
+        "enabled": True,
+        "bus": 1,
+        "address": 0x40,
+        "frequency": 1000,
+        "channels": {
+            "z1": 0,
+            "z2": 1,
+            "fan": 2,
+            "fan_nozzle": 3,
+            "pump": 4,
+            "led_status": 5,
+        },
+    },
+    "sensors": {
+        "0": {"enabled": True, "logical": "t1", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+        "1": {"enabled": True, "logical": "t2", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+        "2": {"enabled": True, "logical": "t3", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+        "3": {"enabled": True, "logical": "motor", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+    },
+    "adc": DEFAULT_ADC_CONFIG,
+    "temp_settings": {
+        "poll_interval": 0.25,
+        "avg_window": 2.0,
+        "use_average": True,
+        "decimals_default": 1,
+        "freshness_timeout": 1.0,
+    },
+    "logging": {
+        "interval": 0.25,
+        "flush_interval": 60.0,
+    },
+    "extruder_sequence": {
+        "start_delay_feed": 2.0,
+        "stop_delay_motor": 5.0,
+        "check_temp_before_start": True,
+    },
+}
+
 # --- Helper: linear calibration -----------------------------------------------
 
 def _fit_linear_correction(cal_points: List[Dict[str, float]]) -> Tuple[float, float]:
