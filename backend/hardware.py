@@ -633,6 +633,12 @@ class HardwareInterface:
         if outs:
             GPIO.setup(outs, GPIO.OUT)
 
+        # Ensure enable pins are disabled (HIGH) initially, if defined
+        if "en_main" in self.pins and self.pins["en_main"] is not None:
+             GPIO.output(int(self.pins["en_main"]), GPIO.HIGH)
+        if "en_feed" in self.pins and self.pins["en_feed"] is not None:
+             GPIO.output(int(self.pins["en_feed"]), GPIO.HIGH)
+
         # Inputs (DM556 Alarm)
         if "alm_main" in self.pins and self.pins["alm_main"] is not None:
             GPIO.setup(int(self.pins["alm_main"]), GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -949,6 +955,21 @@ class HardwareInterface:
     def set_motor_rpm(self, motor, rpm):
         if motor in self.motors:
             self.motors[motor] = float(rpm)
+            if float(rpm) != 0:
+                self._set_motor_enable(motor, True)
+
+    def _set_motor_enable(self, motor: str, enable: bool):
+        """
+        Enable or disable the motor driver.
+        Assumes Active LOW enable (Enable=LOW, Disable=HIGH).
+        """
+        if self.platform != "PI" or GPIO is None:
+            return
+
+        pin = self.pins.get(f"en_{motor}")
+        if pin is not None:
+            # enable=True -> LOW, enable=False -> HIGH
+            GPIO.output(int(pin), GPIO.LOW if enable else GPIO.HIGH)
 
     def set_pwm_output(self, name: str, duty: float):
         if not self._is_pwm_channel_active(name):
@@ -966,9 +987,12 @@ class HardwareInterface:
             return
 
         dir_pin = self.pins.get(f"dir_{motor}")
-        if self.platform == "PI" and GPIO is not None and dir_pin is not None:
-            direction = GPIO.HIGH if steps > 0 else GPIO.LOW
-            GPIO.output(dir_pin, direction)
+        if self.platform == "PI" and GPIO is not None:
+            if dir_pin is not None:
+                direction = GPIO.HIGH if steps > 0 else GPIO.LOW
+                GPIO.output(dir_pin, direction)
+            # Ensure enabled before moving
+            self._set_motor_enable(motor, True)
 
         with self._manual_move_lock:
             self.manual_steps_pending[motor] = steps
