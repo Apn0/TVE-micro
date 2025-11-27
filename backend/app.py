@@ -19,92 +19,28 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import atexit
 
-from backend.hardware import HardwareInterface
+from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
 from backend.logger import DataLogger
 from backend.pid import PID
+from backend.alarm_utils import (
+    load_alarms_from_disk,
+    save_alarms_to_disk,
+    create_alarm_object,
+)
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
 MAX_HEATER_DUTY = 100.0
 MIN_HEATER_DUTY = 0.0
 MAX_PWM_DUTY = 100.0
 MAX_MOTOR_RPM = 5000.0
 
-DEFAULT_CONFIG = {
-    "z1": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    "z2": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    "dm556": {
-        "microsteps": 1600,
-        "current_peak": 2.7,
-        "idle_half": True,
-    },
-    "pins": {
-        "ssr_z1": None,
-        "ssr_z2": None,
-        "ssr_fan": None,
-        "ssr_pump": None,
-        "step_main": 5,
-        "dir_main": 6,
-        "step_feed": None,
-        "dir_feed": None,
-        "alm_main": None,
-        "btn_start": 25,
-        "btn_emergency": 8,
-        "led_status": None,
-        "led_red": None,
-        "led_green": None,
-        "led_yellow": None
-    },
-    "pwm": {
-        "enabled": True,
-        "bus": 1,
-        "address": 0x40,
-        "frequency": 1000,
-        "channels": {
-            "z1": 0,
-            "z2": 1,
-            "fan": 2,
-            "fan_nozzle": 3,
-            "pump": 4,
-            "led_status": 5,
-        },
-    },
-    "sensors": {
-        "0": {"enabled": True, "logical": "t1", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-        "1": {"enabled": True, "logical": "t2", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-        "2": {"enabled": True, "logical": "t3", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-        "3": {"enabled": True, "logical": "motor", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
-    },
-    "adc": {
-        "enabled": True,
-        "bus": 1,
-        "address": 0x48,
-        "fsr": 4.096,
-    },
-    "temp_settings": {
-        "poll_interval": 0.25,
-        "avg_window": 2.0,
-        "use_average": True,
-        "decimals_default": 1,
-        "freshness_timeout": 1.0,
-    },
-    "logging": {
-        "interval": 0.25,
-        "flush_interval": 60.0,
-    },
-    "extruder_sequence": {
-        "start_delay_feed": 2.0,
-        "stop_delay_motor": 5.0,
-        "check_temp_before_start": True,
-    },
-}
-
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
 
 def _validate_pid_section(section: dict, name: str, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG[name])
+    result = copy.deepcopy(SYSTEM_DEFAULTS[name])
     for param in ("kp", "ki", "kd"):
         if param in section:
             try:
@@ -118,7 +54,7 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
 
 
 def _validate_dm556(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["dm556"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
     if "microsteps" in section:
         try:
             microsteps = int(section["microsteps"])
@@ -143,7 +79,7 @@ def _validate_dm556(section: dict, errors: list[str]):
 
 
 def _validate_pins(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["pins"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
             if section[name] is None:
@@ -157,11 +93,13 @@ def _validate_pins(section: dict, errors: list[str]):
                     raise ValueError
             except (TypeError, ValueError):
                 errors.append(f"Invalid pin {name}, using default {default_pin}")
+            else:
+                errors.append(f"Invalid pin {name}, skipping")
     return result
 
 
 def _validate_pwm(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["pwm"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
     if "enabled" in section:
         result["enabled"] = bool(section.get("enabled", result["enabled"]))
     if "bus" in section:
@@ -252,7 +190,7 @@ def _validate_sensor_section(
 def _validate_sensors(section: dict, errors: list[str]):
     if not isinstance(section, dict):
         errors.append("Invalid sensors configuration, using defaults")
-        return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
+        return copy.deepcopy({int(k): v for k, v in SYSTEM_DEFAULTS["sensors"].items()})
 
     result: dict[int, dict] = {}
     for key, cfg in section.items():
@@ -264,18 +202,18 @@ def _validate_sensors(section: dict, errors: list[str]):
         if not isinstance(cfg, dict):
             errors.append(f"Invalid sensor entry for key {key}, using defaults")
             cfg = {}
-        default_section = DEFAULT_CONFIG["sensors"].get(str(idx)) or next(
-            iter(DEFAULT_CONFIG["sensors"].values())
+        default_section = SYSTEM_DEFAULTS["sensors"].get(str(idx)) or next(
+            iter(SYSTEM_DEFAULTS["sensors"].values())
         )
         validated = _validate_sensor_section(cfg, default_section, errors, str(idx))
         result[idx] = validated
     if not result:
-        return copy.deepcopy({int(k): v for k, v in DEFAULT_CONFIG["sensors"].items()})
+        return copy.deepcopy({int(k): v for k, v in SYSTEM_DEFAULTS["sensors"].items()})
     return result
 
 
 def _validate_temp_settings(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["temp_settings"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
     for key in ("poll_interval", "avg_window"):
         if key in section:
             try:
@@ -299,7 +237,7 @@ def _validate_temp_settings(section: dict, errors: list[str]):
 
 
 def _validate_logging(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["logging"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
     for key in ("interval", "flush_interval"):
         if key in section:
             try:
@@ -314,7 +252,7 @@ def _validate_logging(section: dict, errors: list[str]):
 
 
 def _validate_extruder_sequence(section: dict, errors: list[str]):
-    result = copy.deepcopy(DEFAULT_CONFIG["extruder_sequence"])
+    result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
     for key in ("start_delay_feed", "stop_delay_motor"):
         if key in section:
             try:
@@ -334,7 +272,7 @@ def _validate_extruder_sequence(section: dict, errors: list[str]):
 
 def validate_config(raw_cfg: dict):
     errors: list[str] = []
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg = copy.deepcopy(SYSTEM_DEFAULTS)
 
     cfg["z1"] = _validate_pid_section(raw_cfg.get("z1", {}), "z1", errors)
     cfg["z2"] = _validate_pid_section(raw_cfg.get("z2", {}), "z2", errors)
@@ -342,10 +280,10 @@ def validate_config(raw_cfg: dict):
     cfg["pins"] = _validate_pins(raw_cfg.get("pins", {}), errors)
     cfg["pwm"] = _validate_pwm(raw_cfg.get("pwm", {}), errors)
     cfg["sensors"] = _validate_sensors(raw_cfg.get("sensors", {}), errors)
-    cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
+    cfg["adc"] = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
     if "adc" in raw_cfg:
         try:
-            result = copy.deepcopy(DEFAULT_CONFIG["adc"])
+            result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
             if "enabled" in raw_cfg["adc"]:
                 result["enabled"] = bool(raw_cfg["adc"].get("enabled", result["enabled"]))
             if "bus" in raw_cfg["adc"]:
@@ -376,17 +314,25 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
-    raw_cfg: dict = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
+            return validate_config(raw_cfg)
         except Exception:
-            raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+            app_logger.exception("Failed to load config.json")
+            sys.exit(1)
     else:
-        raw_cfg = copy.deepcopy(DEFAULT_CONFIG)
+        print(f"Configuration file {CONFIG_FILE} not found.")
+        try:
+            resp = input("Use default configuration from hardware.py? [y/N] ")
+            if resp.lower().startswith("y"):
+                return validate_config({})
+        except (EOFError, OSError):
+            pass
 
-    return validate_config(raw_cfg)
+        print("Startup aborted: No configuration file.")
+        sys.exit(1)
 
 
 def _coerce_finite(value):
@@ -436,7 +382,8 @@ pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
 state = {
     "status": "READY",
     "mode": "AUTO",
-    "alarm_msg": "",
+    "active_alarms": [],
+    "alarm_history": load_alarms_from_disk(),
     "target_z1": 0.0,
     "target_z2": 0.0,
     "manual_duty_z1": 0.0,
@@ -517,13 +464,29 @@ def _set_status(new_status: str):
 def _latch_alarm(reason: str):
     global last_btn_start_state, last_btn_stop_state
 
+    # Determine severity
+    severity = "WARNING"
+    if "EMERGENCY" in reason or "CRITICAL" in reason:
+        severity = "CRITICAL"
+
     running_event.clear()
     _all_outputs_off()
     last_btn_start_state = False
     last_btn_stop_state = False
+
     with state_lock:
+        # Avoid duplicate active alarms for the same reason
+        existing = next(
+            (a for a in state["active_alarms"] if a["type"] == reason and not a["cleared"]),
+            None,
+        )
+        if not existing:
+            new_alarm = create_alarm_object(reason, severity)
+            state["active_alarms"].append(new_alarm)
+            state["alarm_history"].append(new_alarm)
+            save_alarms_to_disk(state["alarm_history"])
+
         state["status"] = "ALARM"
-        state["alarm_msg"] = reason
 
 startup_lock = threading.Lock()
 
@@ -579,9 +542,27 @@ def control_loop():
                 continue
             running_event.set()
             safety.reset()
+
+            # Mark all active alarms as cleared if they are resolvable
+            # Note: Persistent conditions (like e-stop button held down) will re-trigger
+            # almost immediately in the next loop, which is correct.
             with state_lock:
+                # Move active alarms to history only?
+                # Actually, we keep them in history, but remove from active list if they are cleared.
+                # However, logic below re-latches if condition persists.
+                # So we just empty the active list for a "try clear" attempt.
+                for alarm in state["active_alarms"]:
+                    alarm["cleared"] = True
+                    # Update the record in history too
+                    for h in state["alarm_history"]:
+                        if h["id"] == alarm["id"]:
+                            h["cleared"] = True
+                            break
+
+                state["active_alarms"] = []
+                save_alarms_to_disk(state["alarm_history"])
                 state["status"] = "READY"
-                state["alarm_msg"] = ""
+
             alarm_clear_pending = False
             time.sleep(0.05)
             continue
@@ -725,6 +706,33 @@ def control_loop():
                     state["motors"]["feed"] = 0.0
                     state["status"] = "READY"
 
+        # Global safety check for stale temperatures (AUTO or MANUAL)
+        freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
+        temps_age = now - temps_timestamp if temps_timestamp else float("inf")
+        temps_fresh = temps_timestamp and temps_age <= freshness_timeout
+
+        # Check individual sensors used for heating control
+        t2_ts = hal.get_sensor_timestamp("t2")
+        t3_ts = hal.get_sensor_timestamp("t3")
+        t2_age = now - t2_ts if t2_ts else float("inf")
+        t3_age = now - t3_ts if t3_ts else float("inf")
+
+        sensors_fresh = (
+            t2_ts and t2_age <= freshness_timeout and
+            t3_ts and t3_age <= freshness_timeout
+        )
+
+        if not temps_fresh or not sensors_fresh:
+            _latch_alarm(alarm_req or "TEMP_DATA_STALE")
+            # Explicitly force heaters off now to be safe, although _latch_alarm does it too
+            hal.set_heater_duty("z1", 0.0)
+            hal.set_heater_duty("z2", 0.0)
+            with state_lock:
+                state["heater_duty_z1"] = 0.0
+                state["heater_duty_z2"] = 0.0
+            time.sleep(0.05)
+            continue
+
         if mode == "AUTO":
             t2 = temps.get("t2")
             t3 = temps.get("t3")
@@ -732,39 +740,36 @@ def control_loop():
             pid_z1.setpoint = target_z1
             pid_z2.setpoint = target_z2
 
-            freshness_timeout = float(temp_settings.get("freshness_timeout", poll_interval * 4))
-            temps_age = now - temps_timestamp if temps_timestamp else float("inf")
-            temps_fresh = temps_timestamp and temps_age <= freshness_timeout
-            stale_detected = not temps_fresh
-
-            def apply_heater(temp_val, controller, heater_name, logical):
-                sensor_ts = hal.get_sensor_timestamp(logical)
-                sensor_age = now - sensor_ts if sensor_ts else float("inf")
-                sensor_fresh = sensor_ts and sensor_age <= freshness_timeout
-
-                if not temps_fresh or not sensor_fresh or temp_val is None:
+            def apply_heater(temp_val, controller, heater_name):
+                if temp_val is None:
                     controller.reset()
                     hal.set_heater_duty(heater_name, 0.0)
                     with state_lock:
                         state[f"heater_duty_{heater_name}"] = 0.0
-                    return not sensor_fresh
+                    return
 
                 out = controller.compute(temp_val)
                 if out is None:
-                    return False
+                    return
 
                 hal.set_heater_duty(heater_name, out)
                 with state_lock:
                     state[f"heater_duty_{heater_name}"] = out
-                return False
 
-            stale_detected = apply_heater(t2, pid_z1, "z1", "t2") or stale_detected
-            stale_detected = apply_heater(t3, pid_z2, "z2", "t3") or stale_detected
+            apply_heater(t2, pid_z1, "z1")
+            apply_heater(t3, pid_z2, "z2")
 
-            if stale_detected:
-                _latch_alarm(alarm_req or "TEMP_DATA_STALE")
-                time.sleep(0.05)
-                continue
+        elif mode == "MANUAL":
+            # In manual mode, ensure the hardware reflects the state
+            # This is redundant if SET_HEATER worked, but adds robustness against resets
+            with state_lock:
+                d1 = state.get("manual_duty_z1", 0.0)
+                d2 = state.get("manual_duty_z2", 0.0)
+            hal.set_heater_duty("z1", d1)
+            hal.set_heater_duty("z2", d2)
+            with state_lock:
+                state["heater_duty_z1"] = d1
+                state["heater_duty_z2"] = d2
 
         if now - last_log_time >= log_interval:
             last_log_time = now
@@ -797,9 +802,11 @@ def startup():
         running_event=running_event,
     )
     with state_lock:
+        # If we have any uncleared alarms from disk, we might want to stay in ALARM
+        # But usually startup assumes a clean slate unless the condition persists.
+        # We'll default to READY, and let the loop catch persistent alarms.
         if state.get("status") != "ALARM":
             state["status"] = "READY"
-            state["alarm_msg"] = ""
             state["seq_start_time"] = 0.0
     start_background_threads()
 
@@ -862,6 +869,82 @@ def log_start():
 def log_stop():
     logger.stop()
     return jsonify({"success": True})
+
+@app.route("/api/history/sensors", methods=["GET"])
+def history_sensors():
+    # Read the logging.csv file and return data
+    log_file = "logging.csv"
+    if not os.path.exists(log_file):
+        return jsonify([])
+
+    try:
+        data = []
+        # Basic CSV reading - optimization: read only last N lines or by timestamp
+        # For now, we'll return the last 1000 lines to avoid payload explosion
+        with open(log_file, "r") as f:
+            lines = f.readlines()
+
+        header = lines[0].strip().split(",")
+        # Skip header, take last 1000
+        content_lines = lines[1:][-1000:]
+
+        for line in content_lines:
+            parts = line.strip().split(",")
+            if len(parts) != len(header):
+                continue
+            entry = {}
+            for i, col in enumerate(header):
+                # Try to convert to float/int if possible
+                val = parts[i]
+                try:
+                    if "." in val:
+                        entry[col] = float(val)
+                    else:
+                        entry[col] = int(val)
+                except ValueError:
+                    entry[col] = val
+
+            # Map CSV columns to the format frontend expects in 'history'
+            # Frontend expects: { t, temps: {t1, t2...}, ... }
+            # The CSV likely has flattened structure like timestamp, t1, t2, z1_duty, etc.
+            # We need to reconstruct the structure or let frontend parse it.
+            # However, existing frontend code for history uses specific object structure.
+            # Let's map it here to match what App.jsx expects in `setHistory`.
+
+            mapped = {
+                "t": int(entry.get("timestamp", 0) * 1000), # JS uses ms
+                "temps": {},
+                "relays": {},
+                "motors": {},
+                "pwm": {},
+                "status": entry.get("status", "UNKNOWN"),
+                "mode": entry.get("mode", "AUTO")
+            }
+
+            # Helper to extract potential keys
+            for key, val in entry.items():
+                if key in ("t1", "t2", "t3", "motor_temp", "motor"): # sensor names
+                    if key == "motor": mapped["temps"]["motor"] = val # disambiguate
+                    else: mapped["temps"][key] = val
+                elif key.startswith("temp_"):
+                    mapped["temps"][key.replace("temp_", "")] = val
+                elif key in ("fan", "pump", "ssr_z1", "ssr_z2"):
+                    mapped["relays"][key] = bool(val)
+                elif key.startswith("relay_"):
+                    mapped["relays"][key.replace("relay_", "")] = bool(val)
+                elif key in ("main_rpm", "feed_rpm"):
+                    mapped["motors"][key.replace("_rpm", "")] = val
+                elif key.startswith("motor_"):
+                    mapped["motors"][key.replace("motor_", "")] = val
+                elif key in ("manual_duty_z1", "manual_duty_z2", "target_z1", "target_z2"):
+                    mapped[key] = val
+
+            data.append(mapped)
+
+        return jsonify(data)
+    except Exception as e:
+        app_logger.error(f"Failed to read history: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/gpio", methods=["GET", "POST"])
 def gpio_control():
@@ -986,9 +1069,8 @@ def control():
             if not allowed:
                 hal.set_motor_rpm("main", 0)
                 hal.set_motor_rpm("feed", 0)
+                _latch_alarm(reason)
                 with state_lock:
-                    state["status"] = "ALARM"
-                    state["alarm_msg"] = reason
                     state["motors"]["main"] = 0
                     state["motors"]["feed"] = 0
                 return jsonify({"success": False, "msg": reason}), 400
@@ -1053,12 +1135,36 @@ def control():
         if hal.get_button_state("btn_emergency"):
             return jsonify({"success": False, "msg": "EMERGENCY_BTN_ACTIVE"})
         _all_outputs_off()
-        with state_lock:
-            state["status"] = "READY"
-            state["alarm_msg"] = ""
-        safety.reset()
-        running_event.set()
+        # Instead of clearing everything immediately, we flag that a clear is pending.
+        # The control loop will handle the actual clearing and re-checking.
         alarm_clear_pending = True
+
+    elif cmd == "ACKNOWLEDGE_ALARM":
+        alarm_id = req.get("alarm_id")
+        with state_lock:
+            # If alarm_id is "all" or missing, acknowledge all
+            if not alarm_id or alarm_id == "all":
+                for alarm in state["active_alarms"]:
+                    alarm["acknowledged"] = True
+                for alarm in state["alarm_history"]:
+                    if not alarm.get("acknowledged"):
+                        alarm["acknowledged"] = True
+            else:
+                # Find specific alarm
+                found = False
+                for alarm in state["active_alarms"]:
+                    if alarm["id"] == alarm_id:
+                        alarm["acknowledged"] = True
+                        found = True
+                        break
+                # Also update history
+                for alarm in state["alarm_history"]:
+                    if alarm["id"] == alarm_id:
+                        alarm["acknowledged"] = True
+                        found = True
+                        break
+
+            save_alarms_to_disk(state["alarm_history"])
 
     elif cmd == "UPDATE_PID":
         zone = req.get("zone")
@@ -1084,7 +1190,7 @@ def control():
         if pid_errors:
             return jsonify({"success": False, "msg": "; ".join(pid_errors)}), 400
         validation_errors: list[str] = []
-        current = sys_config.get(zone, DEFAULT_CONFIG[zone])
+        current = sys_config.get(zone, SYSTEM_DEFAULTS[zone])
         validated = _validate_pid_section(
             {**current, **sanitized_params}, zone, validation_errors
         )
@@ -1104,14 +1210,14 @@ def control():
         if not isinstance(pins, dict):
             return jsonify({"success": False, "msg": "INVALID_PINS"}), 400
 
-        known_pins = set(DEFAULT_CONFIG["pins"].keys())
+        known_pins = set(SYSTEM_DEFAULTS["pins"].keys())
         unknown_pins = set(pins.keys()) - known_pins
         if unknown_pins:
             msg = f"Unknown pin names: {', '.join(sorted(list(unknown_pins)))}"
             return jsonify({"success": False, "msg": msg}), 400
 
         validation_errors: list[str] = []
-        current = sys_config.get("pins", DEFAULT_CONFIG["pins"])
+        current = sys_config.get("pins", SYSTEM_DEFAULTS["pins"])
         validated = _validate_pins({**current, **pins}, validation_errors)
         if validation_errors:
             return (
@@ -1119,13 +1225,45 @@ def control():
                 400,
             )
         sys_config["pins"] = validated
+        if hal:
+            hal.pins = validated
+
+    elif cmd == "SET_PIN_NAME":
+        try:
+            pin = int(req.get("pin"))
+            name = str(req.get("name", "")).strip()
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "msg": "INVALID_ARGS"}), 400
+
+        current_pins = sys_config.get("pins", SYSTEM_DEFAULTS["pins"]).copy()
+
+        # Remove any existing keys mapping to this pin
+        keys_to_remove = [k for k, v in current_pins.items() if v == pin]
+        for k in keys_to_remove:
+            if k in SYSTEM_DEFAULTS["pins"]:
+                current_pins[k] = None
+            else:
+                del current_pins[k]
+
+        # Add new mapping if name provided
+        if name:
+            current_pins[name] = pin
+
+        validation_errors: list[str] = []
+        validated = _validate_pins(current_pins, validation_errors)
+        if validation_errors:
+            return jsonify({"success": False, "msg": "; ".join(validation_errors)}), 400
+
+        sys_config["pins"] = validated
+        if hal:
+            hal.pins = validated
 
     elif cmd == "UPDATE_EXTRUDER_SEQ":
         seq = req.get("sequence", {})
         if not isinstance(seq, dict):
             return jsonify({"success": False, "msg": "INVALID_SEQUENCE"}), 400
         validation_errors: list[str] = []
-        current = sys_config.get("extruder_sequence", DEFAULT_CONFIG["extruder_sequence"])
+        current = sys_config.get("extruder_sequence", SYSTEM_DEFAULTS["extruder_sequence"])
         validated = _validate_extruder_sequence({**current, **seq}, validation_errors)
         if validation_errors:
             return (
@@ -1139,7 +1277,7 @@ def control():
         if not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_DM556_PARAMS"}), 400
         validation_errors: list[str] = []
-        current = sys_config.get("dm556", DEFAULT_CONFIG["dm556"])
+        current = sys_config.get("dm556", SYSTEM_DEFAULTS["dm556"])
         validated = _validate_dm556({**current, **params}, validation_errors)
         if validation_errors:
             return (
@@ -1181,7 +1319,7 @@ def control():
         if temp_errors:
             return jsonify({"success": False, "msg": "; ".join(temp_errors)}), 400
         validation_errors: list[str] = []
-        current = sys_config.get("temp_settings", DEFAULT_CONFIG["temp_settings"])
+        current = sys_config.get("temp_settings", SYSTEM_DEFAULTS["temp_settings"])
         validated = _validate_temp_settings({**current, **sanitized}, validation_errors)
         if validation_errors:
             return (
@@ -1222,7 +1360,7 @@ def control():
                 400,
             )
         validation_errors: list[str] = []
-        current = sys_config.get("logging", DEFAULT_CONFIG["logging"])
+        current = sys_config.get("logging", SYSTEM_DEFAULTS["logging"])
         validated = _validate_logging({**current, **sanitized_logging}, validation_errors)
         if validation_errors:
             return (
@@ -1249,7 +1387,7 @@ def control():
             "sensors", {}
         ).get(str(channel))
         if current_cfg is None:
-            default_cfg = DEFAULT_CONFIG.get("sensors", {}).get(str(channel))
+            default_cfg = SYSTEM_DEFAULTS.get("sensors", {}).get(str(channel))
             if default_cfg is None:
                 return jsonify({"success": False, "msg": "INVALID_SENSOR_CHANNEL"}), 400
             current_cfg = default_cfg
@@ -1311,10 +1449,8 @@ def control():
         except (TypeError, ValueError):
             return jsonify({"success": False, "msg": "INVALID_PIN"}), 400
 
-        known_pins = {v for v in hal.pins.values() if v is not None}
-        known_pins.update(getattr(hal, "pin_modes", {}).keys())
-        if int_pin not in known_pins:
-            return jsonify({"success": False, "msg": "UNKNOWN_PIN"}), 400
+        # Allow control of any pin
+        # known_pins check removed
 
         last_toggle = gpio_write_times.get(int_pin, 0.0)
         if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
