@@ -604,29 +604,30 @@ def control_loop():
             if not ok:
                 alarm_req = alarm_req or reason
 
-        stop_requested = False
+        # START button logic: Only allow starting from READY.
         if (
             running_event.is_set()
             and not alarm_req
             and start_event
-            and status in ("READY", "RUNNING")
+            and status == "READY"
         ):
             seq = sys_config.get("extruder_sequence", {})
             temps_for_start = temps if temps else hal.get_temps()
             with state_lock:
                 state["temps"] = temps_for_start
-            if status == "READY":
-                if seq.get("check_temp_before_start", True):
-                    allowed, reason = safety.guard_motor_temp(temps_for_start)
-                    if allowed:
-                        _set_status("STARTING")
-                    else:
-                        alarm_req = reason
-                else:
+
+            if seq.get("check_temp_before_start", True):
+                allowed, reason = safety.guard_motor_temp(temps_for_start)
+                if allowed:
                     _set_status("STARTING")
-            elif status == "RUNNING":
-                stop_requested = True
-        elif start_event and status in ("STARTING", "STOPPING"):
+                else:
+                    alarm_req = reason
+            else:
+                _set_status("STARTING")
+
+        # STOP button logic: Only allow stopping from RUNNING or STARTING.
+        stop_requested = False
+        if stop_event and status in ("RUNNING", "STARTING"):
             stop_requested = True
 
         if stop_requested:

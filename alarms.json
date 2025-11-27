@@ -1,0 +1,38 @@
+[
+  {
+    "id": "2fc3f247-5f58-4e3c-ac3b-3a41766eb7da",
+    "type": "TEMP_DATA_STALE",
+    "severity": "WARNING",
+    "message": "TEMP_DATA_STALE",
+    "timestamp": 1764274481.644423,
+    "acknowledged": false,
+    "cleared": true
+  },
+  {
+    "id": "085fc655-f515-43e0-afe6-b39d021bd133",
+    "type": "UNIT_TEST",
+    "severity": "WARNING",
+    "message": "UNIT_TEST",
+    "timestamp": 1764274481.6475809,
+    "acknowledged": false,
+    "cleared": true
+  },
+  {
+    "id": "347b6429-574d-4b1a-80cb-9f93395746ec",
+    "type": "MOTOR_TEMP_SENSOR_FAILURE",
+    "severity": "WARNING",
+    "message": "MOTOR_TEMP_SENSOR_FAILURE",
+    "timestamp": 1764274482.9518716,
+    "acknowledged": false,
+    "cleared": true
+  },
+  {
+    "id": "0bae59af-b1a1-404f-b806-c7c3aba3f494",
+    "type": "TEMP_DATA_STALE",
+    "severity": "WARNING",
+    "message": "TEMP_DATA_STALE",
+    "timestamp": 1764274483.7042062,
+    "acknowledged": false,
+    "cleared": true
+  }
+]
