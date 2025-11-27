@@ -76,12 +76,6 @@ DEFAULT_CONFIG = {
         "2": {"enabled": True, "logical": "t3", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
         "3": {"enabled": True, "logical": "motor", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
     },
-    "adc": {
-        "enabled": True,
-        "bus": 1,
-        "address": 0x48,
-        "fsr": 4.096,
-    },
     "temp_settings": {
         "poll_interval": 0.25,
         "avg_window": 2.0,
@@ -342,25 +336,6 @@ def validate_config(raw_cfg: dict):
     cfg["pins"] = _validate_pins(raw_cfg.get("pins", {}), errors)
     cfg["pwm"] = _validate_pwm(raw_cfg.get("pwm", {}), errors)
     cfg["sensors"] = _validate_sensors(raw_cfg.get("sensors", {}), errors)
-    cfg["adc"] = copy.deepcopy(DEFAULT_CONFIG["adc"])
-    if "adc" in raw_cfg:
-        try:
-            result = copy.deepcopy(DEFAULT_CONFIG["adc"])
-            if "enabled" in raw_cfg["adc"]:
-                result["enabled"] = bool(raw_cfg["adc"].get("enabled", result["enabled"]))
-            if "bus" in raw_cfg["adc"]:
-                result["bus"] = int(raw_cfg["adc"]["bus"])
-            if "address" in raw_cfg["adc"]:
-                result["address"] = int(raw_cfg["adc"]["address"])
-            if "fsr" in raw_cfg["adc"]:
-                fsr = float(raw_cfg["adc"]["fsr"])
-                if fsr > 0:
-                    result["fsr"] = fsr
-                else:
-                    raise ValueError
-            cfg["adc"] = result
-        except (TypeError, ValueError):
-            errors.append("Invalid adc configuration, using defaults")
 
     cfg["temp_settings"] = _validate_temp_settings(raw_cfg.get("temp_settings", {}), errors)
     cfg["logging"] = _validate_logging(raw_cfg.get("logging", {}), errors)
