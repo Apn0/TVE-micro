@@ -29,7 +29,7 @@ import random
 import threading
 import math
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 # --- Platform / GPIO detection ------------------------------------------------
 
@@ -53,9 +53,31 @@ except Exception:
 # --- Logical sensors ----------------------------------------------------------
 
 LOGICAL_SENSORS = ["t1", "t2", "t3", "motor"]
+# Broadcom-numbered GPIO pins present on the 40-pin Raspberry Pi header (plus
+# the ID EEPROM pins). These are used to populate the GPIO control surface even
+# when a pin is not explicitly mapped in the configuration.
+ALL_GPIO_PINS_BCM = tuple(range(0, 28))
 hardware_logger = logging.getLogger("tve.backend.hardware")
 
-# --- Default sensor + ADC configuration ---------------------------------------
+# --- Default Hardware Configuration -------------------------------------------
+
+DEFAULT_PINS: Dict[str, int | None] = {
+    "ssr_z1": None,
+    "ssr_z2": None,
+    "ssr_fan": None,
+    "ssr_pump": None,
+    "step_main": 5,
+    "dir_main": 6,
+    "step_feed": None,
+    "dir_feed": None,
+    "alm_main": None,
+    "btn_start": 25,
+    "btn_emergency": 8,
+    "led_status": None,
+    "led_red": None,
+    "led_green": None,
+    "led_yellow": None
+}
 
 DEFAULT_SENSOR_CONFIG: Dict[int, Dict[str, Any]] = {
     0: {
@@ -120,6 +142,72 @@ DEFAULT_PWM_CONFIG: Dict[str, Any] = {
         "fan_nozzle": 3,
         "pump": 4,
         "led_status": 5,
+    },
+}
+
+# --- Full System Defaults (Moved from app.py) ---------------------------------
+
+SYSTEM_DEFAULTS = {
+    "z1": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
+    "z2": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
+    "dm556": {
+        "microsteps": 1600,
+        "current_peak": 2.7,
+        "idle_half": True,
+    },
+    "pins": {
+        "ssr_z1": None,
+        "ssr_z2": None,
+        "ssr_fan": None,
+        "ssr_pump": None,
+        "step_main": 5,
+        "dir_main": 6,
+        "step_feed": None,
+        "dir_feed": None,
+        "alm_main": None,
+        "btn_start": 25,
+        "btn_emergency": 8,
+        "led_status": None,
+        "led_red": None,
+        "led_green": None,
+        "led_yellow": None
+    },
+    "pwm": {
+        "enabled": True,
+        "bus": 1,
+        "address": 0x40,
+        "frequency": 1000,
+        "channels": {
+            "z1": 0,
+            "z2": 1,
+            "fan": 2,
+            "fan_nozzle": 3,
+            "pump": 4,
+            "led_status": 5,
+        },
+    },
+    "sensors": {
+        "0": {"enabled": True, "logical": "t1", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+        "1": {"enabled": True, "logical": "t2", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+        "2": {"enabled": True, "logical": "t3", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+        "3": {"enabled": True, "logical": "motor", "r_fixed": 100000.0, "r_25": 100000.0, "beta": 3950.0, "v_ref": 3.3, "wiring": "ntc_to_gnd", "decimals": 1, "cal_points": []},
+    },
+    "adc": DEFAULT_ADC_CONFIG,
+    "temp_settings": {
+        "poll_interval": 0.25,
+        "avg_window": 2.0,
+        "use_average": True,
+        "decimals_default": 1,
+        "freshness_timeout": 1.0,
+    },
+    "logging": {
+        "interval": 0.25,
+        "flush_interval": 60.0,
+    },
+    "extruder_sequence": {
+        "start_delay_feed": 2.0,
+        "stop_delay_motor": 5.0,
+        "check_temp_before_start": True,
     },
 }
 
@@ -913,25 +1001,53 @@ class HardwareInterface:
     def get_gpio_status(self):
         """Returns the status of all GPIO pins."""
         status = {}
+        reported_pins: set[int] = set()
+
+        def _collect_status(pin_num: int, pin_name: Optional[str] = None):
+            try:
+                int_pin = int(pin_num)
+            except (ValueError, TypeError) as exc:
+                logging.warning(
+                    f"Skipping status for invalid pin {pin_name or pin_num}: {exc}"
+                )
+                return
+
+            mode = self.pin_modes.get(int_pin, "IN")
+            pull_up_down = (
+                self.pin_pull_up_down.get(int_pin, "up") if mode == "IN" else "off"
+            )
+
+            try:
+                value = int(self.get_gpio_value(int_pin) or 0)
+            except Exception as exc:  # pragma: no cover - defensive log
+                logging.warning(f"Could not get status for pin {int_pin}: {exc}")
+                value = 0
+
+            status[int_pin] = {
+                "name": pin_name,
+                "mode": mode,
+                "value": value,
+                "pull_up_down": pull_up_down,
+            }
+            reported_pins.add(int_pin)
+
+        # First report configured pins so they keep their assigned names.
         for pin_name, pin_num in self.pins.items():
             if pin_num is None:
                 continue
+            _collect_status(pin_num, pin_name)
 
-            try:
-                pin_num = int(pin_num)
-                mode = self.pin_modes.get(pin_num, "IN")
-                value = self.get_gpio_value(pin_num)
-                pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else "off"
-                status[pin_num] = {
-                    "name": pin_name,
-                    "mode": mode,
-                    "value": value,
-                    "pull_up_down": pull_up_down,
-                }
-            except (ValueError, TypeError) as e:
-                logging.warning(f"Skipping status for invalid pin {pin_name} ({pin_num}): {e}")
-            except Exception as e:
-                logging.warning(f"Could not get status for pin {pin_num}: {e}")
+        # Then fill the rest of the BCM header pins so the UI can control any
+        # available GPIO, even if it lacks a friendly name in the config. Also
+        # include pins that have been manipulated via the API while running.
+        additional_pins = (
+            set(ALL_GPIO_PINS_BCM) | set(self.pin_modes.keys()) | set(self._sim_gpio_values.keys())
+        )
+        for pin_num in sorted(additional_pins):
+            if pin_num in reported_pins:
+                continue
+            _collect_status(pin_num)
+
         return status
 
     def set_gpio_mode(self, pin, mode, pull_up_down='up'):
@@ -962,7 +1078,7 @@ class HardwareInterface:
     def get_gpio_value(self, pin):
         """Gets the value of a GPIO pin."""
         if self.platform != "PI" or GPIO is None:
-            return self._sim_gpio_values.get(pin)
+            return self._sim_gpio_values.get(pin, 0)
 
         return GPIO.input(pin)
 
@@ -972,7 +1088,15 @@ class HardwareInterface:
             self._sim_gpio_values[pin] = 1 if value else 0
             return
 
-        GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+        # Ensure pin is set to output mode before writing if not already?
+        # The frontend calls SET_GPIO_MODE separately.
+        # But we should ensure the pin is set up if it wasn't by _setup_gpio.
+        try:
+             GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+        except RuntimeError:
+             # Pin might not be set up as output. Try setting it up.
+             GPIO.setup(pin, GPIO.OUT)
+             GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
 
     # --- Config hooks ----------------------------------------------------
 

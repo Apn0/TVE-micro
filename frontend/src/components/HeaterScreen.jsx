@@ -10,6 +10,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const [targetZ2, setTargetZ2] = useState(validateSetpoint(data.state?.target_z2));
   const [expandedZone, setExpandedZone] = useState(null);
   const setpointRef = useRef(null);
+  const dutyRef = useRef(null);
 
   useEffect(() => {
     setTargetZ1(validateSetpoint(data.state?.target_z1));
@@ -419,7 +420,11 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     if (!expandedZone) return undefined;
 
     const handleClick = (event) => {
-      if (setpointRef.current && !setpointRef.current.contains(event.target)) {
+      // Check if click was inside setpoint box (setpointRef) or duty box (dutyRef)
+      const insideSetpoint = setpointRef.current && setpointRef.current.contains(event.target);
+      const insideDuty = dutyRef.current && dutyRef.current.contains(event.target);
+
+      if (!insideSetpoint && !insideDuty) {
         setExpandedZone(null);
         keypad?.closeKeypad?.();
       }
@@ -459,15 +464,11 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     });
   };
 
-  const fieldBox = {
-    background: "#111",
-    borderRadius: "8px",
-    padding: "12px",
-    border: "1px solid #1f2a36",
-  };
-
   const renderZone = (label, temp, target, zoneKey, relayOn) => {
     const tempIsValid = temp !== null && temp !== undefined && Number.isFinite(temp);
+    const heaterDuty = data.state?.[`heater_duty_${zoneKey}`] ?? 0.0;
+    const isManual = data.state?.mode === "MANUAL";
+
     let color = "#7f8c8d";
     if (tempIsValid) {
       if (temp > target + 15) color = "#e74c3c";
@@ -476,17 +477,16 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     }
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        <div
-          style={{
-            ...fieldBox,
-            cursor: "pointer",
-            boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
-            transition: "box-shadow 0.2s ease",
-          }}
-          onClick={() => toggleZoneExpansion(zoneKey)}
-          data-testid={`heater-card-${zoneKey}`}
-        >
+      <div
+        style={{
+          ...styles.metricCard,
+          cursor: "pointer",
+          boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
+        }}
+        onClick={() => toggleZoneExpansion(zoneKey)}
+        data-testid={`heater-card-${zoneKey}`}
+      >
+        <div>
           <div style={{ ...styles.label, marginBottom: 6 }}>{label} temperature</div>
           <div
             style={{
@@ -497,9 +497,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           >
             {tempIsValid ? `${temp.toFixed(1)} °C` : "--.- °C"}
           </div>
-          <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
-            SSR {relayOn ? "active" : "idle"}
-          </div>
+          <div style={styles.cardHint}>SSR {relayOn ? "active" : "idle"}</div>
         </div>
 
         {expandedZone === zoneKey && (
@@ -508,27 +506,75 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
               if (expandedZone === zoneKey) setpointRef.current = node;
             }}
             style={{
-              ...fieldBox,
               background: "#0c0f15",
               border: "1px solid #3498db",
+              borderRadius: 8,
+              padding: 12,
               cursor: "pointer",
+              marginTop: 6,
             }}
             onClick={(e) => handleSetpointClick(zoneKey, target, e)}
             data-testid={`setpoint-dropdown-${zoneKey}`}
           >
             <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                color: "#ecf0f1",
+              ref={(node) => {
+                if (expandedZone === zoneKey) setpointRef.current = node;
               }}
+              style={{
+                ...fieldBox,
+                background: "#0c0f15",
+                border: "1px solid #3498db",
+                cursor: "pointer",
+              }}
+              onClick={(e) => handleSetpointClick(zoneKey, target, e)}
+              data-testid={`setpoint-dropdown-${zoneKey}`}
             >
-              <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{target?.toFixed?.(1) ?? target}</span>
-              <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
-                Tap to edit
-              </span>
+              <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  color: "#ecf0f1",
+                }}
+              >
+                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{target?.toFixed?.(1) ?? target}</span>
+                <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
+                  Tap to edit
+                </span>
+              </div>
+            </div>
+
+            {/* Duty Cycle Editor (Manual Mode Only) */}
+            <div
+              ref={(node) => {
+                if (expandedZone === zoneKey) dutyRef.current = node;
+              }}
+              style={{
+                ...fieldBox,
+                background: "#0c0f15",
+                border: isManual ? "1px solid #e67e22" : "1px solid #444",
+                cursor: isManual ? "pointer" : "default",
+                opacity: isManual ? 1 : 0.6,
+              }}
+              onClick={(e) => handleDutyClick(zoneKey, heaterDuty, e)}
+              data-testid={`duty-dropdown-${zoneKey}`}
+            >
+              <div style={{ ...styles.label, marginBottom: 6 }}>Duty Cycle (%)</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  color: "#ecf0f1",
+                }}
+              >
+                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{heaterDuty.toFixed(1)}</span>
+                <span style={{ fontSize: "0.85em", color: isManual ? "#e67e22" : "#8c9fb1" }}>
+                  {isManual ? "Tap to edit" : "Auto controlled"}
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -544,7 +590,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           Set temperature targets for each zone. PID loop will eventually drive
           SSR duty; for now we just pass targets to the backend.
         </p>
-        <div style={styles.grid2}>
+        <div style={{ ...styles.cardGrid, marginTop: 12 }}>
           {renderZone("Zone 1", temps.t1 ?? null, targetZ1, "z1", relays.ssr_z1)}
           {renderZone("Zone 2", temps.t2 ?? null, targetZ2, "z2", relays.ssr_z2)}
         </div>

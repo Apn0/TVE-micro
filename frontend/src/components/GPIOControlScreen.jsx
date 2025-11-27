@@ -57,6 +57,32 @@ function GPIOControlScreen() {
     }
   };
 
+  const sendControlCmd = async (command, value) => {
+    setError('');
+    try {
+      const res = await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, value }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        console.error('Control command failed:', json.msg);
+        setError(json.msg || 'Control command failed');
+      } else {
+        // Refresh GPIO status as names might have changed
+        const statusRes = await fetch('/api/gpio');
+        const statusJson = await statusRes.json();
+        if (statusJson.success) {
+          setGpioStatus(statusJson.status || {});
+        }
+      }
+    } catch (e) {
+      console.error('Failed to send control command:', e);
+      setError('Failed to send control command');
+    }
+  };
+
   const handlePinModeChange = (pin, mode, pullUpDown) => {
     sendGpioCmd('SET_GPIO_MODE', { pin, mode, pull_up_down: pullUpDown });
   };
@@ -147,9 +173,34 @@ function GPIOControlScreen() {
                 >
                   <div style={{ color: '#ecf0f1', fontWeight: 'bold' }}>GPIO {pin}</div>
 
-                  <div style={{ color: '#ecf0f1' }}>
-                    {status.name || 'Unassigned'}
-                  </div>
+                  <input
+                    type="text"
+                    key={`${pin}-${status.name || ''}`}
+                    defaultValue={status.name || ''}
+                    placeholder="Unassigned"
+                    onBlur={(e) => {
+                      const newName = e.target.value.trim();
+                      if (newName !== (status.name || '')) {
+                        sendControlCmd('SET_PIN_NAME', {
+                          pin: parseInt(pin, 10),
+                          name: newName,
+                        });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.target.blur();
+                      }
+                    }}
+                    style={{
+                      background: '#0f141a',
+                      color: '#ecf0f1',
+                      border: '1px solid #2c3e50',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                      outlineColor: '#3498db',
+                    }}
+                  />
 
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <span style={styles.label}>Mode</span>

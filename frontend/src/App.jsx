@@ -1,4 +1,4 @@
-// file: frontend/src/App.jsx
+﻿// file: frontend/src/App.jsx
 import React, { useState, useEffect } from "react";
 
 import useKeypad from "./hooks/useKeypad";
@@ -29,10 +29,22 @@ export const styles = {
   metricCard: {
     background: "linear-gradient(145deg, #1a1f27, #13171d)",
     border: "1px solid #1f2a36",
-    borderRadius: "10px",
+    borderRadius: "12px",
     padding: "14px",
     boxShadow: "0 8px 16px rgba(0,0,0,0.25)",
+    minHeight: 150,
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    gap: "8px",
   },
+  cardGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: "12px",
+  },
+  cardHint: { color: "#8c9fb1", fontSize: "0.9em" },
   label: { color: "#aaa", fontSize: "0.75em", textTransform: "uppercase" },
   button: { padding: "10px 20px", background: "#3498db", border: "none", borderRadius: "4px", color: "white", cursor: "pointer", fontWeight: "bold", marginRight: "10px" },
   buttonDanger: { padding: "10px 20px", background: "#e74c3c", border: "none", borderRadius: "4px", color: "white", cursor: "pointer", fontWeight: "bold", marginRight: "10px" },
