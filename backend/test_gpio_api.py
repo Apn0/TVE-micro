@@ -73,5 +73,36 @@ class TestGpioApi(unittest.TestCase):
         json_data = response.get_json()
         self.assertEqual(json_data['status']['17']['value'], 1)
 
+    def test_gpio_simulated_pin_control(self):
+        """Unconfigured pins should be controllable via simulation."""
+        # Choose a pin that is not present in the default config
+        pin = 22
+
+        # Ensure the pin shows up in the status payload even before it is touched
+        resp = self.client.get('/api/gpio')
+        status = resp.get_json()['status']
+        self.assertIn(str(pin), status)
+
+        # Change the mode and value in simulation (non-PI platform)
+        set_mode_resp = self.client.post('/api/gpio', json={
+            'command': 'SET_GPIO_MODE',
+            'value': {'pin': pin, 'mode': 'OUT'}
+        })
+        self.assertEqual(set_mode_resp.status_code, 200)
+        self.assertTrue(set_mode_resp.get_json()['success'])
+
+        set_value_resp = self.client.post('/api/gpio', json={
+            'command': 'SET_GPIO_VALUE',
+            'value': {'pin': pin, 'value': 1}
+        })
+        self.assertEqual(set_value_resp.status_code, 200)
+        self.assertTrue(set_value_resp.get_json()['success'])
+
+        # Verify the simulated state updates
+        resp_after = self.client.get('/api/gpio')
+        status_after = resp_after.get_json()['status']
+        self.assertEqual(status_after[str(pin)]['mode'], 'OUT')
+        self.assertEqual(status_after[str(pin)]['value'], 1)
+
 if __name__ == '__main__':
     unittest.main()
