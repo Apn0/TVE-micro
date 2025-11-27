@@ -10,6 +10,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const [targetZ2, setTargetZ2] = useState(validateSetpoint(data.state?.target_z2));
   const [expandedZone, setExpandedZone] = useState(null);
   const setpointRef = useRef(null);
+  const dutyRef = useRef(null);
 
   useEffect(() => {
     setTargetZ1(validateSetpoint(data.state?.target_z1));
@@ -419,7 +420,11 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     if (!expandedZone) return undefined;
 
     const handleClick = (event) => {
-      if (setpointRef.current && !setpointRef.current.contains(event.target)) {
+      // Check if click was inside setpoint box (setpointRef) or duty box (dutyRef)
+      const insideSetpoint = setpointRef.current && setpointRef.current.contains(event.target);
+      const insideDuty = dutyRef.current && dutyRef.current.contains(event.target);
+
+      if (!insideSetpoint && !insideDuty) {
         setExpandedZone(null);
         keypad?.closeKeypad?.();
       }
@@ -461,6 +466,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
 
   const renderZone = (label, temp, target, zoneKey, relayOn) => {
     const tempIsValid = temp !== null && temp !== undefined && Number.isFinite(temp);
+    const heaterDuty = data.state?.[`heater_duty_${zoneKey}`] ?? 0.0;
+    const isManual = data.state?.mode === "MANUAL";
+
     let color = "#7f8c8d";
     if (tempIsValid) {
       if (temp > target + 15) color = "#e74c3c";
@@ -510,17 +518,63 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           >
             <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                color: "#ecf0f1",
+              ref={(node) => {
+                if (expandedZone === zoneKey) setpointRef.current = node;
               }}
+              style={{
+                ...fieldBox,
+                background: "#0c0f15",
+                border: "1px solid #3498db",
+                cursor: "pointer",
+              }}
+              onClick={(e) => handleSetpointClick(zoneKey, target, e)}
+              data-testid={`setpoint-dropdown-${zoneKey}`}
             >
-              <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{target?.toFixed?.(1) ?? target}</span>
-              <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
-                Tap to edit
-              </span>
+              <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  color: "#ecf0f1",
+                }}
+              >
+                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{target?.toFixed?.(1) ?? target}</span>
+                <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
+                  Tap to edit
+                </span>
+              </div>
+            </div>
+
+            {/* Duty Cycle Editor (Manual Mode Only) */}
+            <div
+              ref={(node) => {
+                if (expandedZone === zoneKey) dutyRef.current = node;
+              }}
+              style={{
+                ...fieldBox,
+                background: "#0c0f15",
+                border: isManual ? "1px solid #e67e22" : "1px solid #444",
+                cursor: isManual ? "pointer" : "default",
+                opacity: isManual ? 1 : 0.6,
+              }}
+              onClick={(e) => handleDutyClick(zoneKey, heaterDuty, e)}
+              data-testid={`duty-dropdown-${zoneKey}`}
+            >
+              <div style={{ ...styles.label, marginBottom: 6 }}>Duty Cycle (%)</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  color: "#ecf0f1",
+                }}
+              >
+                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{heaterDuty.toFixed(1)}</span>
+                <span style={{ fontSize: "0.85em", color: isManual ? "#e67e22" : "#8c9fb1" }}>
+                  {isManual ? "Tap to edit" : "Auto controlled"}
+                </span>
+              </div>
             </div>
           </div>
         )}
