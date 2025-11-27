@@ -23,8 +23,10 @@ The software uses **BCM** numbering, not Board numbering. GPIO mappings cover bu
 | **DM556** | Alarm Signal (ALM+) | **16** | Pin 36 | Input (Pull-Up) |
 | **DM556** | Step Pulse (PUL+) | **5** | Pin 29 | Output (Freq) |
 | **DM556** | Direction (DIR+) | **6** | Pin 31 | Output (Logic) |
+| **DM556** | Enable (ENA+) | **12** | Pin 32 | Output (Logic) |
 | **TMC2209** | Step Pulse (STEP) | **13** | Pin 33 | Output (Freq) |
 | **TMC2209** | Direction (DIR) | **19** | Pin 35 | Output (Logic) |
+| **TMC2209** | Enable (EN) | **26** | Pin 37 | Output (Logic) |
 
 *> Note: Connect all Driver/SSR Ground pins to Pi GND.*
 *> Note: Connect DM556 ALM- to Pi GND.*

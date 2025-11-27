@@ -68,8 +68,10 @@ DEFAULT_PINS: Dict[str, int | None] = {
     "ssr_pump": None,
     "step_main": 5,
     "dir_main": 6,
+    "en_main": None,
     "step_feed": None,
     "dir_feed": None,
+    "en_feed": None,
     "alm_main": None,
     "btn_start": 25,
     "btn_emergency": 8,
@@ -162,8 +164,10 @@ SYSTEM_DEFAULTS = {
         "ssr_pump": None,
         "step_main": 5,
         "dir_main": 6,
+        "en_main": None,
         "step_feed": None,
         "dir_feed": None,
+        "en_feed": None,
         "alm_main": None,
         "btn_start": 25,
         "btn_emergency": 8,
@@ -574,6 +578,7 @@ class HardwareInterface:
                 continue
 
             step_pin = self.pins.get(f"step_{motor_name}")
+            en_pin = self.pins.get(f"en_{motor_name}")
             if self.platform != "PI" or GPIO is None or step_pin is None:
                 print(f"[HAL] SIM: Stepping {motor_name} for {steps_to_move} steps at {speed} steps/s")
                 time.sleep(abs(steps_to_move) / speed)
@@ -582,6 +587,8 @@ class HardwareInterface:
                 continue
 
             delay = 1.0 / speed
+            if en_pin is not None:
+                GPIO.output(int(en_pin), GPIO.HIGH)
             for _ in range(abs(steps_to_move)):
                 with self._manual_move_lock:
                     if self.manual_steps_pending[motor_name] == 0:
@@ -599,6 +606,8 @@ class HardwareInterface:
                         self.manual_steps_pending[motor_name] += 1
 
             self._stepper_events[motor_name].clear()
+            if en_pin is not None and abs(self.motors.get(motor_name, 0.0)) < 1e-6:
+                GPIO.output(int(en_pin), GPIO.LOW)
 
     # --- GPIO setup ------------------------------------------------------
 
@@ -608,7 +617,8 @@ class HardwareInterface:
 
         outs = []
         for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump",
-                    "step_main", "dir_main", "step_feed", "dir_feed"):
+                    "step_main", "dir_main", "en_main",
+                    "step_feed", "dir_feed", "en_feed"):
             if key == "ssr_z1" and self._is_pwm_channel_active("z1"):
                 continue
             if key == "ssr_z2" and self._is_pwm_channel_active("z2"):
@@ -760,6 +770,17 @@ class HardwareInterface:
             safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
         if not self._is_pwm_channel_active("pump"):
             safe_out("ssr_pump", GPIO.HIGH if self.relays["pump"] else GPIO.LOW)
+
+        for motor_name in ("main", "feed"):
+            en_pin = self.pins.get(f"en_{motor_name}")
+            if en_pin is None:
+                continue
+
+            active = bool(
+                abs(self.motors.get(motor_name, 0.0)) > 1e-3
+                or self.manual_steps_pending.get(motor_name, 0) != 0
+            )
+            GPIO.output(int(en_pin), GPIO.HIGH if active else GPIO.LOW)
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
@@ -1186,6 +1207,8 @@ class HardwareInterface:
                 safe_out("ssr_fan", GPIO.LOW)
             if not self._is_pwm_channel_active("pump"):
                 safe_out("ssr_pump", GPIO.LOW)
+            safe_out("en_main", GPIO.LOW)
+            safe_out("en_feed", GPIO.LOW)
             # NOTE: We specifically DO NOT force led_status off here,
             # because we might want to blink it during an alarm state.
 
