@@ -62,8 +62,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
       (data.state?.manual_duty_z2 ?? 0) > 0
   );
 
-  const anyHeaterOn = heaterZ1On || heaterZ2On;
-
   const tempBox = (label, value) => {
     const isValid = value !== null && value !== undefined;
     let color = "#7f8c8d";
@@ -186,16 +184,15 @@ function HomeScreen({ data, sendCmd, keypad }) {
     };
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        <div
-          style={{
-            ...fieldBox,
-            cursor: "pointer",
-            boxShadow: expandedHeater === zoneKey ? "0 0 0 1px #3498db" : "none",
-            transition: "box-shadow 0.2s ease",
-          }}
-          onClick={() => toggleHeaterCard(zoneKey)}
-        >
+      <div
+        style={{
+          ...styles.metricCard,
+          cursor: "pointer",
+          boxShadow: expandedHeater === zoneKey ? "0 0 0 1px #3498db" : "none",
+        }}
+        onClick={() => toggleHeaterCard(zoneKey)}
+      >
+        <div>
           <div style={{ ...styles.label, marginBottom: 6 }}>
             {label} temperature
           </div>
@@ -210,7 +207,9 @@ function HomeScreen({ data, sendCmd, keypad }) {
               ? `${temp.toFixed(1)} °C`
               : "--.- °C"}
           </div>
-          <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
+          <div
+            style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}
+          >
             SSR {relayOn ? "active" : "idle"}
           </div>
         </div>
@@ -225,6 +224,7 @@ function HomeScreen({ data, sendCmd, keypad }) {
               background: "#0c0f15",
               border: "1px solid #3498db",
               cursor: "pointer",
+              marginTop: 6,
             }}
             onClick={(e) => handleSetpointClick(zoneKey, target, e)}
           >
@@ -249,6 +249,32 @@ function HomeScreen({ data, sendCmd, keypad }) {
       </div>
     );
   };
+
+  const handleMotorSetpointClick = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const initial = Number.isFinite(mainRpm) ? String(mainRpm) : "";
+
+    keypad?.openKeypad?.(initial, rect, (val) => {
+      const rpm = parseFloat(val);
+      if (!Number.isFinite(rpm) || rpm < 0) {
+        keypad?.closeKeypad?.();
+        return;
+      }
+
+      sendCmd("SET_MOTOR", { motor: "main", rpm });
+      keypad?.closeKeypad?.();
+    });
+  };
+
+  const renderTempCard = (label, value) => (
+    <div style={styles.metricCard}>
+      <div style={styles.metricLabel}>{label}</div>
+      <div style={{ ...styles.metricValue, color: value !== null ? "#ecf0f1" : "#7f8c8d" }}>
+        {value !== null && value !== undefined ? `${value.toFixed(1)} °C` : "--.- °C"}
+      </div>
+      <div style={styles.cardHint}>Thermocouple feed</div>
+    </div>
+  );
 
   return (
     <div className={hasAlarm ? "alarm-glow" : ""}>
@@ -281,59 +307,31 @@ function HomeScreen({ data, sendCmd, keypad }) {
           </div>
         </div>
 
-        {/* schematic + anchored cards */}
-        <div
-          style={{
-            position: "relative",
-            marginTop: "14px",
-            padding: "40px 0 90px",
-          }}
-        >
+        <div style={{ ...styles.cardGrid, marginTop: 14 }}>
           <div
-            style={{
-              ...styles.metricCard,
-              position: "absolute",
-              left: "3%",
-              top: 0,
-              minWidth: 160,
-              zIndex: 2,
-            }}
+            style={{ ...styles.metricCard, cursor: "pointer" }}
+            onClick={handleMotorSetpointClick}
+            data-testid="motor-rpm-card"
           >
             <div style={styles.metricLabel}>Main motor</div>
             <div style={{ ...styles.metricValue, color: "#2ecc71" }}>
               {rpmDisplay(mainRpm)} RPM
             </div>
-            <div style={{ color: "#8c9fb1", marginTop: 6 }}>Feeder {rpmDisplay(feedRpm)} RPM</div>
+            <div style={styles.cardHint}>
+              Tap to set main RPM · feeder {rpmDisplay(feedRpm)} RPM
+            </div>
           </div>
 
-          <div
-            style={{
-              ...styles.metricCard,
-              position: "absolute",
-              left: "5%",
-              top: "60%",
-              minWidth: 180,
-              zIndex: 2,
-            }}
-          >
+          <div style={styles.metricCard}>
             <div style={styles.metricLabel}>Cooling fan</div>
             <div style={{ ...styles.metricValue, color: fanActive ? "#2ecc71" : "#7f8c8d" }}>
               {fanSpeed !== null ? `${rpmDisplay(fanSpeed)} RPM` : fanActive ? "ON" : "OFF"}
             </div>
-            <div style={{ color: "#8c9fb1", marginTop: 6 }}>
-              Auto-cooling tied to main screw activity
-            </div>
+            <div style={styles.cardHint}>Auto-cooling tied to main screw activity</div>
           </div>
 
           <div
-            style={{
-              ...styles.metricCard,
-              position: "absolute",
-              left: "34%",
-              top: 0,
-              minWidth: 160,
-              zIndex: 2,
-            }}
+            style={{ ...styles.metricCard, cursor: "pointer" }}
             data-testid="heater-z1-card"
             onClick={() => toggleHeaterCard("z1")}
           >
@@ -341,21 +339,12 @@ function HomeScreen({ data, sendCmd, keypad }) {
             <div style={{ ...styles.metricValue, color: heaterZ1On ? "#e74c3c" : "#7f8c8d" }}>
               {heaterZ1On ? "ON" : "OFF"}
             </div>
-            <div style={{ color: "#8c9fb1", marginTop: 6 }}>
-              Target {targetZ1?.toFixed?.(0) ?? 0}&deg;C
-            </div>
+            <div style={styles.cardHint}>Target {targetZ1?.toFixed?.(0) ?? 0}&deg;C · tap to edit</div>
             {expandedHeater === "z1" && renderSetpointDropdown("z1", targetZ1)}
           </div>
 
           <div
-            style={{
-              ...styles.metricCard,
-              position: "absolute",
-              left: "60%",
-              top: 0,
-              minWidth: 160,
-              zIndex: 2,
-            }}
+            style={{ ...styles.metricCard, cursor: "pointer" }}
             data-testid="heater-z2-card"
             onClick={() => toggleHeaterCard("z2")}
           >
@@ -363,12 +352,17 @@ function HomeScreen({ data, sendCmd, keypad }) {
             <div style={{ ...styles.metricValue, color: heaterZ2On ? "#e74c3c" : "#7f8c8d" }}>
               {heaterZ2On ? "ON" : "OFF"}
             </div>
-            <div style={{ color: "#8c9fb1", marginTop: 6 }}>
-              Target {targetZ2?.toFixed?.(0) ?? 0}&deg;C
-            </div>
+            <div style={styles.cardHint}>Target {targetZ2?.toFixed?.(0) ?? 0}&deg;C · tap to edit</div>
             {expandedHeater === "z2" && renderSetpointDropdown("z2", targetZ2)}
           </div>
 
+          {renderTempCard("T1 barrel", t1)}
+          {renderTempCard("T2 barrel", t2)}
+          {renderTempCard("T3 barrel", t3)}
+          {renderTempCard("Motor", tm)}
+        </div>
+
+        <div style={{ marginTop: "20px" }}>
           <svg width="100%" viewBox="0 0 600 140">
             {/* Motor */}
             <rect
@@ -636,14 +630,8 @@ function HomeScreen({ data, sendCmd, keypad }) {
         {hasAlarm && (
           <div style={{marginBottom: '10px'}}>
             <div style={{color: '#e74c3c', fontWeight: 'bold', marginBottom: '5px'}}>
-              ALARM: {data.state?.alarm_msg || "Unknown alarm"}
+              ALARM ACTIVE - Check Alarms Tab
             </div>
-            <button
-              style={{...styles.button, background: '#f1c40f', color: '#000'}}
-              onClick={() => sendCmd("CLEAR_ALARM")}
-            >
-              Clear Alarm
-            </button>
           </div>
         )}
         <button
@@ -662,33 +650,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
         </button>
       </div>
 
-      {hasAlarm && (
-        <div style={styles.alarmOverlay}>
-          <div style={{ color: "white", fontSize: "2em", fontWeight: "bold" }}>
-            ALARM
-          </div>
-          <div style={{ color: "#ecf0f1", marginTop: "10px" }}>
-            {data.state?.alarm_msg || "Unknown alarm"}
-          </div>
-          <button
-            style={{
-              ...styles.button,
-              marginTop: "20px",
-              background: "#f1c40f",
-              color: "#000",
-            }}
-            onClick={() => sendCmd("CLEAR_ALARM")}
-          >
-            Clear alarm
-          </button>
-          <button
-            style={{ ...styles.buttonDanger, marginTop: "10px" }}
-            onClick={() => sendCmd("EMERGENCY_STOP")}
-          >
-            Maintain STOP
-          </button>
-        </div>
-      )}
     </div>
   );
 }

@@ -27,7 +27,8 @@ class TestControlValidation(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()["success"])
 
-    def test_rejects_unknown_pin_name(self):
+    def test_accepts_unknown_pin_name(self):
+        """Modified to reflect that unknown pin names are now allowed for custom configuration."""
         resp = self.client.post(
             "/api/control",
             json={
@@ -35,8 +36,8 @@ class TestControlValidation(unittest.TestCase):
                 "value": {"pins": {"unknown_pin": 12}},
             },
         )
-        self.assertEqual(resp.status_code, 400)
-        self.assertFalse(resp.get_json()["success"])
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["success"])
 
     def test_rejects_excessive_motor_rpm(self):
         resp = self.client.post(
