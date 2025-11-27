@@ -1,5 +1,5 @@
 // file: frontend/src/tabs/HomeScreen.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { styles } from "../App";
 import { validateSetpoint } from "../utils/validation";
 
@@ -10,8 +10,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
   const motors = data.state?.motors || {};
   const relays = data.state?.relays || {};
   const hasAlarm = status === "ALARM";
-  const [expandedHeater, setExpandedHeater] = useState(null);
-  const setpointRef = useRef(null);
   const [targetZ1, setTargetZ1] = useState(null);
   const [targetZ2, setTargetZ2] = useState(null);
 
@@ -19,19 +17,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
     setTargetZ1(validateSetpoint(data.state?.target_z1));
     setTargetZ2(validateSetpoint(data.state?.target_z2));
   }, [data.state?.target_z1, data.state?.target_z2]);
-
-  useEffect(() => {
-    const onClickOutside = (event) => {
-      if (setpointRef.current && !setpointRef.current.contains(event.target)) {
-        setExpandedHeater(null);
-      }
-    };
-
-    if (expandedHeater) {
-      document.addEventListener("mousedown", onClickOutside);
-      return () => document.removeEventListener("mousedown", onClickOutside);
-    }
-  }, [expandedHeater]);
 
   const t1 = temps.t1 ?? null;
   const t2 = temps.t2 ?? null;
@@ -109,149 +94,31 @@ function HomeScreen({ data, sendCmd, keypad }) {
     </span>
   );
 
-  const toggleHeaterCard = (zoneKey) => {
-    keypad?.closeKeypad?.();
-    setExpandedHeater((prev) => (prev === zoneKey ? null : zoneKey));
-  };
-
   const handleSetpointClick = (zoneKey, targetValue, event) => {
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
+    event?.stopPropagation?.();
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
     const initial = Number.isFinite(targetValue) ? String(targetValue) : "";
 
     keypad?.openKeypad?.(initial, rect, (val) => {
       const validated = validateSetpoint(val);
-      if (validated === null) {
-        setExpandedHeater(null);
-        keypad?.closeKeypad?.();
-        return;
-      }
+        if (validated === null) {
+          keypad?.closeKeypad?.();
+          return;
+        }
 
       const nextZ1 = zoneKey === "z1" ? validated : targetZ1;
       const nextZ2 = zoneKey === "z2" ? validated : targetZ2;
 
       if (zoneKey === "z1") setTargetZ1(validated);
       if (zoneKey === "z2") setTargetZ2(validated);
-      sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
+        sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
 
-      setExpandedHeater(null);
-      keypad?.closeKeypad?.();
-    });
-  };
-
-  const renderSetpointDropdown = (zoneKey, targetValue) => {
-    const isNumber = Number.isFinite(targetValue);
-    return (
-      <div
-        ref={(node) => {
-          if (expandedHeater === zoneKey) setpointRef.current = node;
-        }}
-        style={{
-          marginTop: 10,
-          padding: 12,
-          borderRadius: 8,
-          background: "#0c0f15",
-          border: "1px solid #3498db",
-          cursor: "pointer",
-        }}
-        onClick={(e) => handleSetpointClick(zoneKey, targetValue, e)}
-        data-testid={`setpoint-dropdown-${zoneKey}`}
-      >
-        <div style={{ ...styles.metricLabel, marginBottom: 6 }}>Set point</div>
-        <div style={{ fontSize: "1.4em", fontWeight: "bold" }}>
-          {isNumber ? `${targetValue.toFixed(0)} °C` : "-- °C"}
-        </div>
-        <div style={{ color: "#8c9fb1", marginTop: 4, fontSize: "0.9em" }}>
-          Tap to edit setpoint
-        </div>
-      </div>
-    );
-  };
-
-  const renderZone = (label, temp, target, zoneKey, relayOn) => {
-    let color = "#7f8c8d";
-    if (temp !== null && temp !== undefined) {
-      if (target !== null && temp > target + 15) color = "#e74c3c";
-      else if (target !== null && temp < target - 15) color = "#f39c12";
-      else color = "#2ecc71";
-    }
-
-    const fieldBox = {
-      background: "#111",
-      borderRadius: "8px",
-      padding: "12px",
-      border: "1px solid #1f2a36",
+        keypad?.closeKeypad?.();
+      });
     };
 
-    return (
-      <div
-        style={{
-          ...styles.metricCard,
-          cursor: "pointer",
-          boxShadow: expandedHeater === zoneKey ? "0 0 0 1px #3498db" : "none",
-        }}
-        onClick={() => toggleHeaterCard(zoneKey)}
-      >
-        <div>
-          <div style={{ ...styles.label, marginBottom: 6 }}>
-            {label} temperature
-          </div>
-          <div
-            style={{
-              fontSize: "1.6em",
-              fontWeight: "bold",
-              color,
-            }}
-          >
-            {temp !== null && temp !== undefined
-              ? `${temp.toFixed(1)} °C`
-              : "--.- °C"}
-          </div>
-          <div
-            style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}
-          >
-            SSR {relayOn ? "active" : "idle"}
-          </div>
-        </div>
-
-        {expandedHeater === zoneKey && (
-          <div
-            ref={(node) => {
-              if (expandedHeater === zoneKey) setpointRef.current = node;
-            }}
-            style={{
-              ...fieldBox,
-              background: "#0c0f15",
-              border: "1px solid #3498db",
-              cursor: "pointer",
-              marginTop: 6,
-            }}
-            onClick={(e) => handleSetpointClick(zoneKey, target, e)}
-          >
-            <div style={{ ...styles.label, marginBottom: 6 }}>Set point (°C)</div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                color: "#ecf0f1",
-              }}
-            >
-              <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>
-                {target?.toFixed?.(1) ?? target}
-              </span>
-              <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
-                Tap to edit
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const handleMotorSetpointClick = (event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
     const initial = Number.isFinite(mainRpm) ? String(mainRpm) : "";
 
     keypad?.openKeypad?.(initial, rect, (val) => {
@@ -266,13 +133,43 @@ function HomeScreen({ data, sendCmd, keypad }) {
     });
   };
 
-  const renderTempCard = (label, value) => (
-    <div style={styles.metricCard}>
-      <div style={styles.metricLabel}>{label}</div>
-      <div style={{ ...styles.metricValue, color: value !== null ? "#ecf0f1" : "#7f8c8d" }}>
-        {value !== null && value !== undefined ? `${value.toFixed(1)} °C` : "--.- °C"}
+  const schematicCardStyle = {
+    ...styles.metricCard,
+    minHeight: 80,
+    height: 80,
+    width: 140,
+    padding: 10,
+    gap: 6,
+    position: "absolute",
+    justifyContent: "center",
+  };
+
+  const renderSchematicCard = ({ key, label, value, color, position, actionLabel, onAction }) => (
+    <div
+      key={key}
+      style={{
+        ...schematicCardStyle,
+        left: position.left,
+        top: position.top,
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "auto",
+      }}
+    >
+      <div style={{ ...styles.metricLabel, textTransform: "none" }}>{label}</div>
+      <div style={{ ...styles.metricValue, fontSize: "1.2em", color: color ?? "#ecf0f1" }}>
+        {value}
       </div>
-      <div style={styles.cardHint}>Thermocouple feed</div>
+      {actionLabel && (
+        <button
+          style={{ ...styles.buttonSecondary, padding: "6px 10px", marginRight: 0, alignSelf: "flex-start" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAction?.(e);
+          }}
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 
@@ -307,63 +204,8 @@ function HomeScreen({ data, sendCmd, keypad }) {
           </div>
         </div>
 
-        <div style={{ ...styles.cardGrid, marginTop: 14 }}>
-          <div
-            style={{ ...styles.metricCard, cursor: "pointer" }}
-            onClick={handleMotorSetpointClick}
-            data-testid="motor-rpm-card"
-          >
-            <div style={styles.metricLabel}>Main motor</div>
-            <div style={{ ...styles.metricValue, color: "#2ecc71" }}>
-              {rpmDisplay(mainRpm)} RPM
-            </div>
-            <div style={styles.cardHint}>
-              Tap to set main RPM · feeder {rpmDisplay(feedRpm)} RPM
-            </div>
-          </div>
-
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Cooling fan</div>
-            <div style={{ ...styles.metricValue, color: fanActive ? "#2ecc71" : "#7f8c8d" }}>
-              {fanSpeed !== null ? `${rpmDisplay(fanSpeed)} RPM` : fanActive ? "ON" : "OFF"}
-            </div>
-            <div style={styles.cardHint}>Auto-cooling tied to main screw activity</div>
-          </div>
-
-          <div
-            style={{ ...styles.metricCard, cursor: "pointer" }}
-            data-testid="heater-z1-card"
-            onClick={() => toggleHeaterCard("z1")}
-          >
-            <div style={styles.metricLabel}>Heater Z1</div>
-            <div style={{ ...styles.metricValue, color: heaterZ1On ? "#e74c3c" : "#7f8c8d" }}>
-              {heaterZ1On ? "ON" : "OFF"}
-            </div>
-            <div style={styles.cardHint}>Target {targetZ1?.toFixed?.(0) ?? 0}&deg;C · tap to edit</div>
-            {expandedHeater === "z1" && renderSetpointDropdown("z1", targetZ1)}
-          </div>
-
-          <div
-            style={{ ...styles.metricCard, cursor: "pointer" }}
-            data-testid="heater-z2-card"
-            onClick={() => toggleHeaterCard("z2")}
-          >
-            <div style={styles.metricLabel}>Heater Z2</div>
-            <div style={{ ...styles.metricValue, color: heaterZ2On ? "#e74c3c" : "#7f8c8d" }}>
-              {heaterZ2On ? "ON" : "OFF"}
-            </div>
-            <div style={styles.cardHint}>Target {targetZ2?.toFixed?.(0) ?? 0}&deg;C · tap to edit</div>
-            {expandedHeater === "z2" && renderSetpointDropdown("z2", targetZ2)}
-          </div>
-
-          {renderTempCard("T1 barrel", t1)}
-          {renderTempCard("T2 barrel", t2)}
-          {renderTempCard("T3 barrel", t3)}
-          {renderTempCard("Motor", tm)}
-        </div>
-
-        <div style={{ marginTop: "20px" }}>
-          <svg width="100%" viewBox="0 0 600 140">
+        <div style={{ marginTop: 14, position: "relative", minHeight: 240 }}>
+          <svg width="100%" viewBox="0 0 600 140" style={{ display: "block" }}>
             {/* Motor */}
             <rect
               x="10"
@@ -499,45 +341,83 @@ function HomeScreen({ data, sendCmd, keypad }) {
               )}
             </text>
             <polygon points="550,65 570,75 550,85" fill="#f1c40f" />
-
-            {/* Fan / pump */}
-            <rect
-              x="10"
-              y="120"
-              width="60"
-              height="20"
-              fill={relays.fan ? "#27ae60" : "#2c3e50"}
-              rx="4"
-              className={relays.fan ? "fan-spin" : ""}
-            />
-            <text
-              x="40"
-              y="135"
-              textAnchor="middle"
-              fill="#ecf0f1"
-              fontSize="10"
-            >
-              FAN
-            </text>
-
-            <rect
-              x="80"
-              y="120"
-              width="60"
-              height="20"
-              fill={relays.pump ? "#27ae60" : "#2c3e50"}
-              rx="4"
-            />
-            <text
-              x="110"
-              y="135"
-              textAnchor="middle"
-              fill="#ecf0f1"
-              fontSize="10"
-            >
-              PUMP
-            </text>
           </svg>
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
+            {renderSchematicCard({
+              key: "motor",
+              label: "Main motor",
+              value: `${rpmDisplay(mainRpm)} RPM`,
+              color: "#2ecc71",
+              position: { left: "10%", top: "18%" },
+              actionLabel: "Set RPM",
+              onAction: handleMotorSetpointClick,
+            })}
+
+            {renderSchematicCard({
+              key: "fan",
+              label: "Cooling fan",
+              value:
+                fanSpeed !== null
+                  ? `${rpmDisplay(fanSpeed)} RPM`
+                  : fanActive
+                  ? "ON"
+                  : "OFF",
+              color: fanActive ? "#2ecc71" : "#7f8c8d",
+              position: { left: "28%", top: "18%" },
+            })}
+
+            {renderSchematicCard({
+              key: "heater-z1",
+              label: "Heater Z1",
+              value: `${heaterZ1On ? "ON" : "OFF"} · ${
+                targetZ1?.toFixed?.(0) ?? "--"
+              }°C`,
+              color: heaterZ1On ? "#e74c3c" : "#7f8c8d",
+              position: { left: "44%", top: "18%" },
+              actionLabel: "Set point",
+              onAction: (e) => handleSetpointClick("z1", targetZ1, e),
+            })}
+
+            {renderSchematicCard({
+              key: "heater-z2",
+              label: "Heater Z2",
+              value: `${heaterZ2On ? "ON" : "OFF"} · ${
+                targetZ2?.toFixed?.(0) ?? "--"
+              }°C`,
+              color: heaterZ2On ? "#e74c3c" : "#7f8c8d",
+              position: { left: "64%", top: "18%" },
+              actionLabel: "Set point",
+              onAction: (e) => handleSetpointClick("z2", targetZ2, e),
+            })}
+
+            {renderSchematicCard({
+              key: "t1",
+              label: "T1 barrel",
+              value: t1 !== null && t1 !== undefined ? `${t1.toFixed(1)} °C` : "--.- °C",
+              position: { left: "28%", top: "70%" },
+            })}
+
+            {renderSchematicCard({
+              key: "t2",
+              label: "T2 barrel",
+              value: t2 !== null && t2 !== undefined ? `${t2.toFixed(1)} °C` : "--.- °C",
+              position: { left: "55%", top: "70%" },
+            })}
+
+            {renderSchematicCard({
+              key: "t3",
+              label: "T3 barrel",
+              value: t3 !== null && t3 !== undefined ? `${t3.toFixed(1)} °C` : "--.- °C",
+              position: { left: "78%", top: "70%" },
+            })}
+
+            {renderSchematicCard({
+              key: "tm",
+              label: "Motor temp",
+              value: tm !== null && tm !== undefined ? `${tm.toFixed(1)} °C` : "--.- °C",
+              position: { left: "12%", top: "70%" },
+            })}
+          </div>
         </div>
 
         {/* status table below-right */}
@@ -606,14 +486,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
               </span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div style={styles.panel}>
-        <h3>Heater zones</h3>
-        <div style={styles.grid2}>
-          {renderZone("Zone 1", t1, targetZ1, "z1", heaterZ1On)}
-          {renderZone("Zone 2", t2, targetZ2, "z2", heaterZ2On)}
         </div>
       </div>
 
