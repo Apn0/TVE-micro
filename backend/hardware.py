@@ -432,7 +432,8 @@ class HardwareInterface:
         self.temp_use_average = True
         self.temp_avg_window = 2.0
         self.temp_decimals_default = 1
-        self._temp_timestamps: Dict[str, float] = {k: 0.0 for k in LOGICAL_SENSORS}
+        now = time.time()
+        self._temp_timestamps: Dict[str, float] = {k: now for k in LOGICAL_SENSORS}
 
         # Simple in-memory store for simulated GPIO values when running without
         # real hardware. Keys are BCM pin numbers, values are booleans.
@@ -679,10 +680,40 @@ class HardwareInterface:
             now = time.time()
 
             if self._ads is None or not self._ads.available:
-                if self.platform == "WIN":
-                    time.sleep(self.temp_poll_interval)
-                    continue
-                self._simulate_temp_loop(now)
+                with self._temp_lock:
+                    self._simulate_temp_loop(now, locked=True)
+
+                    for logical in LOGICAL_SENSORS:
+                        val = self.temps.get(logical)
+                        samples = self._temp_samples.setdefault(logical, [])
+
+                        if val is None or not math.isfinite(val):
+                            samples.clear()
+                            self.temps[logical] = None
+                            self._temp_timestamps[logical] = 0.0
+                            continue
+
+                        samples.append((now, float(val)))
+
+                        cutoff = now - self.temp_avg_window
+                        while samples and samples[0][0] < cutoff:
+                            samples.pop(0)
+
+                        value = (
+                            sum(v for _, v in samples) / len(samples)
+                            if self.temp_use_average and samples
+                            else float(val)
+                        )
+
+                        decimals = self.temp_decimals_default
+                        for cfg in self.sensor_config.values():
+                            if cfg.get("logical") == logical:
+                                decimals = int(cfg.get("decimals", decimals))
+                                break
+
+                        self.temps[logical] = round(value, decimals)
+                        self._temp_timestamps[logical] = now
+
                 time.sleep(self.temp_poll_interval)
                 continue
 
@@ -749,23 +780,27 @@ class HardwareInterface:
         """Return the most recent timestamp across valid sensors (0 if none)."""
         return max(self._temp_timestamps.values() or [0.0])
 
-    def _simulate_temp_loop(self, now: float):
-        with self._temp_lock:
-            ambient = 23.0 + 1.0 * math.sin(now / 3600.0)
-            h1 = self.heaters.get("z1", 0.0) / 100.0
-            h2 = self.heaters.get("z2", 0.0) / 100.0
+    def _simulate_temp_loop(self, now: float, *, locked: bool = False):
+        if not locked:
+            with self._temp_lock:
+                self._simulate_temp_loop(now, locked=True)
+            return
 
-            self.temps["t1"] += (ambient - self.temps["t1"]) * 0.02
-            self.temps["t2"] += (ambient + 120 * h1 - self.temps["t2"]) * 0.05
-            self.temps["t3"] += (ambient + 150 * h2 - self.temps["t3"]) * 0.06
-            self.temps["motor"] += (
-                ambient
-                + 20 * (abs(self.motors.get("main", 0)) / 60.0)
-                - self.temps["motor"]
-            ) * 0.05
+        ambient = 23.0 + 1.0 * math.sin(now / 3600.0)
+        h1 = self.heaters.get("z1", 0.0) / 100.0
+        h2 = self.heaters.get("z2", 0.0) / 100.0
 
-            for k in LOGICAL_SENSORS:
-                self.temps[k] += random.uniform(-0.05, 0.05)  # nosec B311 - simulation noise only
+        self.temps["t1"] += (ambient - self.temps["t1"]) * 0.02
+        self.temps["t2"] += (ambient + 120 * h1 - self.temps["t2"]) * 0.05
+        self.temps["t3"] += (ambient + 150 * h2 - self.temps["t3"]) * 0.06
+        self.temps["motor"] += (
+            ambient
+            + 20 * (abs(self.motors.get("main", 0)) / 60.0)
+            - self.temps["motor"]
+        ) * 0.05
+
+        for k in LOGICAL_SENSORS:
+            self.temps[k] += random.uniform(-0.05, 0.05)  # nosec B311 - simulation noise only
 
     # --- Voltage -> temp -------------------------------------------------
 
