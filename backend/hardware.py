@@ -55,7 +55,25 @@ except Exception:
 LOGICAL_SENSORS = ["t1", "t2", "t3", "motor"]
 hardware_logger = logging.getLogger("tve.backend.hardware")
 
-# --- Default sensor + ADC configuration ---------------------------------------
+# --- Default Hardware Configuration -------------------------------------------
+
+DEFAULT_PINS: Dict[str, int | None] = {
+    "ssr_z1": None,
+    "ssr_z2": None,
+    "ssr_fan": None,
+    "ssr_pump": None,
+    "step_main": 5,
+    "dir_main": 6,
+    "step_feed": None,
+    "dir_feed": None,
+    "alm_main": None,
+    "btn_start": 25,
+    "btn_emergency": 8,
+    "led_status": None,
+    "led_red": None,
+    "led_green": None,
+    "led_yellow": None
+}
 
 DEFAULT_SENSOR_CONFIG: Dict[int, Dict[str, Any]] = {
     0: {
@@ -121,6 +139,14 @@ DEFAULT_PWM_CONFIG: Dict[str, Any] = {
         "pump": 4,
         "led_status": 5,
     },
+}
+
+# Aggregated hardware defaults
+HARDWARE_DEFAULTS = {
+    "pins": DEFAULT_PINS,
+    "sensors": DEFAULT_SENSOR_CONFIG,
+    "adc": DEFAULT_ADC_CONFIG,
+    "pwm": DEFAULT_PWM_CONFIG,
 }
 
 # --- Helper: linear calibration -----------------------------------------------
