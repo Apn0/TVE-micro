@@ -3,20 +3,21 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "../App";
 
 const SERIES_DEFS = [
-  { key: "t1", label: "Zone 1 Temp", color: "#e74c3c", unit: "°C", accessor: (h) => h.temps?.t1 },
-  { key: "t2", label: "Zone 2 Temp", color: "#f1c40f", unit: "°C", accessor: (h) => h.temps?.t2 },
-  { key: "t3", label: "Nozzle Temp", color: "#2ecc71", unit: "°C", accessor: (h) => h.temps?.t3 },
-  { key: "motor_temp", label: "Motor Temp", color: "#9b59b6", unit: "°C", accessor: (h) => h.temps?.motor },
-  { key: "target_z1", label: "Target Z1", color: "#ff9f43", unit: "°C", accessor: (h) => h.target_z1 },
-  { key: "target_z2", label: "Target Z2", color: "#ffeaa7", unit: "°C", accessor: (h) => h.target_z2 },
-  { key: "main_rpm", label: "Main RPM", color: "#3498db", unit: "rpm", accessor: (h) => h.motors?.main },
-  { key: "feed_rpm", label: "Feeder RPM", color: "#1abc9c", unit: "rpm", accessor: (h) => h.motors?.feed },
+  { key: "t1", label: "Zone 1 Temp", color: "#e74c3c", unit: "°C", accessor: (h) => h.temps?.t1, axis: "right" },
+  { key: "t2", label: "Zone 2 Temp", color: "#f1c40f", unit: "°C", accessor: (h) => h.temps?.t2, axis: "right" },
+  { key: "t3", label: "Nozzle Temp", color: "#2ecc71", unit: "°C", accessor: (h) => h.temps?.t3, axis: "right" },
+  { key: "motor_temp", label: "Motor Temp", color: "#9b59b6", unit: "°C", accessor: (h) => h.temps?.motor, axis: "right" },
+  { key: "target_z1", label: "Target Z1", color: "#ff9f43", unit: "°C", accessor: (h) => h.target_z1, axis: "right" },
+  { key: "target_z2", label: "Target Z2", color: "#ffeaa7", unit: "°C", accessor: (h) => h.target_z2, axis: "right" },
+  { key: "main_rpm", label: "Main RPM", color: "#3498db", unit: "rpm", accessor: (h) => h.motors?.main, axis: "right" },
+  { key: "feed_rpm", label: "Feeder RPM", color: "#1abc9c", unit: "rpm", accessor: (h) => h.motors?.feed, axis: "right" },
   {
     key: "fan_rpm",
     label: "Cooling fan",
     color: "#00cec9",
     unit: "rpm",
     accessor: (h) => h.fans?.main ?? h.fans?.main_rpm ?? h.fans?.fan_rpm ?? (h.relays?.fan ? 100 : 0),
+    axis: "right",
   },
   {
     key: "pump_state",
@@ -24,6 +25,7 @@ const SERIES_DEFS = [
     color: "#6c5ce7",
     unit: "on/off",
     accessor: (h) => (h.relays?.pump ? 1 : 0),
+    axis: "left",
   },
   {
     key: "heater_z1_duty",
@@ -31,6 +33,7 @@ const SERIES_DEFS = [
     color: "#e67e22",
     unit: "%",
     accessor: (h) => h.manual_duty_z1 ?? h.pwm?.z1,
+    axis: "left",
   },
   {
     key: "heater_z2_duty",
@@ -38,6 +41,7 @@ const SERIES_DEFS = [
     color: "#d35400",
     unit: "%",
     accessor: (h) => h.manual_duty_z2 ?? h.pwm?.z2,
+    axis: "left",
   },
 ];
 
@@ -107,6 +111,8 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
   const svgRef = useRef(null);
   const pointersRef = useRef(new Map());
   const lastPinchDistance = useRef(null);
+  const dragState = useRef(null);
+  const [pinTime, setPinTime] = useState(null);
 
   const viewStart = viewRange?.start ?? dataRange.min;
   const viewEnd = viewRange?.end ?? dataRange.max;
@@ -115,9 +121,9 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
     [history, viewStart, viewEnd]
   );
 
-  const seriesValues = useMemo(() => {
+  const leftValues = useMemo(() => {
     const allValues = viewHistory.flatMap((h) =>
-      SERIES_DEFS.filter((s) => activeSeries.has(s.key))
+      SERIES_DEFS.filter((s) => activeSeries.has(s.key) && s.axis === "left")
         .map((s) => {
           const valueRaw = s.accessor(h);
           return typeof valueRaw === "boolean" ? (valueRaw ? 1 : 0) : valueRaw;
@@ -127,24 +133,53 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
     return allValues.length ? allValues : [0, 1];
   }, [viewHistory, activeSeries]);
 
-  const yMinRaw = Math.min(...seriesValues);
-  const yMaxRaw = Math.max(...seriesValues);
-  const yRange = yMaxRaw - yMinRaw || 1;
-  const yPadding = yRange * 0.08;
-  const yMin = yMinRaw - yPadding;
-  const yMax = yMaxRaw + yPadding;
+  const rightValues = useMemo(() => {
+    const allValues = viewHistory.flatMap((h) =>
+      SERIES_DEFS.filter((s) => activeSeries.has(s.key) && s.axis === "right")
+        .map((s) => {
+          const valueRaw = s.accessor(h);
+          return typeof valueRaw === "boolean" ? (valueRaw ? 1 : 0) : valueRaw;
+        })
+        .filter((v) => v !== null && v !== undefined && Number.isFinite(v))
+    );
+    return allValues.length ? allValues : [0, 250];
+  }, [viewHistory, activeSeries]);
+
+  const [leftMin, leftMax] = useMemo(() => {
+    const min = Math.min(...leftValues);
+    const max = Math.max(...leftValues);
+    const span = max - min || 1;
+    const pad = span * 0.08;
+    return [Math.min(0, min - pad), max + pad];
+  }, [leftValues]);
+
+  const [rightMin, rightMax] = useMemo(() => {
+    const min = Math.min(...rightValues);
+    const max = Math.max(...rightValues);
+    const span = max - min || 1;
+    const pad = span * 0.08;
+    return [Math.min(0, min - pad), Math.max(250, max + pad)];
+  }, [rightValues]);
 
   const xMin = viewStart;
   const xMax = viewEnd;
   const xSpan = xMax - xMin || 1;
 
   const mapX = (t) => CHART_PADDING + ((t - xMin) / xSpan) * (CHART_WIDTH - 2 * CHART_PADDING);
-  const mapY = (v) =>
-    CHART_HEIGHT - CHART_PADDING - ((v - yMin) / (yMax - yMin)) * (CHART_HEIGHT - 2 * CHART_PADDING);
+  const mapYLeft = (v) =>
+    CHART_HEIGHT - CHART_PADDING - ((v - leftMin) / (leftMax - leftMin)) * (CHART_HEIGHT - 2 * CHART_PADDING);
+  const mapYRight = (v) =>
+    CHART_HEIGHT - CHART_PADDING - ((v - rightMin) / (rightMax - rightMin)) * (CHART_HEIGHT - 2 * CHART_PADDING);
 
   const yTicks = 5;
-  const yStep = (yMax - yMin) / yTicks;
+  const leftStep = (leftMax - leftMin) / yTicks;
+  const rightStep = (rightMax - rightMin) / yTicks;
   const xTicks = 6;
+
+  const xToTime = (xPx) => {
+    const ratio = (xPx - CHART_PADDING) / (CHART_WIDTH - 2 * CHART_PADDING);
+    return xMin + ratio * xSpan;
+  };
 
   const applyZoom = (zoomFactor, anchorPx = null) => {
     pauseLive();
@@ -171,6 +206,10 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
       pauseLive();
       const pts = Array.from(pointersRef.current.values());
       lastPinchDistance.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      dragState.current = null;
+    } else {
+      pauseLive();
+      dragState.current = { startX: e.clientX, startStart: viewStart, startEnd: viewEnd };
     }
   };
 
@@ -186,6 +225,18 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
         applyZoom(zoomFactor, centerPx);
       }
       lastPinchDistance.current = dist;
+    } else if (dragState.current) {
+      const deltaPx = e.clientX - dragState.current.startX;
+      const deltaTime = (deltaPx / (CHART_WIDTH - 2 * CHART_PADDING)) * xSpan;
+      const nextStart = dragState.current.startStart - deltaTime;
+      const nextEnd = dragState.current.startEnd - deltaTime;
+      setViewRange(clampRange(nextStart, nextEnd, dataRange));
+    }
+
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (rect) {
+      const boundedX = Math.max(rect.left + CHART_PADDING, Math.min(e.clientX, rect.right - CHART_PADDING));
+      setPinTime(xToTime(boundedX));
     }
   };
 
@@ -195,6 +246,7 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
     if (pointersRef.current.size < 2) {
       lastPinchDistance.current = null;
     }
+    dragState.current = null;
   };
 
   return (
@@ -230,6 +282,14 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
           strokeWidth={1}
         />
         <line
+          x1={CHART_WIDTH - CHART_PADDING}
+          y1={CHART_PADDING}
+          x2={CHART_WIDTH - CHART_PADDING}
+          y2={CHART_HEIGHT - CHART_PADDING}
+          stroke="#555"
+          strokeWidth={1}
+        />
+        <line
           x1={CHART_PADDING}
           y1={CHART_HEIGHT - CHART_PADDING}
           x2={CHART_WIDTH - CHART_PADDING}
@@ -239,13 +299,25 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
         />
 
         {Array.from({ length: yTicks + 1 }, (_, i) => {
-          const value = yMin + i * yStep;
-          const y = mapY(value);
+          const value = leftMin + i * leftStep;
+          const y = mapYLeft(value);
           return (
-            <g key={`y-${i}`}>
+            <g key={`y-left-${i}`}>
               <line x1={CHART_PADDING} y1={y} x2={CHART_WIDTH - CHART_PADDING} y2={y} stroke="#1d1d1d" />
               <text x={CHART_PADDING - 8} y={y + 3} fontSize="10" fill="#aaa" textAnchor="end">
                 {value.toFixed(1)}
+              </text>
+            </g>
+          );
+        })}
+
+        {Array.from({ length: yTicks + 1 }, (_, i) => {
+          const value = rightMin + i * rightStep;
+          const y = mapYRight(value);
+          return (
+            <g key={`y-right-${i}`}>
+              <text x={CHART_WIDTH - CHART_PADDING + 8} y={y + 3} fontSize="10" fill="#aaa" textAnchor="start">
+                {value.toFixed(0)}
               </text>
             </g>
           );
@@ -271,7 +343,8 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
               const raw = s.accessor(h);
               const v = typeof raw === "boolean" ? (raw ? 1 : 0) : raw;
               if (v === null || v === undefined || !Number.isFinite(v)) return null;
-              return `${mapX(h.t)},${mapY(v)}`;
+              const yMapper = s.axis === "left" ? mapYLeft : mapYRight;
+              return `${mapX(h.t)},${yMapper(v)}`;
             })
             .filter(Boolean)
             .join(" ");
@@ -279,12 +352,89 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
           return <polyline key={s.key} fill="none" stroke={s.color} strokeWidth="1.8" points={points} />;
         })}
 
+        {pinTime !== null && (
+          <line
+            x1={mapX(pinTime)}
+            y1={CHART_PADDING}
+            x2={mapX(pinTime)}
+            y2={CHART_HEIGHT - CHART_PADDING}
+            stroke="#888"
+            strokeDasharray="4 4"
+          />
+        )}
+
         {!viewHistory.length && (
           <text x="50%" y="50%" textAnchor="middle" fill="#777" fontSize="12">
             No samples in selected window
           </text>
         )}
       </svg>
+      {pinTime !== null && viewHistory.length > 0 && (
+        <PinReadout
+          pinTime={pinTime}
+          history={viewHistory}
+          activeSeries={activeSeries}
+          mapYLeft={mapYLeft}
+          mapYRight={mapYRight}
+        />
+      )}
+    </div>
+  );
+}
+
+function PinReadout({ pinTime, history, activeSeries, mapYLeft, mapYRight }) {
+  const closest = useMemo(() => {
+    let best = null;
+    let bestDist = Infinity;
+    history.forEach((h) => {
+      const dist = Math.abs(h.t - pinTime);
+      if (dist < bestDist) {
+        best = h;
+        bestDist = dist;
+      }
+    });
+    return best;
+  }, [history, pinTime]);
+
+  if (!closest) return null;
+
+  return (
+    <div style={{ marginTop: 8, background: "#0b0b0b", border: "1px solid #1f1f1f", borderRadius: 8, padding: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", color: "#dfe6ee" }}>
+        <div style={{ fontWeight: 700 }}>Pinned at {new Date(pinTime).toLocaleString()}</div>
+        <div style={{ fontSize: "0.9em", color: "#9aa5b1" }}>Nearest sample: {new Date(closest.t).toLocaleTimeString()}</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8, marginTop: 8 }}>
+        {SERIES_DEFS.filter((s) => activeSeries.has(s.key)).map((s) => {
+          const raw = s.accessor(closest);
+          const v = typeof raw === "boolean" ? (raw ? 1 : 0) : raw;
+          if (v === null || v === undefined || !Number.isFinite(v)) return null;
+          return (
+            <div
+              key={s.key}
+              style={{
+                border: `1px solid ${s.color}40`,
+                borderRadius: 6,
+                padding: 8,
+                color: "#e0e0e0",
+                background: "#0f141a",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color }} />
+                <div>
+                  <div style={{ fontWeight: 700 }}>{s.label}</div>
+                  <div style={{ color: "#9aa5b1", fontSize: "0.85em" }}>{s.unit}</div>
+                </div>
+              </div>
+              <div style={{ fontWeight: 800 }}>{v.toFixed(1)}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -354,10 +504,34 @@ function HistoryScreen({ history }) {
     () => (history || []).filter((entry) => entry && Number.isFinite(entry.t)),
     [history]
   );
-  const [activeSeries, setActiveSeries] = useState(() => new Set(SERIES_DEFS.map((s) => s.key)));
-  const [rangePreset, setRangePreset] = useState("24h");
-  const [viewRange, setViewRange] = useState(null);
-  const [liveMode, setLiveMode] = useState(true);
+  const [activeSeries, setActiveSeries] = useState(() => {
+    const saved = localStorage.getItem("history_active_series");
+    if (saved) {
+      try {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) return new Set(arr);
+      } catch (e) {
+        console.warn("Failed to parse saved series", e);
+      }
+    }
+    return new Set(SERIES_DEFS.map((s) => s.key));
+  });
+  const [rangePreset, setRangePreset] = useState(() => localStorage.getItem("history_range_preset") || "24h");
+  const [viewRange, setViewRange] = useState(() => {
+    const saved = localStorage.getItem("history_view_range");
+    if (!saved) return null;
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed && Number.isFinite(parsed.start) && Number.isFinite(parsed.end)) return parsed;
+    } catch (e) {
+      console.warn("Failed to parse saved view range", e);
+    }
+    return null;
+  });
+  const [liveMode, setLiveMode] = useState(() => {
+    const saved = localStorage.getItem("history_live_mode");
+    return saved ? saved === "true" : true;
+  });
 
   const dataRange = useMemo(() => {
     if (!sanitizedHistory.length) return { min: 0, max: 1 };
@@ -366,12 +540,15 @@ function HistoryScreen({ history }) {
 
   const applyPreset = (preset) => {
     setRangePreset(preset);
+    localStorage.setItem("history_range_preset", preset);
     if (!sanitizedHistory.length) return;
     const end = sanitizedHistory[sanitizedHistory.length - 1].t;
     const startCandidate = RANGE_PRESETS[preset] === null ? sanitizedHistory[0].t : end - RANGE_PRESETS[preset];
     const start = Math.max(sanitizedHistory[0].t, startCandidate);
     setViewRange({ start, end });
+    localStorage.setItem("history_view_range", JSON.stringify({ start, end }));
     setLiveMode(true);
+    localStorage.setItem("history_live_mode", "true");
   };
 
   useEffect(() => {
@@ -382,7 +559,22 @@ function HistoryScreen({ history }) {
     const span = presetMs === null ? end - sanitizedHistory[0].t : presetMs;
     const start = Math.max(sanitizedHistory[0].t, end - span);
     setViewRange({ start, end });
+    localStorage.setItem("history_view_range", JSON.stringify({ start, end }));
   }, [sanitizedHistory, liveMode, rangePreset]);
+
+  useEffect(() => {
+    localStorage.setItem("history_active_series", JSON.stringify(Array.from(activeSeries)));
+  }, [activeSeries]);
+
+  useEffect(() => {
+    if (viewRange) {
+      localStorage.setItem("history_view_range", JSON.stringify(viewRange));
+    }
+  }, [viewRange]);
+
+  useEffect(() => {
+    localStorage.setItem("history_live_mode", liveMode ? "true" : "false");
+  }, [liveMode]);
 
   if (!sanitizedHistory.length) {
     return (
@@ -405,6 +597,27 @@ function HistoryScreen({ history }) {
   const sampleCount = viewHistory.length;
   const timeSpanMs = viewRange ? viewRange.end - viewRange.start : sanitizedHistory[sanitizedHistory.length - 1].t - sanitizedHistory[0].t;
   const lastSampleAge = Date.now() - sanitizedHistory[sanitizedHistory.length - 1].t;
+
+  const exportHistory = () => {
+    const headers = ["timestamp"].concat(SERIES_DEFS.map((s) => s.key));
+    const rows = sanitizedHistory.map((h) => {
+      const base = [new Date(h.t).toISOString()];
+      const seriesValues = SERIES_DEFS.map((s) => {
+        const vRaw = s.accessor(h);
+        const v = typeof vRaw === "boolean" ? (vRaw ? 1 : 0) : vRaw;
+        return v ?? "";
+      });
+      return base.concat(seriesValues).join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tve-history-${new Date().toISOString()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const toggleSeries = (key) => {
     setActiveSeries((prev) => {
@@ -481,6 +694,25 @@ function HistoryScreen({ history }) {
         </div>
 
         <div style={{ marginTop: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ color: "#9aa5b1", fontSize: "0.9em" }}>
+              Drag to pan, scroll/pinch to zoom smoothly, or tap anywhere on the chart to inspect values at that moment.
+            </span>
+            <button
+              onClick={exportHistory}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 6,
+                border: "1px solid #2c2c2c",
+                background: "#0c0c0c",
+                color: "#e0e0e0",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Save CSV
+            </button>
+          </div>
           <TrendChart
             history={sanitizedHistory}
             activeSeries={activeSeries}
