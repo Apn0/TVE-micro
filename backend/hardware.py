@@ -66,6 +66,7 @@ DEFAULT_PINS: Dict[str, int | None] = {
     "ssr_z2": None,
     "ssr_fan": None,
     "ssr_pump": None,
+    "peltier": None,
     "step_main": 5,
     "dir_main": 6,
     "en_main": None,
@@ -144,6 +145,7 @@ DEFAULT_PWM_CONFIG: Dict[str, Any] = {
         "fan_nozzle": 3,
         "pump": 4,
         "led_status": 5,
+        "peltier": 6,
     },
 }
 
@@ -162,6 +164,7 @@ SYSTEM_DEFAULTS = {
         "ssr_z2": None,
         "ssr_fan": None,
         "ssr_pump": None,
+        "peltier": None,
         "step_main": 5,
         "dir_main": 6,
         "en_main": None,
@@ -188,6 +191,7 @@ SYSTEM_DEFAULTS = {
             "fan_nozzle": 3,
             "pump": 4,
             "led_status": 5,
+            "peltier": 6,
         },
     },
     "sensors": {
@@ -449,6 +453,7 @@ class HardwareInterface:
         self.heaters = {"z1": 0.0, "z2": 0.0}
         self.motors = {"main": 0.0, "feed": 0.0}
         self.relays = {"fan": False, "pump": False}
+        self.peltier_duty = 0.0
         self.temps = {k: 25.0 for k in LOGICAL_SENSORS}
         self.motor_fault_active = False
         self.pin_pull_up_down = {}
@@ -616,7 +621,7 @@ class HardwareInterface:
         GPIO.setwarnings(False)
 
         outs = []
-        for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump",
+        for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump", "peltier",
                     "step_main", "dir_main", "en_main",
                     "step_feed", "dir_feed", "en_feed"):
             if key == "ssr_z1" and self._is_pwm_channel_active("z1"):
@@ -626,6 +631,8 @@ class HardwareInterface:
             if key == "ssr_fan" and self._is_pwm_channel_active("fan"):
                 continue
             if key == "ssr_pump" and self._is_pwm_channel_active("pump"):
+                continue
+            if key == "peltier" and self._is_pwm_channel_active("peltier"):
                 continue
             if key in self.pins and self.pins[key] is not None:
                 outs.append(int(self.pins[key]))
@@ -731,9 +738,12 @@ class HardwareInterface:
         heat_z1 = 0.1 if self.heaters["z1"] > 0 else -0.05
         heat_z2 = 0.1 if self.heaters["z2"] > 0 else -0.05
 
+        # Peltier cooling effect on t1 (throat)
+        peltier_cooling = 0.2 * (self.peltier_duty / 100.0)
+
         self.temps["t2"] += heat_z1 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
         self.temps["t3"] += heat_z2 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
-        self.temps["t1"] += (self.temps["t2"] - self.temps["t1"]) * 0.005
+        self.temps["t1"] += (self.temps["t2"] - self.temps["t1"]) * 0.005 - peltier_cooling
 
         if self.motors["main"] > 0:
             fan_level = self.pwm_outputs.get("fan", 100.0 if self.relays["fan"] else 0.0)
@@ -776,6 +786,13 @@ class HardwareInterface:
             safe_out("ssr_fan", GPIO.HIGH if self.relays["fan"] else GPIO.LOW)
         if not self._is_pwm_channel_active("pump"):
             safe_out("ssr_pump", GPIO.HIGH if self.relays["pump"] else GPIO.LOW)
+
+        if self._is_pwm_channel_active("peltier"):
+            self.set_pwm_output("peltier", self.peltier_duty)
+        else:
+            # Simple PWM simulation or just ON/OFF if duty > 0?
+            # For non-PWM hardware pin, let's just do > 50% = ON
+            safe_out("peltier", GPIO.HIGH if self.peltier_duty > 0 else GPIO.LOW)
 
         for motor_name in ("main", "feed"):
             en_pin = self.pins.get(f"en_{motor_name}")
@@ -1010,6 +1027,12 @@ class HardwareInterface:
             if self._is_pwm_channel_active(relay):
                 self.set_pwm_output(relay, 100.0 if state else 0.0)
 
+    def set_peltier_duty(self, duty):
+        clamped = max(0.0, min(100.0, float(duty)))
+        self.peltier_duty = clamped
+        if self._is_pwm_channel_active("peltier"):
+            self.set_pwm_output("peltier", clamped)
+
     def get_temps(self):
         with self._temp_lock:
             return dict(self.temps)
@@ -1215,6 +1238,7 @@ class HardwareInterface:
         self.motors["feed"] = 0.0
         self.relays["fan"] = False
         self.relays["pump"] = False
+        self.peltier_duty = 0.0
         for name in self.pwm_outputs:
             self.pwm_outputs[name] = 0.0
             self.set_pwm_output(name, 0.0)
@@ -1231,6 +1255,8 @@ class HardwareInterface:
                 safe_out("ssr_fan", GPIO.LOW)
             if not self._is_pwm_channel_active("pump"):
                 safe_out("ssr_pump", GPIO.LOW)
+            if not self._is_pwm_channel_active("peltier"):
+                safe_out("peltier", GPIO.LOW)
             safe_out("en_main", GPIO.LOW)
             safe_out("en_feed", GPIO.LOW)
             # NOTE: We specifically DO NOT force led_status off here,

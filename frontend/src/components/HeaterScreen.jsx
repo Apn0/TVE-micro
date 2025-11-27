@@ -11,6 +11,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const [expandedZone, setExpandedZone] = useState(null);
   const setpointRef = useRef(null);
   const dutyRef = useRef(null);
+  const peltierDutyRef = useRef(null);
 
   useEffect(() => {
     setTargetZ1(validateSetpoint(data.state?.target_z1));
@@ -423,8 +424,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
       // Check if click was inside setpoint box (setpointRef) or duty box (dutyRef)
       const insideSetpoint = setpointRef.current && setpointRef.current.contains(event.target);
       const insideDuty = dutyRef.current && dutyRef.current.contains(event.target);
+      const insidePeltier = peltierDutyRef.current && peltierDutyRef.current.contains(event.target);
 
-      if (!insideSetpoint && !insideDuty) {
+      if (!insideSetpoint && !insideDuty && !insidePeltier) {
         setExpandedZone(null);
         keypad?.closeKeypad?.();
       }
@@ -481,6 +483,22 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     });
   };
 
+  const handlePeltierClick = (event) => {
+    event.stopPropagation();
+    const currentDuty = data.state?.peltier_duty ?? 0;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const initial = Number.isFinite(currentDuty) ? String(currentDuty) : "";
+
+    keypad?.openKeypad?.(initial, rect, (val) => {
+      const num = parseFloat(val);
+      if (!Number.isNaN(num) && num >= 0 && num <= 100) {
+        sendCmd("SET_PELTIER", { duty: num });
+      }
+      keypad?.closeKeypad?.();
+      setExpandedZone(null);
+    });
+  };
+
   const handleModeToggle = () => {
     const newMode = data.state?.mode === "AUTO" ? "MANUAL" : "AUTO";
     sendCmd("SET_MODE", { mode: newMode });
@@ -491,6 +509,75 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     borderRadius: "8px",
     padding: "12px",
     border: "1px solid #1f2a36",
+  };
+
+  const renderPeltierCard = () => {
+    const duty = data.state?.peltier_duty ?? 0.0;
+    const isExpanded = expandedZone === "peltier";
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div
+          style={{
+            ...fieldBox,
+            cursor: "pointer",
+            boxShadow: isExpanded ? "0 0 0 1px #3498db" : "none",
+            transition: "box-shadow 0.2s ease",
+            borderColor: duty > 0 ? "#3498db" : "#1f2a36",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleZoneExpansion("peltier");
+          }}
+          data-testid="peltier-card"
+        >
+          <div style={{ ...styles.label, marginBottom: 6 }}>Peltier Cooling</div>
+          <div
+            style={{
+              fontSize: "1.6em",
+              fontWeight: "bold",
+              color: duty > 0 ? "#3498db" : "#7f8c8d",
+            }}
+          >
+            {duty.toFixed(1)} %
+          </div>
+          <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#8c9fb1" }}>
+            {duty > 0 ? "Cooling Active" : "Idle"}
+          </div>
+        </div>
+
+        {isExpanded && (
+          <div
+             ref={(node) => {
+                if (isExpanded) peltierDutyRef.current = node;
+              }}
+            style={{
+              ...fieldBox,
+              background: "#0c0f15",
+              border: "1px solid #3498db",
+              cursor: "pointer",
+            }}
+            onClick={handlePeltierClick}
+            data-testid="peltier-duty-input"
+          >
+             <div style={{ ...styles.label, marginBottom: 6 }}>Set Duty Cycle (%)</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  color: "#ecf0f1",
+                }}
+              >
+                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{duty.toFixed(1)}</span>
+                <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
+                  Tap to edit
+                </span>
+              </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const renderZone = (label, temp, target, zoneKey, relayOn) => {
@@ -629,9 +716,10 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           </button>
         </div>
 
-        <div style={styles.grid2}>
+        <div style={{ ...styles.grid2, gridTemplateColumns: "1fr 1fr 1fr" }}>
           {renderZone("Zone 1", temps.t1 ?? null, targetZ1, "z1", relays.ssr_z1)}
           {renderZone("Zone 2", temps.t2 ?? null, targetZ2, "z2", relays.ssr_z2)}
+          {renderPeltierCard()}
         </div>
       </div>
       {heaterGraph}
