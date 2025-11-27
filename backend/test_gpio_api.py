@@ -20,6 +20,16 @@ class TestGpioApi(unittest.TestCase):
         self.assertTrue(json_data['success'])
         self.assertIn('status', json_data)
 
+    def test_gpio_status_includes_all_header_pins(self):
+        response = self.client.get('/api/gpio')
+        self.assertEqual(response.status_code, 200)
+        json_data = response.get_json()
+        self.assertTrue(json_data['success'])
+
+        pins = {int(pin) for pin in json_data['status'].keys()}
+        for pin in (2, 3, 4, 17, 27):
+            self.assertIn(pin, pins)
+
     def test_gpio_set_mode(self):
         # This test will only work on a Raspberry Pi
         if self.hal.platform != "PI":

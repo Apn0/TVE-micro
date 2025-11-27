@@ -29,7 +29,7 @@ import random
 import threading
 import math
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 # --- Platform / GPIO detection ------------------------------------------------
 
@@ -53,6 +53,10 @@ except Exception:
 # --- Logical sensors ----------------------------------------------------------
 
 LOGICAL_SENSORS = ["t1", "t2", "t3", "motor"]
+# Broadcom-numbered GPIO pins present on the 40-pin Raspberry Pi header (plus
+# the ID EEPROM pins). These are used to populate the GPIO control surface even
+# when a pin is not explicitly mapped in the configuration.
+ALL_GPIO_PINS_BCM = tuple(range(0, 28))
 hardware_logger = logging.getLogger("tve.backend.hardware")
 
 # --- Default sensor + ADC configuration ---------------------------------------
@@ -979,25 +983,53 @@ class HardwareInterface:
     def get_gpio_status(self):
         """Returns the status of all GPIO pins."""
         status = {}
+        reported_pins: set[int] = set()
+
+        def _collect_status(pin_num: int, pin_name: Optional[str] = None):
+            try:
+                int_pin = int(pin_num)
+            except (ValueError, TypeError) as exc:
+                logging.warning(
+                    f"Skipping status for invalid pin {pin_name or pin_num}: {exc}"
+                )
+                return
+
+            mode = self.pin_modes.get(int_pin, "IN")
+            pull_up_down = (
+                self.pin_pull_up_down.get(int_pin, "up") if mode == "IN" else "off"
+            )
+
+            try:
+                value = int(self.get_gpio_value(int_pin) or 0)
+            except Exception as exc:  # pragma: no cover - defensive log
+                logging.warning(f"Could not get status for pin {int_pin}: {exc}")
+                value = 0
+
+            status[int_pin] = {
+                "name": pin_name,
+                "mode": mode,
+                "value": value,
+                "pull_up_down": pull_up_down,
+            }
+            reported_pins.add(int_pin)
+
+        # First report configured pins so they keep their assigned names.
         for pin_name, pin_num in self.pins.items():
             if pin_num is None:
                 continue
+            _collect_status(pin_num, pin_name)
 
-            try:
-                pin_num = int(pin_num)
-                mode = self.pin_modes.get(pin_num, "IN")
-                value = self.get_gpio_value(pin_num)
-                pull_up_down = self.pin_pull_up_down.get(pin_num, "up") if mode == "IN" else "off"
-                status[pin_num] = {
-                    "name": pin_name,
-                    "mode": mode,
-                    "value": value,
-                    "pull_up_down": pull_up_down,
-                }
-            except (ValueError, TypeError) as e:
-                logging.warning(f"Skipping status for invalid pin {pin_name} ({pin_num}): {e}")
-            except Exception as e:
-                logging.warning(f"Could not get status for pin {pin_num}: {e}")
+        # Then fill the rest of the BCM header pins so the UI can control any
+        # available GPIO, even if it lacks a friendly name in the config. Also
+        # include pins that have been manipulated via the API while running.
+        additional_pins = (
+            set(ALL_GPIO_PINS_BCM) | set(self.pin_modes.keys()) | set(self._sim_gpio_values.keys())
+        )
+        for pin_num in sorted(additional_pins):
+            if pin_num in reported_pins:
+                continue
+            _collect_status(pin_num)
+
         return status
 
     def set_gpio_mode(self, pin, mode, pull_up_down='up'):
@@ -1028,7 +1060,7 @@ class HardwareInterface:
     def get_gpio_value(self, pin):
         """Gets the value of a GPIO pin."""
         if self.platform != "PI" or GPIO is None:
-            return self._sim_gpio_values.get(pin)
+            return self._sim_gpio_values.get(pin, 0)
 
         return GPIO.input(pin)
 
