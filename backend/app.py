@@ -864,6 +864,10 @@ def gpio_control():
         return resp
 
     if request.method == "GET":
+        if not hasattr(hal, "get_gpio_status"):
+            app_logger.warning("HardwareInterface missing get_gpio_status; returning 501")
+            return jsonify({"success": False, "msg": "GPIO_STATUS_UNAVAILABLE"}), 501
+
         status = hal.get_gpio_status()
         return jsonify({"success": True, "status": status})
 
