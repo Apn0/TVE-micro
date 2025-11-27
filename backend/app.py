@@ -23,6 +23,11 @@ from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
 from backend.logger import DataLogger
 from backend.pid import PID
+from backend.alarm_utils import (
+    load_alarms_from_disk,
+    save_alarms_to_disk,
+    create_alarm_object,
+)
 
 CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
@@ -377,7 +382,8 @@ pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
 state = {
     "status": "READY",
     "mode": "AUTO",
-    "alarm_msg": "",
+    "active_alarms": [],
+    "alarm_history": load_alarms_from_disk(),
     "target_z1": 0.0,
     "target_z2": 0.0,
     "manual_duty_z1": 0.0,
@@ -458,13 +464,29 @@ def _set_status(new_status: str):
 def _latch_alarm(reason: str):
     global last_btn_start_state, last_btn_stop_state
 
+    # Determine severity
+    severity = "WARNING"
+    if "EMERGENCY" in reason or "CRITICAL" in reason:
+        severity = "CRITICAL"
+
     running_event.clear()
     _all_outputs_off()
     last_btn_start_state = False
     last_btn_stop_state = False
+
     with state_lock:
+        # Avoid duplicate active alarms for the same reason
+        existing = next(
+            (a for a in state["active_alarms"] if a["type"] == reason and not a["cleared"]),
+            None,
+        )
+        if not existing:
+            new_alarm = create_alarm_object(reason, severity)
+            state["active_alarms"].append(new_alarm)
+            state["alarm_history"].append(new_alarm)
+            save_alarms_to_disk(state["alarm_history"])
+
         state["status"] = "ALARM"
-        state["alarm_msg"] = reason
 
 startup_lock = threading.Lock()
 
@@ -520,9 +542,27 @@ def control_loop():
                 continue
             running_event.set()
             safety.reset()
+
+            # Mark all active alarms as cleared if they are resolvable
+            # Note: Persistent conditions (like e-stop button held down) will re-trigger
+            # almost immediately in the next loop, which is correct.
             with state_lock:
+                # Move active alarms to history only?
+                # Actually, we keep them in history, but remove from active list if they are cleared.
+                # However, logic below re-latches if condition persists.
+                # So we just empty the active list for a "try clear" attempt.
+                for alarm in state["active_alarms"]:
+                    alarm["cleared"] = True
+                    # Update the record in history too
+                    for h in state["alarm_history"]:
+                        if h["id"] == alarm["id"]:
+                            h["cleared"] = True
+                            break
+
+                state["active_alarms"] = []
+                save_alarms_to_disk(state["alarm_history"])
                 state["status"] = "READY"
-                state["alarm_msg"] = ""
+
             alarm_clear_pending = False
             time.sleep(0.05)
             continue
@@ -762,9 +802,11 @@ def startup():
         running_event=running_event,
     )
     with state_lock:
+        # If we have any uncleared alarms from disk, we might want to stay in ALARM
+        # But usually startup assumes a clean slate unless the condition persists.
+        # We'll default to READY, and let the loop catch persistent alarms.
         if state.get("status") != "ALARM":
             state["status"] = "READY"
-            state["alarm_msg"] = ""
             state["seq_start_time"] = 0.0
     start_background_threads()
 
@@ -827,6 +869,82 @@ def log_start():
 def log_stop():
     logger.stop()
     return jsonify({"success": True})
+
+@app.route("/api/history/sensors", methods=["GET"])
+def history_sensors():
+    # Read the logging.csv file and return data
+    log_file = "logging.csv"
+    if not os.path.exists(log_file):
+        return jsonify([])
+
+    try:
+        data = []
+        # Basic CSV reading - optimization: read only last N lines or by timestamp
+        # For now, we'll return the last 1000 lines to avoid payload explosion
+        with open(log_file, "r") as f:
+            lines = f.readlines()
+
+        header = lines[0].strip().split(",")
+        # Skip header, take last 1000
+        content_lines = lines[1:][-1000:]
+
+        for line in content_lines:
+            parts = line.strip().split(",")
+            if len(parts) != len(header):
+                continue
+            entry = {}
+            for i, col in enumerate(header):
+                # Try to convert to float/int if possible
+                val = parts[i]
+                try:
+                    if "." in val:
+                        entry[col] = float(val)
+                    else:
+                        entry[col] = int(val)
+                except ValueError:
+                    entry[col] = val
+
+            # Map CSV columns to the format frontend expects in 'history'
+            # Frontend expects: { t, temps: {t1, t2...}, ... }
+            # The CSV likely has flattened structure like timestamp, t1, t2, z1_duty, etc.
+            # We need to reconstruct the structure or let frontend parse it.
+            # However, existing frontend code for history uses specific object structure.
+            # Let's map it here to match what App.jsx expects in `setHistory`.
+
+            mapped = {
+                "t": int(entry.get("timestamp", 0) * 1000), # JS uses ms
+                "temps": {},
+                "relays": {},
+                "motors": {},
+                "pwm": {},
+                "status": entry.get("status", "UNKNOWN"),
+                "mode": entry.get("mode", "AUTO")
+            }
+
+            # Helper to extract potential keys
+            for key, val in entry.items():
+                if key in ("t1", "t2", "t3", "motor_temp", "motor"): # sensor names
+                    if key == "motor": mapped["temps"]["motor"] = val # disambiguate
+                    else: mapped["temps"][key] = val
+                elif key.startswith("temp_"):
+                    mapped["temps"][key.replace("temp_", "")] = val
+                elif key in ("fan", "pump", "ssr_z1", "ssr_z2"):
+                    mapped["relays"][key] = bool(val)
+                elif key.startswith("relay_"):
+                    mapped["relays"][key.replace("relay_", "")] = bool(val)
+                elif key in ("main_rpm", "feed_rpm"):
+                    mapped["motors"][key.replace("_rpm", "")] = val
+                elif key.startswith("motor_"):
+                    mapped["motors"][key.replace("motor_", "")] = val
+                elif key in ("manual_duty_z1", "manual_duty_z2", "target_z1", "target_z2"):
+                    mapped[key] = val
+
+            data.append(mapped)
+
+        return jsonify(data)
+    except Exception as e:
+        app_logger.error(f"Failed to read history: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/gpio", methods=["GET", "POST"])
 def gpio_control():
@@ -951,9 +1069,8 @@ def control():
             if not allowed:
                 hal.set_motor_rpm("main", 0)
                 hal.set_motor_rpm("feed", 0)
+                _latch_alarm(reason)
                 with state_lock:
-                    state["status"] = "ALARM"
-                    state["alarm_msg"] = reason
                     state["motors"]["main"] = 0
                     state["motors"]["feed"] = 0
                 return jsonify({"success": False, "msg": reason}), 400
@@ -1018,12 +1135,36 @@ def control():
         if hal.get_button_state("btn_emergency"):
             return jsonify({"success": False, "msg": "EMERGENCY_BTN_ACTIVE"})
         _all_outputs_off()
-        with state_lock:
-            state["status"] = "READY"
-            state["alarm_msg"] = ""
-        safety.reset()
-        running_event.set()
+        # Instead of clearing everything immediately, we flag that a clear is pending.
+        # The control loop will handle the actual clearing and re-checking.
         alarm_clear_pending = True
+
+    elif cmd == "ACKNOWLEDGE_ALARM":
+        alarm_id = req.get("alarm_id")
+        with state_lock:
+            # If alarm_id is "all" or missing, acknowledge all
+            if not alarm_id or alarm_id == "all":
+                for alarm in state["active_alarms"]:
+                    alarm["acknowledged"] = True
+                for alarm in state["alarm_history"]:
+                    if not alarm.get("acknowledged"):
+                        alarm["acknowledged"] = True
+            else:
+                # Find specific alarm
+                found = False
+                for alarm in state["active_alarms"]:
+                    if alarm["id"] == alarm_id:
+                        alarm["acknowledged"] = True
+                        found = True
+                        break
+                # Also update history
+                for alarm in state["alarm_history"]:
+                    if alarm["id"] == alarm_id:
+                        alarm["acknowledged"] = True
+                        found = True
+                        break
+
+            save_alarms_to_disk(state["alarm_history"])
 
     elif cmd == "UPDATE_PID":
         zone = req.get("zone")
