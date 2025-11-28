@@ -326,12 +326,22 @@ function TrendChart({ history, activeSeries, viewRange, setViewRange, dataRange,
         {Array.from({ length: xTicks + 1 }, (_, i) => {
           const t = xMin + (i / xTicks) * xSpan;
           const x = mapX(t);
-          const secAgo = Math.round((xMax - t) / 1000);
+          const secAgo = (xMax - t) / 1000;
+          let label;
+          if (xSpan > 60000) {
+            const minAgo = secAgo / 60;
+            const val = Math.abs(minAgo) < 0.1 ? 0 : minAgo;
+            const isInt = Math.abs(val % 1) < 0.01;
+            label = `-${val.toFixed(isInt ? 0 : 1)}m`;
+          } else {
+            label = `-${Math.round(secAgo)}s`;
+          }
+
           return (
             <g key={`x-${i}`}>
               <line x1={x} y1={CHART_HEIGHT - CHART_PADDING} x2={x} y2={CHART_PADDING} stroke="#1d1d1d" />
               <text x={x} y={CHART_HEIGHT - CHART_PADDING + 14} fontSize="10" fill="#aaa" textAnchor="middle">
-                -{secAgo}s
+                {label}
               </text>
             </g>
           );
