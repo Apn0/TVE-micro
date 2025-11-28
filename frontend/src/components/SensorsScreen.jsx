@@ -12,6 +12,21 @@ import { styles } from "../App";
       • "Write all channels to controller" → send all edited rows
 */
 
+/**
+ * SensorsScreen Component.
+ *
+ * Provides monitoring and configuration for ADS1115-based sensors.
+ *
+ * Features:
+ * - Live display of sensor values mapped to logical names (t1, t2, t3, motor).
+ * - Configuration table for each ADC channel (Enabled, Logical Name, Calibration Params).
+ * - Buttons to apply configuration changes to the backend.
+ * - Local state management to prevent overwriting edits during polling.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - Current system state and configuration.
+ * @param {function} props.sendCmd - Function to send API commands.
+ */
 function SensorsScreen({ data, sendCmd }) {
   const adc = data.config?.adc || {};
   const sensorsFromBackend = data.config?.sensors || {};

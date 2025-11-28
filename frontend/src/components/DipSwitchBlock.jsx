@@ -2,6 +2,15 @@
 import React from "react";
 import { styles } from "../App";
 
+/**
+ * DipSwitchBlock Component.
+ *
+ * Renders a visual representation of a DIP switch block.
+ * Used to show the configured settings for hardware drivers (e.g., DM556).
+ *
+ * @param {object} props - Component props.
+ * @param {Array<boolean>} props.switches - Array of booleans representing switch states (true=ON, false=OFF).
+ */
 function DipSwitchBlock({ switches }) {
   return (
     <div style={styles.dipBlock}>

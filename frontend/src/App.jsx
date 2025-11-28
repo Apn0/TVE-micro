@@ -1,4 +1,4 @@
-﻿// file: frontend/src/App.jsx
+// file: frontend/src/App.jsx
 import React, { useState, useEffect } from "react";
 
 import useKeypad from "./hooks/useKeypad";
@@ -92,6 +92,13 @@ import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 import AlarmsScreen from "./components/AlarmsScreen";
 
+/**
+ * App Component.
+ *
+ * The root component of the frontend application.
+ * Manages global state (polling, history, alarms, navigation) and routes to specific screens.
+ * Handles API communication and global error/status display.
+ */
 function App() {
   const [view, setView] = useState("HOME");
   const [data, setData] = useState(null);

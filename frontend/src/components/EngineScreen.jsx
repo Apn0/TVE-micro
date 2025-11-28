@@ -2,6 +2,16 @@
 import React, { useState, useEffect } from "react";
 import { styles } from "../App";
 
+/**
+ * EngineScreen Component.
+ *
+ * A simplified motor control screen, focusing on basic RPM setting for the main and feed motors.
+ * This component appears to be a less-featured alternative to MotorScreen.jsx.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - Current system state.
+ * @param {function} props.sendCmd - Function to send API commands.
+ */
 function EngineScreen({ data, sendCmd }) {
   const motors = data.state?.motors || {};
   const [mainRpm, setMainRpm] = useState(motors.main ?? 0);

@@ -36,6 +36,12 @@ const DEVICE_LABELS = {
   pump: "Coolant Pump",
 };
 
+/**
+ * Normalizes sequence configuration by merging provided settings with defaults.
+ *
+ * @param {object} seq - The input sequence configuration object.
+ * @returns {object} A complete, normalized sequence configuration object.
+ */
 export function normalizeSequenceConfig(seq = {}) {
   const normalized = {
     check_temp_before_start: seq.check_temp_before_start ?? true,
@@ -114,6 +120,17 @@ function PhaseTable({ phase, steps, onChange }) {
   );
 }
 
+/**
+ * SequencingConfig Component.
+ *
+ * A modal overlay for configuring the automated startup, shutdown, and emergency sequences.
+ * Allows setting delays and actions (ON/OFF) for motors, fans, and pumps in each phase.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.sequence - Current sequence configuration.
+ * @param {function} props.onClose - Callback to close the modal.
+ * @param {function} props.onSave - Callback to save the configuration changes.
+ */
 export default function SequencingConfig({ sequence, onClose, onSave }) {
   const normalized = useMemo(() => normalizeSequenceConfig(sequence), [sequence]);
   const [workingSeq, setWorkingSeq] = useState(normalized);

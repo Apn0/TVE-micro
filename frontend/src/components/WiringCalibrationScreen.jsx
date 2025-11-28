@@ -19,6 +19,19 @@ const buildInitialState = () =>
     return acc;
   }, {});
 
+/**
+ * WiringCalibrationScreen Component.
+ *
+ * Provides a structured checklist for verifying wiring integrity and functionality.
+ *
+ * Features:
+ * - List of critical wiring components (Heaters, Thermistors, Motors, Fans).
+ * - Multi-step verification process for each item: Review -> Safe to Test -> Tested -> Complete.
+ * - Global review session state management.
+ * - Validation logic to ensure all criteria are met before "proceeding".
+ *
+ * @param {object} props - Component props.
+ */
 function WiringCalibrationScreen() {
   const [reviewActive, setReviewActive] = useState(false);
   const [autoReviewStarted, setAutoReviewStarted] = useState(false);

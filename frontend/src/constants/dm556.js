@@ -1,5 +1,12 @@
 // Shared DM556 driver switch matrix for NEMA23 motor control
+
+/**
+ * Switch configuration table for the DM556 stepper driver.
+ * Maps target Current (Amps) and Microsteps to the required DIP switch positions.
+ * true = ON, false = OFF.
+ */
 export const DM556_TABLE = {
+  // Switch positions for Peak Current (SW1, SW2, SW3)
   current: {
     1.4: [true, true, true],
     2.1: [false, true, true],
@@ -10,6 +17,7 @@ export const DM556_TABLE = {
     4.9: [true, false, false],
     5.6: [false, false, false],
   },
+  // Switch positions for Microstepping resolution (SW5, SW6, SW7, SW8)
   steps: {
     400: [false, true, true, true],
     800: [true, false, true, true],
@@ -29,6 +37,9 @@ export const DM556_TABLE = {
   },
 };
 
+/**
+ * Default configuration values for the DM556 driver.
+ */
 export const DEFAULT_DM556 = {
   microsteps: 1600,
   current_peak: 3.2,

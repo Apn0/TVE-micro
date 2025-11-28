@@ -2,6 +2,17 @@
 import React from "react";
 import { styles } from "../App";
 
+/**
+ * Navigation Sidebar Component.
+ *
+ * Renders the sidebar with navigation buttons to switch between different screens.
+ * Includes a visual alarm indicator for the "ALARMS" tab when active alarms exist.
+ *
+ * @param {object} props - Component props.
+ * @param {string} props.current - The currently active view/tab name.
+ * @param {function} props.setView - Function to update the current view.
+ * @param {boolean} props.hasActiveAlarms - Whether there are any uncleared alarms in the system.
+ */
 function Nav({ current, setView, hasActiveAlarms }) {
   const tabs = [
     "HOME",

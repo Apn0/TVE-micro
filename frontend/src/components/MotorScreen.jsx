@@ -5,6 +5,23 @@ import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 
 const rpmDisplay = (rpm) => `${rpm?.toFixed(0) ?? 0} RPM`;
 
+/**
+ * MotorScreen Component.
+ *
+ * Provides comprehensive control and monitoring for the main screw motor and feeder motor.
+ *
+ * Features:
+ * - Live monitoring of RPM and calculated steps/second.
+ * - Slider and preset controls for setting motor speeds.
+ * - Configuration interface for DM556 stepper driver settings (Microsteps, Peak Current).
+ * - Visual DIP switch representation based on driver settings.
+ * - Manual jogging controls (CW/CCW, specific steps/rotations).
+ * - Display of acceleration and ramp settings.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - Current system state and configuration.
+ * @param {function} props.sendCmd - Function to send API commands.
+ */
 function MotorScreen({ data, sendCmd }) {
   const motors = data.state?.motors || {};
   const temps = data.state?.temps || {};

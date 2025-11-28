@@ -6,8 +6,17 @@ import json
 import logging
 from datetime import datetime
 
+
 class DataLogger:
+    """
+    Handles logging of system state and sensor data to CSV files.
+
+    The logger buffers data in memory to reduce disk I/O, flushing automatically
+    at a set interval or when statistical anomalies (deviations) are detected in the
+    monitored data streams.
+    """
     def __init__(self):
+        """Initialize the DataLogger with default settings and create the log directory."""
         self.log_dir = "logs"
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
@@ -46,7 +55,14 @@ class DataLogger:
         self._last_event_times = {}
 
     def configure(self, config):
-        """Update logging configuration from app config."""
+        """
+        Update logging configuration from the application config dictionary.
+
+        Args:
+            config (dict): A dictionary containing configuration overrides such as
+                           'flush_interval', 'max_buffer_size', 'flush_retry_attempts',
+                           and 'flush_retry_delay'.
+        """
         if "flush_interval" in config:
             self.flush_interval = float(config["flush_interval"])
         if "max_buffer_size" in config:
@@ -57,10 +73,24 @@ class DataLogger:
             self.flush_retry_delay = float(config["flush_retry_delay"])
 
     def set_error_handler(self, handler):
-        """Attach a callback that will receive structured error events."""
+        """
+        Attach a callback that will receive structured error events.
+
+        Args:
+            handler (callable): A function that accepts a dictionary payload representing the error event.
+        """
         self.on_error = handler
 
     def _emit_event(self, level, event, context=None, cooldown=False):
+        """
+        Internal method to emit log events/errors, respecting cooldowns.
+
+        Args:
+            level (str): The log level (e.g., "INFO", "WARN", "ERROR").
+            event (str): The event name or identifier.
+            context (dict, optional): Additional context data for the event.
+            cooldown (bool, optional): If True, suppresses duplicate events within the cooldown period.
+        """
         now = time.time()
         if cooldown:
             last = self._last_event_times.get(event, 0)
@@ -86,6 +116,16 @@ class DataLogger:
             print(json.dumps(payload))
 
     def _validate_numeric_field(self, value, field_name):
+        """
+        Validates that a field is numeric, logging a warning if not.
+
+        Args:
+            value: The value to check.
+            field_name (str): The name of the field for logging purposes.
+
+        Returns:
+            float or None: The value as a float, or None if validation fails.
+        """
         if value is None:
             return None
         try:
@@ -100,6 +140,16 @@ class DataLogger:
             return None
 
     def _parse_monitored_value(self, row, idx):
+        """
+        Safely parses a value from a row for monitoring/statistics.
+
+        Args:
+            row (list): The data row (list of values).
+            idx (int): The index of the value to parse.
+
+        Returns:
+            float or None: The parsed float value, or None if invalid/NaN.
+        """
         label = self.headers[idx] if idx < len(self.headers) else f"col_{idx}"
         try:
             val = float(row[idx])
@@ -116,6 +166,12 @@ class DataLogger:
             return None
 
     def _reopen_current_file(self):
+        """
+        Attempts to close and reopen the current log file to recover from I/O errors.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
         if not self.current_file:
             return False
         try:
@@ -133,6 +189,12 @@ class DataLogger:
             return False
 
     def _write_buffer_with_retries(self):
+        """
+        Attempts to write the memory buffer to disk with retries.
+
+        Returns:
+            bool: True if the write was successful, False otherwise.
+        """
         rows_to_write = list(self.buffer)
         for attempt in range(1, self.flush_retry_attempts + 1):
             if not self.writer or not self.file_handle:
@@ -165,7 +227,12 @@ class DataLogger:
         return False
 
     def _apply_backpressure(self, make_room_for=0):
-        """Prevent unbounded buffer growth by dropping oldest entries when necessary."""
+        """
+        Enforce buffer limits by dropping oldest entries (backpressure).
+
+        Args:
+            make_room_for (int): Number of slots to ensure are available.
+        """
         allowed = self.max_buffer_size - make_room_for
         if allowed < 0:
             allowed = 0
@@ -180,6 +247,11 @@ class DataLogger:
             )
 
     def start(self):
+        """
+        Start recording data to a new CSV file.
+
+        Creates a new file with a timestamped name in the logs directory and writes the header row.
+        """
         if self.recording: return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -206,8 +278,16 @@ class DataLogger:
 
     def _check_deviation(self, row):
         """
-        Check if the new row deviates significantly (> 2 SD) from the buffer mean
-        for monitored columns.
+        Check if the new data row deviates significantly (> 2 SD) from the buffer mean.
+
+        This is used to trigger an immediate flush to disk if an anomaly is detected,
+        preserving critical data around the event.
+
+        Args:
+            row (list): The new data row to check.
+
+        Returns:
+            bool: True if a deviation is detected, False otherwise.
         """
         if len(self.buffer) < 10:
             return False
@@ -247,7 +327,12 @@ class DataLogger:
         return False
 
     def flush(self):
-        """Write buffer to disk."""
+        """
+        Manually flush the current buffer to disk.
+
+        This persists all buffered data to the CSV file. If the write fails, it may trigger
+        backpressure logic to drop old data.
+        """
         if not self.recording or not self.file_handle:
             return
 
@@ -263,7 +348,16 @@ class DataLogger:
             self._apply_backpressure()
 
     def _format_val(self, val, fmt=".2f"):
-        """Safely format a value, returning 'NAN' if None or invalid."""
+        """
+        Safely format a numeric value for CSV output.
+
+        Args:
+            val: The value to format.
+            fmt (str): The format string (e.g., ".2f").
+
+        Returns:
+            str: The formatted string, or "NAN" if the value is invalid or None.
+        """
         if val is None:
             return "NAN"
         try:
@@ -275,6 +369,17 @@ class DataLogger:
             return "NAN"
 
     def log(self, state, hal):
+        """
+        Log a snapshot of the system state.
+
+        This method extracts relevant data from the state and HAL objects, formats it,
+        adds it to the buffer, and optionally triggers a flush if the buffer is full,
+        the time interval has passed, or a statistical deviation is detected.
+
+        Args:
+            state (dict): The current application state dictionary.
+            hal (HardwareLayer): The hardware abstraction layer instance.
+        """
         if not self.recording: return
 
         status = state.get("status", "UNKNOWN")
@@ -352,6 +457,11 @@ class DataLogger:
             self.flush()
 
     def stop(self):
+        """
+        Stop the logger and close the file.
+
+        Flushes any remaining buffered data and closes the file handle.
+        """
         # Flush remaining data
         self.flush()
 

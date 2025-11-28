@@ -499,6 +499,22 @@ function Legend({ stats, activeSeries, toggleSeries }) {
   );
 }
 
+/**
+ * HistoryScreen Component.
+ *
+ * Provides a comprehensive historical trend view of all system metrics.
+ *
+ * Features:
+ * - Zoomable and pannable SVG line chart.
+ * - Interactive legend to toggle series visibility.
+ * - Live data following or paused inspection modes.
+ * - Data export to CSV.
+ * - Statistics calculation (Min, Max, Avg, Last) for the visible window.
+ * - Touch and mouse interaction support (pinch-to-zoom, drag-to-pan).
+ *
+ * @param {object} props - Component props.
+ * @param {Array} props.history - Full array of historical data points.
+ */
 function HistoryScreen({ history }) {
   const sanitizedHistory = useMemo(
     () => (history || []).filter((entry) => entry && Number.isFinite(entry.t)),

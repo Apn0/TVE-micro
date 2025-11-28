@@ -2,6 +2,17 @@
 import React, { useState } from "react";
 import { styles } from "../App";
 
+/**
+ * AlarmsScreen Component.
+ *
+ * Displays a list of currently active system alarms and allows viewing historical alarms.
+ * Provides controls to acknowledge and clear alarms.
+ *
+ * @param {object} props - Component props.
+ * @param {Array} props.activeAlarms - List of currently active alarm objects.
+ * @param {Array} props.alarmHistory - List of all historical alarm objects.
+ * @param {function} props.sendCmd - Function to send commands to the backend (e.g., ACKNOWLEDGE_ALARM).
+ */
 function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
   const [showHistory, setShowHistory] = useState(false);
 

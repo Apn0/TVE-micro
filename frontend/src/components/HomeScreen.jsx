@@ -3,6 +3,20 @@ import React, { useEffect, useState } from "react";
 import { styles } from "../App";
 import { validateSetpoint } from "../utils/validation";
 
+/**
+ * HomeScreen Component.
+ *
+ * Provides a high-level overview of the extruder system, including:
+ * - A graphical schematic visualization of temperatures and motor states.
+ * - Quick controls for setting target temperatures and motor RPMs.
+ * - System status summary (Mode, Run Status, Device States).
+ * - Quick actions for mode toggling and Emergency Stop.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - The current system state data (temperatures, motors, etc.).
+ * @param {function} props.sendCmd - Function to send commands to the backend API.
+ * @param {object} props.keypad - The keypad hook object for handling numeric input.
+ */
 function HomeScreen({ data, sendCmd, keypad }) {
   const status = data.state?.status || "UNKNOWN";
   const mode = data.state?.mode || "AUTO";

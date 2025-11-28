@@ -26,6 +26,23 @@ const sectionTitle = (title, subtitle) => (
   </div>
 );
 
+/**
+ * TestScreen Component.
+ *
+ * Provides a dedicated interface for low-level I/O testing and validation.
+ *
+ * Features:
+ * - Direct control of relays (Fan, Pump).
+ * - Motor RPM control and nudging.
+ * - Manual jogging interface for motors.
+ * - PWM channel testing with sliders.
+ * - Live snapshot of system state and temperatures.
+ * - Emergency Stop trigger.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - Current system state and configuration.
+ * @param {function} props.sendCmd - Function to send API commands.
+ */
 function TestScreen({ data, sendCmd }) {
   const relays = data.state?.relays || {};
   const motors = data.state?.motors || {};

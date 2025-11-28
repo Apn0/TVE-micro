@@ -3,6 +3,25 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { styles } from "../App";
 import { validateSetpoint } from "../utils/validation";
 
+/**
+ * HeaterScreen Component.
+ *
+ * Provides control and monitoring for the heater zones (Z1, Z2) and Peltier cooling element.
+ *
+ * Features:
+ * - Live temperature display for each zone.
+ * - Setpoint adjustment via keypad popup.
+ * - Manual duty cycle control when in MANUAL mode.
+ * - Peltier element control.
+ * - Visual graph of temperature history and heater states over time.
+ * - "Phase bands" on the graph to indicate warm-up, production, and cooldown states.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - Current system state and configuration.
+ * @param {function} props.sendCmd - Function to send API commands.
+ * @param {Array} props.history - Array of historical data points for the graph.
+ * @param {object} props.keypad - The keypad hook object.
+ */
 function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const temps = data.state?.temps || {};
   const relays = data.state?.relays || {};
