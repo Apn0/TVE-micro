@@ -217,26 +217,6 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
 
         <div style={{ marginTop: 14, position: "relative", minHeight: 400 }}>
           <svg width="100%" viewBox="0 0 600 240" style={{ display: "block" }}>
-            {/* Motor */}
-            <rect
-              x="10"
-              y="100"
-              width="40"
-              height="50"
-              fill={motors.main > 0 ? "#27ae60" : "#2c3e50"}
-              rx="4"
-              className={motors.main > 0 ? "motor-active" : ""}
-            />
-            <text
-              x="30"
-              y="130"
-              textAnchor="middle"
-              fill="#ecf0f1"
-              fontSize="10"
-            >
-              MOTOR
-            </text>
-
             {/* Barrel + feed */}
             <rect x="50" y="110" width="500" height="30" fill="#7f8c8d" rx="5" />
             <line
