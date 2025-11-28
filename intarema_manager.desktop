@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=INTAREMA Manager
+Comment=Manage TVE-micro Servers
+Exec=python3 /home/pi/INTAREMA_TVEmicro/manage_servers.py
+Icon=/home/pi/INTAREMA_TVEmicro/frontend/public/favicon.ico
+Terminal=false
+Type=Application
+Categories=Utility;Application;
