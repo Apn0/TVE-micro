@@ -292,6 +292,7 @@ class ADS1115Driver:
         self.address = address
         self.fsr = fsr
         self.bus = None
+        self._error_count = 0
 
         if self.available:
             try:
@@ -341,10 +342,16 @@ class ADS1115Driver:
                 if raw & 0x8000:
                     raw -= 1 << 16
                 volts = raw * (self.fsr / 32768.0)
+                self._error_count = 0
                 return volts
             except Exception as e:
                 if attempt == attempts - 1:
                     hardware_logger.warning(f"[ADS1115] read failed ch{channel}: {e}")
+                    self._error_count += 1
+                    if self._error_count >= 5:
+                        hardware_logger.warning("[ADS1115] disabling ADC after repeated I2C errors")
+                        self.available = False
+                        self.close()
                     return None
                 time.sleep(0.005)
 
