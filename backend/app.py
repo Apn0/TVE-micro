@@ -99,11 +99,15 @@ def _validate_pins(section: dict, errors: list[str]):
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
-            if section[name] is None:
+            val = section[name]
+            if val is None:
+                result[name] = None
+                continue
+            if isinstance(val, str) and not val.strip():
                 result[name] = None
                 continue
             try:
-                pin = int(section[name])
+                pin = int(val)
                 if 0 <= pin <= 40:
                     result[name] = pin
                 else:
