@@ -1337,13 +1337,26 @@ def control():
             temps = dict(state["temps"])
             temps_timestamp = state.get("temps_timestamp", 0.0)
         if rpm != 0:
+            # Check for Manual mode bypass of Cold Extrusion Protection
+            is_manual = False
+            with state_lock:
+                if state.get("mode") == "MANUAL":
+                    is_manual = True
+
             fresh, reason = _temps_fresh(request_time)
             if not fresh:
                 return jsonify({"success": False, "msg": reason}), 400
-            if request_time - temps_timestamp > 0:
-                allowed, reason = safety.guard_motor_temp(temps)
-            else:
-                allowed, reason = False, "TEMP_DATA_STALE"
+
+            allowed = True
+            reason = "OK"
+
+            # Only enforce Cold Extrusion Protection in AUTO mode
+            if not is_manual:
+                if request_time - temps_timestamp > 0:
+                    allowed, reason = safety.guard_motor_temp(temps)
+                else:
+                    allowed, reason = False, "TEMP_DATA_STALE"
+
             if not allowed:
                 hal.set_motor_rpm("main", 0)
                 hal.set_motor_rpm("feed", 0)
