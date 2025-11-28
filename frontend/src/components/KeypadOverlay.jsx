@@ -12,16 +12,16 @@ import Keypad from "./Keypad";
  * @param {boolean} props.visible - Whether the overlay is visible.
  * @param {object} props.position - {x, y} coordinates for the keypad.
  * @param {string} props.value - The current value being edited.
- * @param {function} props.setValue - Function to update the value.
- * @param {function} props.submit - Function to submit the value.
+ * @param {function} props.onKey - Function to handle key presses.
+ * @param {boolean} props.highlight - Whether the value is highlighted.
  * @param {function} props.close - Function to close the overlay.
  */
 export default function KeypadOverlay({
   visible,
   position,
   value,
-  setValue,
-  submit,
+  onKey,
+  highlight,
   close,
 }) {
   if (!visible) return null;
@@ -32,7 +32,7 @@ export default function KeypadOverlay({
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.5)",
-        backdropFilter: "blur(4px)",
+        // Removed backdropFilter to remove blurred background effect
         zIndex: 9999,
       }}
       onClick={close}
@@ -48,9 +48,8 @@ export default function KeypadOverlay({
       >
         <Keypad
           value={value}
-          onChange={setValue}
-          onEnter={(v) => submit(v)}
-          onCancel={close}
+          onKey={onKey}
+          highlight={highlight}
         />
       </div>
     </div>

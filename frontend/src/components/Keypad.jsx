@@ -24,17 +24,24 @@ const btn = {
  *
  * @param {object} props - Component props.
  * @param {string} props.value - The current value being edited.
- * @param {function} props.onChange - Callback when the value changes (key press).
- * @param {function} props.onEnter - Callback when "Enter" is pressed.
- * @param {function} props.onCancel - Callback when "ESC" is pressed.
+ * @param {function} props.onKey - Callback when a key is pressed.
+ * @param {boolean} props.highlight - Whether the value is currently "selected" (will be overwritten).
  */
-export default function Keypad({ value, onChange, onEnter, onCancel }) {
+export default function Keypad({ value, onKey, highlight }) {
   const press = (v) => {
-    if (v === "ESC") return onCancel();
-    if (v === "↵") return onEnter(value);
-    if (v === "Del") return onChange(value.slice(0, -1));
-    if (v === "Ins") return; // reserved for future
-    return onChange(value + v);
+    if (onKey) onKey(v);
+  };
+
+  // Styles for the value display
+  const displayStyle = {
+    flex: 1,
+    padding: "10px",
+    fontSize: "24px",
+    // Highlight effect: blue bg + white text if selected, else dark bg + green text
+    background: highlight ? "#0078d7" : "#222",
+    color: highlight ? "#fff" : "#0f0",
+    borderRadius: "4px", // slight rounding
+    transition: "background 0.2s, color 0.2s"
   };
 
   return (
@@ -48,7 +55,7 @@ export default function Keypad({ value, onChange, onEnter, onCancel }) {
       }}
     >
       <div style={{ display: "flex", marginBottom: "10px" }}>
-        <div style={{ flex: 1, background: "#222", color: "#0f0", padding: "10px", fontSize: "24px" }}>
+        <div style={displayStyle}>
           {value}
         </div>
       </div>
