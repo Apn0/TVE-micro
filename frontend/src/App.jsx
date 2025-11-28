@@ -215,7 +215,6 @@ function App() {
             />
           )}
 
-          )}
           {view === "ALARMS" && (
             <AlarmsScreen
               activeAlarms={activeAlarms}
