@@ -215,7 +215,9 @@ function App() {
               sendCmd={sendCmd}
             />
           )}
-          {view === "MOTOR" && <MotorScreen data={data} sendCmd={sendCmd} />}
+          {view === "MOTOR" && (
+            <MotorScreen data={data} sendCmd={sendCmd} keypad={keypad} />
+          )}
           {view === "HEATERS" && (
             <HeaterScreen
               data={data}
