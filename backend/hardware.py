@@ -233,6 +233,12 @@ SYSTEM_DEFAULTS = {
         ],
         "check_temp_before_start": True,
     },
+    "motion": {
+        "ramp_up": 0.0,
+        "ramp_down": 0.0,
+        "max_accel": 0.0,
+        "max_jerk": 0.0,
+    },
 }
 
 # --- Helper: linear calibration -----------------------------------------------

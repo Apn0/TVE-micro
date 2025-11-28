@@ -285,6 +285,24 @@ def _validate_logging(section: dict, errors: list[str]):
     return result
 
 
+def _validate_motion(section: dict, errors: list[str]):
+    """
+    Validate motion configuration settings.
+    """
+    result = copy.deepcopy(SYSTEM_DEFAULTS["motion"])
+    for key in ("ramp_up", "ramp_down", "max_accel", "max_jerk"):
+        if key in section:
+            try:
+                value = float(section[key])
+                if value >= 0 and math.isfinite(value):
+                    result[key] = value
+                else:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors.append(f"Invalid motion.{key}, using default")
+    return result
+
+
 ALLOWED_SEQUENCE_DEVICES = {"main_motor", "feed_motor", "fan", "pump"}
 ALLOWED_SEQUENCE_ACTIONS = {"on", "off"}
 
@@ -442,6 +460,7 @@ def validate_config(raw_cfg: dict):
 
     cfg["temp_settings"] = _validate_temp_settings(raw_cfg.get("temp_settings", {}), errors)
     cfg["logging"] = _validate_logging(raw_cfg.get("logging", {}), errors)
+    cfg["motion"] = _validate_motion(raw_cfg.get("motion", {}), errors)
     cfg["extruder_sequence"] = _validate_extruder_sequence(
         raw_cfg.get("extruder_sequence", {}), errors
     )
@@ -1675,6 +1694,23 @@ def control():
             )
         sys_config["logging"] = validated
         logger.configure(validated)
+
+    elif cmd == "UPDATE_MOTION_CONFIG":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_MOTION_PARAMS"}), 400
+
+        validation_errors: list[str] = []
+        current = sys_config.get("motion", SYSTEM_DEFAULTS["motion"])
+        validated = _validate_motion({**current, **params}, validation_errors)
+
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+
+        sys_config["motion"] = validated
 
     elif cmd == "SET_SENSOR_CALIBRATION":
         params = req.get("params", {})

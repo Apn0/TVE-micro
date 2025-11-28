@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { styles } from "../App";
 import DipSwitchBlock from "./DipSwitchBlock";
 import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
@@ -21,8 +21,9 @@ const rpmDisplay = (rpm) => `${rpm?.toFixed(0) ?? 0} RPM`;
  * @param {object} props - Component props.
  * @param {object} props.data - Current system state and configuration.
  * @param {function} props.sendCmd - Function to send API commands.
+ * @param {object} props.keypad - The keypad hook object.
  */
-function MotorScreen({ data, sendCmd }) {
+function MotorScreen({ data, sendCmd, keypad }) {
   const motors = data.state?.motors || {};
   const temps = data.state?.temps || {};
   const motionConfig = data.config?.motion || data.config?.motors || {};
@@ -38,6 +39,9 @@ function MotorScreen({ data, sendCmd }) {
     ...DEFAULT_DM556,
     ...(data.config?.dm556 || {}),
   });
+
+  const [expandedCard, setExpandedCard] = useState(null);
+  const overlayRef = useRef(null);
 
   useEffect(() => {
     setMainRpm(motors.main ?? 0);
@@ -62,6 +66,23 @@ function MotorScreen({ data, sendCmd }) {
       return next;
     });
   }, [dmFromConfig?.current_peak, dmFromConfig?.microsteps, dmFromConfig?.idle_half]);
+
+  useEffect(() => {
+    if (!expandedCard) return undefined;
+
+    const handleClick = (event) => {
+      // Check if click was inside overlay box (overlayRef)
+      const insideOverlay = overlayRef.current && overlayRef.current.contains(event.target);
+
+      if (!insideOverlay) {
+        setExpandedCard(null);
+        keypad?.closeKeypad?.();
+      }
+    };
+
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [expandedCard, keypad]);
 
   const microstepOptions = useMemo(
     () => Object.keys(DM556_TABLE.steps).map(Number).sort((a, b) => a - b),
@@ -109,22 +130,16 @@ function MotorScreen({ data, sendCmd }) {
   }, [dm.current_peak, dm.microsteps]);
 
   const motionMetrics = useMemo(() => {
-    const rampUp = motionConfig.ramp_up_s ?? motionConfig.ramp_up ?? null;
-    const rampDown = motionConfig.ramp_down_s ?? motionConfig.ramp_down ?? null;
-    const accelPerSec = motionConfig.max_accel_per_s ?? motionConfig.max_accel ?? null;
-    const accelPerSec2 = motionConfig.max_accel_per_s2 ?? motionConfig.max_jerk ?? null;
-
-    const displayValue = (value, unit) => {
-      if (value === null || value === undefined) return "Not provided";
-      const rounded = Number.isFinite(value) ? value.toFixed(2) : value;
-      return unit ? `${rounded} ${unit}` : rounded;
-    };
+    const rampUp = motionConfig.ramp_up ?? motionConfig.ramp_up_s ?? 0;
+    const rampDown = motionConfig.ramp_down ?? motionConfig.ramp_down_s ?? 0;
+    const accelPerSec = motionConfig.max_accel ?? motionConfig.max_accel_per_s ?? 0;
+    const accelPerSec2 = motionConfig.max_jerk ?? motionConfig.max_accel_per_s2 ?? 0;
 
     return {
-      rampUp: displayValue(rampUp, "s"),
-      rampDown: displayValue(rampDown, "s"),
-      accelPerSec: displayValue(accelPerSec, "RPM/s"),
-      accelPerSec2: displayValue(accelPerSec2, "RPM/s²"),
+      rampUp,
+      rampDown,
+      accelPerSec,
+      accelPerSec2,
     };
   }, [
     motionConfig.max_accel,
@@ -167,6 +182,109 @@ function MotorScreen({ data, sendCmd }) {
   };
 
   const cardTitle = { color: "#dfe6ec", margin: "0 0 6px 0" };
+
+  const fieldBox = {
+    background: "#111",
+    borderRadius: "8px",
+    padding: "12px",
+    border: "1px solid #1f2a36",
+  };
+
+  const toggleCardExpansion = (key, event) => {
+    event.stopPropagation();
+    keypad?.closeKeypad?.();
+    setExpandedCard((prev) => (prev === key ? null : key));
+  };
+
+  const handleMotionValueClick = (key, currentValue, event) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const initial = Number.isFinite(currentValue) ? String(currentValue) : "";
+
+    keypad?.openKeypad?.(initial, rect, (val) => {
+      const num = parseFloat(val);
+      if (!Number.isNaN(num) && num >= 0) {
+        // Construct params object based on what changed
+        // We need to send all current values plus the new one, or relies on backend partial updates?
+        // App.py _validate_motion handles partial updates by merging with defaults?
+        // Actually app.py: UPDATE_MOTION_CONFIG does {**current, **params}.
+        // So we can send partial update.
+
+        // Map UI keys to config keys
+        const configKeyMap = {
+            "rampUp": "ramp_up",
+            "rampDown": "ramp_down",
+            "accelPerSec": "max_accel",
+            "accelPerSec2": "max_jerk"
+        };
+
+        const paramKey = configKeyMap[key];
+        if (paramKey) {
+            sendCmd("UPDATE_MOTION_CONFIG", { params: { [paramKey]: num } });
+        }
+      }
+      setExpandedCard(null);
+      keypad?.closeKeypad?.();
+    });
+  };
+
+  const renderMotionCard = (key, label, value, unit, hint) => {
+    const isExpanded = expandedCard === key;
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div
+                style={{
+                    ...styles.metricCard,
+                    cursor: "pointer",
+                    boxShadow: isExpanded ? "0 0 0 1px #3498db" : "0 8px 16px rgba(0,0,0,0.25)",
+                    transition: "box-shadow 0.2s ease",
+                    borderColor: isExpanded ? "#3498db" : "#1f2a36",
+                    minHeight: "120px"
+                }}
+                onClick={(e) => toggleCardExpansion(key, e)}
+                data-testid={`motion-card-${key}`}
+            >
+                <div style={styles.metricLabel}>{label}</div>
+                <div style={styles.metricBig}>{value !== null ? value.toFixed(2) : "0.00"} {unit}</div>
+                <div style={styles.cardHint}>{hint}</div>
+            </div>
+
+            {isExpanded && (
+                 <div
+                    ref={(node) => {
+                        if (isExpanded) overlayRef.current = node;
+                    }}
+                    style={{
+                        ...fieldBox,
+                        background: "#0c0f15",
+                        border: "1px solid #3498db",
+                        cursor: "pointer",
+                    }}
+                    onClick={(e) => handleMotionValueClick(key, value, e)}
+                    data-testid={`motion-input-${key}`}
+                 >
+                    <div style={{ ...styles.label, marginBottom: 6 }}>Set {label} ({unit})</div>
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            color: "#ecf0f1",
+                        }}
+                    >
+                        <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>
+                            {value !== null ? value.toFixed(2) : ""}
+                        </span>
+                        <span style={{ fontSize: "0.85em", color: "#8c9fb1" }}>
+                            Tap to edit
+                        </span>
+                    </div>
+                 </div>
+            )}
+        </div>
+    );
+  };
 
   return (
     <div>
@@ -336,26 +454,11 @@ function MotorScreen({ data, sendCmd }) {
           fields will read "Not provided".
         </p>
         <div style={{ ...styles.cardGrid, marginTop: 12 }}>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Ramp up</div>
-            <div style={styles.metricBig}>{motionMetrics.rampUp}</div>
-            <div style={styles.cardHint}>Seconds needed to accelerate</div>
-          </div>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Ramp down</div>
-            <div style={styles.metricBig}>{motionMetrics.rampDown}</div>
-            <div style={styles.cardHint}>Seconds needed to decelerate</div>
-          </div>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Max accel</div>
-            <div style={styles.metricBig}>{motionMetrics.accelPerSec}</div>
-            <div style={styles.cardHint}>RPM per second</div>
-          </div>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Max accel rate</div>
-            <div style={styles.metricBig}>{motionMetrics.accelPerSec2}</div>
-            <div style={styles.cardHint}>RPM per second²</div>
-          </div>
+            {renderMotionCard("rampUp", "Ramp up", motionMetrics.rampUp, "s", "Seconds needed to accelerate")}
+            {renderMotionCard("rampDown", "Ramp down", motionMetrics.rampDown, "s", "Seconds needed to decelerate")}
+            {renderMotionCard("accelPerSec", "Max accel", motionMetrics.accelPerSec, "RPM/s", "RPM per second")}
+            {renderMotionCard("accelPerSec2", "Max accel rate", motionMetrics.accelPerSec2, "RPM/s²", "RPM per second²")}
+
           <div style={styles.metricCard}>
             <div style={styles.metricLabel}>Speed (steps/s) - Main</div>
             <div style={styles.metricBig}>{stepsPerSecond.main}</div>
