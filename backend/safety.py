@@ -2,7 +2,12 @@ import math
 
 
 class SafetyMonitor:
+    """
+    Monitors system state for unsafe conditions such as overheating, sensor failures,
+    or driver faults.
+    """
     def __init__(self):
+        """Initialize the SafetyMonitor with default temperature limits."""
         self.LIMITS = {
             "temp_motor_max": 65.0,     # NEMA23 Overheat
             "temp_heaters_max": 280.0,  # MICA Melt limit
@@ -12,7 +17,17 @@ class SafetyMonitor:
         self.alarm_reason = None
 
     def check(self, state, hal):
-        """Returns (is_safe, reason)"""
+        """
+        Check the current system state for any safety violations.
+
+        Args:
+            state (dict): The current application state.
+            hal (HardwareLayer): The hardware abstraction layer instance.
+
+        Returns:
+            tuple: (is_safe (bool), reason (str)). Returns (True, "OK") if safe,
+                   otherwise (False, failure_reason).
+        """
 
         # 1. Hardware Motor Fault (DM556 Alarm Signal)
         if hal.is_motor_fault():
@@ -45,7 +60,16 @@ class SafetyMonitor:
         return True, "OK"
 
     def guard_motor_temp(self, temps):
-        """Ensure heaters are hot enough before allowing motor to run."""
+        """
+        Ensure heaters are hot enough before allowing the motor to run (Cold Extrusion Protection).
+
+        Args:
+            temps (dict): A dictionary of current temperatures.
+
+        Returns:
+            tuple: (is_safe (bool), reason (str)). Returns (True, "OK") if safe to run,
+                   otherwise (False, "COLD_EXTRUSION_PROTECTION").
+        """
 
         t2 = self._safe_temp(temps, "t2")
         t3 = self._safe_temp(temps, "t3")
@@ -62,12 +86,30 @@ class SafetyMonitor:
         return True, "OK"
 
     def _trigger_alarm(self, reason):
+        """
+        Internal method to set the alarm state.
+
+        Args:
+            reason (str): The reason for the alarm.
+
+        Returns:
+            tuple: (False, reason)
+        """
         self.alarm_active = True
         self.alarm_reason = reason
         return False, reason
 
     def _safe_temp(self, temps, key):
-        """Return numeric temp value or None if missing/invalid."""
+        """
+        Safely retrieve and validate a temperature value.
+
+        Args:
+            temps (dict): The dictionary of temperatures.
+            key (str): The key to retrieve.
+
+        Returns:
+            float or None: The temperature value if valid, otherwise None.
+        """
 
         value = temps.get(key)
 
@@ -80,5 +122,6 @@ class SafetyMonitor:
         return value
 
     def reset(self):
+        """Reset the internal alarm state."""
         self.alarm_active = False
         self.alarm_reason = None

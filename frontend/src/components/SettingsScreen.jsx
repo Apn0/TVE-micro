@@ -5,6 +5,25 @@ import DipSwitchBlock from "./DipSwitchBlock";
 import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 import SequencingConfig, { normalizeSequenceConfig } from "./SequencingConfig";
 
+/**
+ * SettingsScreen Component.
+ *
+ * Provides comprehensive configuration controls for the entire system.
+ *
+ * Features:
+ * - Logging settings: Adjust polling rates, averaging windows, and disk flush intervals.
+ * - Extruder Sequence: Configure startup/shutdown step ordering and delays.
+ * - GPIO Pins: Re-map critical control pins (requires restart).
+ * - Persist Config: Save current settings to disk.
+ * - DM556 Driver: Configure motor driver DIP switches virtually.
+ * - System Info: Read-only display of ADC/hardware status.
+ * - Navigation to Wiring Calibration wizard.
+ *
+ * @param {object} props - Component props.
+ * @param {object} props.data - Current system state and configuration.
+ * @param {function} props.sendCmd - Function to send API commands.
+ * @param {function} props.setView - Function to switch the current view/tab.
+ */
 function SettingsScreen({ data, sendCmd, setView }) {
   const [dm, setDm] = useState({
     ...DEFAULT_DM556,

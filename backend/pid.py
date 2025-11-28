@@ -1,7 +1,24 @@
 import time
 
 class PID:
+    """
+    A generic PID (Proportional-Integral-Derivative) controller implementation.
+
+    This controller includes features for anti-windup, output saturation, and
+    derivative term smoothing (via direct input differentiation).
+    """
     def __init__(self, kp, ki, kd, setpoint=0, sample_time=0.1, output_limits=(0, 100)):
+        """
+        Initialize the PID controller.
+
+        Args:
+            kp (float): Proportional gain constant.
+            ki (float): Integral gain constant.
+            kd (float): Derivative gain constant.
+            setpoint (float, optional): The target value for the process variable. Defaults to 0.
+            sample_time (float, optional): Minimum time in seconds between updates. Defaults to 0.1.
+            output_limits (tuple, optional): A tuple (min, max) defining the output range. Defaults to (0, 100).
+        """
         self.kp = kp
         self.ki = ki
         self.kd = kd
@@ -14,12 +31,27 @@ class PID:
         self._integral = 0
 
     def reset(self):
-        """Reset integrator and derivative history."""
+        """
+        Reset the controller's internal state.
+
+        This clears the integral history and derivative previous value, effectively
+        restarting the control loop memory.
+        """
         self._integral = 0
         self._last_input = None
         self._last_time = time.time()
 
     def compute(self, input_val):
+        """
+        Compute the PID control output based on the current input value.
+
+        Args:
+            input_val (float): The current value of the process variable.
+
+        Returns:
+            float or None: The calculated control output clamped to the output limits,
+                           or None if the function is called faster than the sample_time.
+        """
         now = time.time()
         dt = now - self._last_time
         

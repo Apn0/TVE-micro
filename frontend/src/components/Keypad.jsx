@@ -16,6 +16,18 @@ const btn = {
   userSelect: "none"
 };
 
+/**
+ * Keypad Component.
+ *
+ * Renders a numeric keypad for data entry on touchscreens.
+ * Includes number keys, decimal point, negative sign, delete, enter, and escape.
+ *
+ * @param {object} props - Component props.
+ * @param {string} props.value - The current value being edited.
+ * @param {function} props.onChange - Callback when the value changes (key press).
+ * @param {function} props.onEnter - Callback when "Enter" is pressed.
+ * @param {function} props.onCancel - Callback when "ESC" is pressed.
+ */
 export default function Keypad({ value, onChange, onEnter, onCancel }) {
   const press = (v) => {
     if (v === "ESC") return onCancel();

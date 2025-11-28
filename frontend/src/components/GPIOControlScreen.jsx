@@ -94,6 +94,20 @@ const FALLBACK_UART_PORTS = [
   },
 ];
 
+/**
+ * GPIOControlScreen Component.
+ *
+ * Provides a comprehensive interface for managing the Raspberry Pi's GPIO pins,
+ * I2C buses, and UART configurations.
+ *
+ * Features:
+ * - List of all GPIO pins (BCM numbering) with current mode, value, and pull-up/down state.
+ * - Ability to change pin mode (IN/OUT), pull resistor, and output value.
+ * - Pin naming/labeling for easier identification.
+ * - I2C bus visualization, showing detected addresses and assigned modules.
+ * - Module assignment for I2C devices from a library of templates.
+ * - UART port mapping display.
+ */
 function GPIOControlScreen() {
   const [pinStatus, setPinStatus] = useState({});
   const [i2cBuses, setI2cBuses] = useState(FALLBACK_I2C_BUSES);

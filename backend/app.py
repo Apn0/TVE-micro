@@ -1,4 +1,12 @@
 # file: backend/app.py
+"""
+Main application entry point for the TVE-micro extruder control system.
+
+This module initializes the Flask backend, configures the hardware abstraction
+layer (HAL), manages the central control loop (PID, sequences, safety checks),
+and exposes REST API endpoints for the frontend.
+"""
+
 import os
 import sys
 import json
@@ -7,6 +15,7 @@ import threading
 import copy
 import math
 import logging
+import atexit
 
 # Ensure the repository root is on the import path when the file is executed
 # directly (e.g., `python app.py` from the backend directory).
@@ -17,7 +26,6 @@ if REPO_ROOT not in sys.path:
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import atexit
 
 from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
@@ -40,6 +48,9 @@ logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
 
 def _validate_pid_section(section: dict, name: str, errors: list[str]):
+    """
+    Validate PID configuration section.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS[name])
     for param in ("kp", "ki", "kd"):
         if param in section:
@@ -54,6 +65,9 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
 
 
 def _validate_dm556(section: dict, errors: list[str]):
+    """
+    Validate DM556 motor driver configuration.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
     if "microsteps" in section:
         try:
@@ -79,6 +93,9 @@ def _validate_dm556(section: dict, errors: list[str]):
 
 
 def _validate_pins(section: dict, errors: list[str]):
+    """
+    Validate GPIO pin configuration.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
@@ -97,6 +114,9 @@ def _validate_pins(section: dict, errors: list[str]):
 
 
 def _validate_pwm(section: dict, errors: list[str]):
+    """
+    Validate PWM configuration.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
     if "enabled" in section:
         result["enabled"] = bool(section.get("enabled", result["enabled"]))
@@ -136,6 +156,9 @@ def _validate_pwm(section: dict, errors: list[str]):
 def _validate_sensor_section(
     section: dict, default_section: dict, errors: list[str], sensor_key: str
 ):
+    """
+    Validate a single sensor's configuration.
+    """
     result = copy.deepcopy(default_section)
 
     if "enabled" in section:
@@ -186,6 +209,9 @@ def _validate_sensor_section(
 
 
 def _validate_sensors(section: dict, errors: list[str]):
+    """
+    Validate the entire sensors configuration block.
+    """
     if not isinstance(section, dict):
         errors.append("Invalid sensors configuration, using defaults")
         return copy.deepcopy({int(k): v for k, v in SYSTEM_DEFAULTS["sensors"].items()})
@@ -211,6 +237,9 @@ def _validate_sensors(section: dict, errors: list[str]):
 
 
 def _validate_temp_settings(section: dict, errors: list[str]):
+    """
+    Validate temperature monitoring settings.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
     for key in ("poll_interval", "avg_window"):
         if key in section:
@@ -235,6 +264,9 @@ def _validate_temp_settings(section: dict, errors: list[str]):
 
 
 def _validate_logging(section: dict, errors: list[str]):
+    """
+    Validate data logging settings.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
     for key in ("interval", "flush_interval"):
         if key in section:
@@ -254,6 +286,9 @@ ALLOWED_SEQUENCE_ACTIONS = {"on", "off"}
 
 
 def _validate_seq_steps(value, phase: str, errors: list[str]):
+    """
+    Validate a sequence of steps for a given phase.
+    """
     if not isinstance(value, list):
         errors.append(f"extruder_sequence.{phase} must be a list of steps")
         return []
@@ -294,6 +329,9 @@ def _validate_seq_steps(value, phase: str, errors: list[str]):
 
 
 def _merge_seq_steps(base: list[dict], incoming: list[dict]):
+    """
+    Merge default steps with incoming config overrides.
+    """
     merged = {step.get("device"): step for step in base if step.get("device")}
     for step in incoming:
         dev = step.get("device")
@@ -304,6 +342,9 @@ def _merge_seq_steps(base: list[dict], incoming: list[dict]):
 
 
 def _validate_extruder_sequence(section: dict, errors: list[str]):
+    """
+    Validate the extruder startup/shutdown sequence.
+    """
     result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
 
     if "check_temp_before_start" in section:
@@ -357,6 +398,15 @@ def _validate_extruder_sequence(section: dict, errors: list[str]):
 
 
 def validate_config(raw_cfg: dict):
+    """
+    Validate the entire application configuration dictionary.
+
+    Args:
+        raw_cfg (dict): The raw configuration dictionary loaded from JSON.
+
+    Returns:
+        dict: A validated configuration dictionary with defaults applied where necessary.
+    """
     errors: list[str] = []
     cfg = copy.deepcopy(SYSTEM_DEFAULTS)
 
@@ -400,6 +450,10 @@ def validate_config(raw_cfg: dict):
 
 
 def load_config():
+    """
+    Load and validate configuration from config.json.
+    Falls back to user prompt or defaults if file is missing.
+    """
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
@@ -422,6 +476,7 @@ def load_config():
 
 
 def _coerce_finite(value):
+    """Convert value to float if finite, else None."""
     try:
         coerced = float(value)
     except (TypeError, ValueError):
@@ -499,6 +554,7 @@ CORS(app)
 
 
 def _safe_float(val: object) -> float | None:
+    """Safely convert object to finite float or None."""
     try:
         num = float(val)
     except (TypeError, ValueError):
@@ -509,10 +565,12 @@ def _safe_float(val: object) -> float | None:
 
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:
+    """Clamp a float between min and max."""
     return max(min_value, min(max_value, value))
 
 
 def _temps_fresh(now: float) -> tuple[bool, str | None]:
+    """Check if temperature data is recent enough."""
     poll_interval = float(sys_config.get("temp_settings", {}).get("poll_interval", 0.25))
     allowed_age = max(1.0, poll_interval * 4)
     with state_lock:
@@ -522,6 +580,7 @@ def _temps_fresh(now: float) -> tuple[bool, str | None]:
     return True, None
 
 def _all_outputs_off():
+    """Turn off all hardware outputs immediately."""
     hal.set_heater_duty("z1", 0.0)
     hal.set_heater_duty("z2", 0.0)
     hal.set_motor_rpm("main", 0.0)
@@ -542,6 +601,7 @@ def _all_outputs_off():
 
 
 def _capture_output_snapshot():
+    """Capture a snapshot of the current output states."""
     with state_lock:
         motors_copy = dict(state.get("motors", {}))
         relays_copy = dict(state.get("relays", {}))
@@ -550,6 +610,7 @@ def _capture_output_snapshot():
 
 
 def _apply_sequence_action(step: dict, snapshot: dict):
+    """Apply a single action from the extruder sequence."""
     device = step.get("device")
     action = step.get("action")
     enabled = step.get("enabled", True)
@@ -580,6 +641,20 @@ def _apply_sequence_action(step: dict, snapshot: dict):
 
 
 def _process_sequence_phase(phase: str, seq_cfg: dict, start_time: float, now: float, actions_done: set[str], snapshot: dict):
+    """
+    Execute the startup/shutdown sequence based on elapsed time.
+
+    Args:
+        phase (str): 'startup', 'shutdown', or 'emergency'.
+        seq_cfg (dict): Sequence configuration.
+        start_time (float): Timestamp when the sequence started.
+        now (float): Current timestamp.
+        actions_done (set): Set of action keys already performed.
+        snapshot (dict): Snapshot of state at sequence start.
+
+    Returns:
+        bool: True if the sequence phase is complete, False otherwise.
+    """
     steps = [s for s in seq_cfg.get(phase, []) if s.get("enabled", True)]
     if not steps and phase in ("shutdown", "emergency"):
         steps = [
@@ -604,6 +679,7 @@ def _process_sequence_phase(phase: str, seq_cfg: dict, start_time: float, now: f
     return done
 
 def _set_status(new_status: str):
+    """Update the global system status."""
     with state_lock:
         current_status = state.get("status")
         state["status"] = new_status
@@ -614,6 +690,10 @@ def _set_status(new_status: str):
 
 
 def _latch_alarm(reason: str):
+    """
+    Transition to ALARM state and record the alarm event.
+    Turns off all outputs.
+    """
     global last_btn_start_state, last_btn_stop_state
 
     # Determine severity
@@ -646,6 +726,7 @@ startup_lock = threading.Lock()
 
 
 def _ensure_hal_started():
+    """Lazy-initialize the Hardware Interface if needed."""
     if hal is None:
         with startup_lock:
             if hal is None:
@@ -663,6 +744,10 @@ last_btn_start_state = False
 last_btn_stop_state = False
 
 def control_loop():
+    """
+    Main background thread loop for system control.
+    Handles PID loops, safety checks, sequence logic, and data logging.
+    """
     global last_btn_start_state, last_btn_stop_state, alarm_clear_pending
 
     last_poll_time = 0
@@ -949,6 +1034,7 @@ def control_loop():
         time.sleep(0.05)
 
 def start_background_threads():
+    """Start the background control thread if it's not already running."""
     global _control_thread
     if _control_thread and _control_thread.is_alive():
         return
@@ -957,6 +1043,7 @@ def start_background_threads():
     _control_thread.start()
 
 def startup():
+    """Initialize the hardware and start background threads."""
     global hal
     if hal is not None:
         return
@@ -977,6 +1064,7 @@ def startup():
     start_background_threads()
 
 def shutdown():
+    """Shutdown the application and release hardware resources."""
     _control_stop.set()
     if _control_thread:
         _control_thread.join(timeout=2.0)
@@ -1001,6 +1089,7 @@ atexit.register(shutdown)
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
+    """Return the current system status and configuration."""
     ok, resp = _ensure_hal_started()
     if not ok:
         return resp
@@ -1010,6 +1099,7 @@ def api_status():
 
 @app.route("/api/data", methods=["GET"])
 def api_data():
+    """Return real-time data (temps, motors, relays)."""
     ok, resp = _ensure_hal_started()
     if not ok:
         return resp
@@ -1029,16 +1119,22 @@ def api_data():
 
 @app.route("/api/log/start", methods=["POST"])
 def log_start():
+    """Start the data logger."""
     logger.start()
     return jsonify({"success": True})
 
 @app.route("/api/log/stop", methods=["POST"])
 def log_stop():
+    """Stop the data logger."""
     logger.stop()
     return jsonify({"success": True})
 
 @app.route("/api/history/sensors", methods=["GET"])
 def history_sensors():
+    """
+    Retrieve sensor history from the log file.
+    Returns the last 1000 records.
+    """
     # Read the logging.csv file and return data
     log_file = "logging.csv"
     if not os.path.exists(log_file):
@@ -1115,6 +1211,12 @@ def history_sensors():
 
 @app.route("/api/gpio", methods=["GET", "POST"])
 def gpio_control():
+    """
+    Get GPIO status or control GPIO pins directly.
+
+    GET: Returns status of all GPIO pins.
+    POST: Set GPIO mode or value.
+    """
     ok, resp = _ensure_hal_started()
     if not ok:
         return resp
@@ -1150,6 +1252,10 @@ def gpio_control():
 
 @app.route("/api/control", methods=["POST"])
 def control():
+    """
+    Main control endpoint for sending commands to the system.
+    Supports a wide range of commands for motors, heaters, relays, configuration, etc.
+    """
     data = request.get_json(force=True) or {}
     cmd = data.get("command")
     req = data.get("value", {})

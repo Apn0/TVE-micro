@@ -239,9 +239,14 @@ SYSTEM_DEFAULTS = {
 
 def _fit_linear_correction(cal_points: List[Dict[str, float]]) -> Tuple[float, float]:
     """
-    cal_points: list of {"raw_temp": float, "true_temp": float}
-    Returns (slope, offset) such that true ≈ slope * raw + offset.
-    If fewer than 2 points, returns (1.0, 0.0).
+    Computes a linear regression (slope and offset) for calibration points.
+
+    Args:
+        cal_points: list of {"raw_temp": float, "true_temp": float}
+
+    Returns:
+        tuple: (slope, offset) such that true_temp ≈ slope * raw_temp + offset.
+               Returns (1.0, 0.0) if fewer than 2 points are provided.
     """
     if not cal_points or len(cal_points) < 2:
         return 1.0, 0.0
@@ -263,10 +268,19 @@ def _fit_linear_correction(cal_points: List[Dict[str, float]]) -> Tuple[float, f
 class ADS1115Driver:
     """
     Minimal ADS1115 reader using SMBus.
-    Single-ended read per channel, 4.096 V FSR, 128 SPS.
+
+    Configures the ADS1115 for single-ended reads, ±4.096V range, and 128 SPS.
     """
 
     def __init__(self, bus_id=1, address=0x48, fsr=4.096):
+        """
+        Initialize the ADS1115 driver.
+
+        Args:
+            bus_id (int, optional): I2C bus number. Defaults to 1.
+            address (int, optional): I2C address of the device. Defaults to 0x48.
+            fsr (float, optional): Full Scale Range voltage. Defaults to 4.096.
+        """
         self.available = PLATFORM == "PI" and SMBus is not None
         self.bus_id = bus_id
         self.address = address
@@ -281,6 +295,16 @@ class ADS1115Driver:
                 self.available = False
 
     def read_voltage(self, channel: int, retries: int = 1):
+        """
+        Read the voltage from a specific channel.
+
+        Args:
+            channel (int): Channel index (0-3).
+            retries (int, optional): Number of read attempts. Defaults to 1.
+
+        Returns:
+            float or None: The measured voltage in Volts, or None if reading fails.
+        """
         if not self.available or self.bus is None:
             return None
         if channel not in (0, 1, 2, 3):
@@ -315,6 +339,7 @@ class ADS1115Driver:
                 time.sleep(0.005)
 
     def close(self):
+        """Close the I2C bus connection."""
         if self.bus is not None:
             try:
                 self.bus.close()
@@ -325,9 +350,19 @@ class ADS1115Driver:
 # --- PCA9685 PWM driver ------------------------------------------------------
 
 class PCA9685Driver:
-    """Minimal PCA9685 PWM helper."""
+    """
+    Minimal PCA9685 PWM driver for controlling servos and LEDs.
+    """
 
     def __init__(self, bus_id=1, address=0x40, frequency=1000):
+        """
+        Initialize the PCA9685 driver.
+
+        Args:
+            bus_id (int, optional): I2C bus number. Defaults to 1.
+            address (int, optional): I2C address. Defaults to 0x40.
+            frequency (float, optional): PWM frequency in Hz. Defaults to 1000.
+        """
         self.available = PLATFORM == "PI" and SMBus is not None
         self.bus_id = bus_id
         self.address = int(address)
@@ -357,6 +392,7 @@ class PCA9685Driver:
         self.set_frequency(self.frequency)
 
     def _write_byte(self, register: int, value: int):
+        """Write a single byte to a register."""
         if not self.available or self.bus is None:
             return
         try:
@@ -365,6 +401,7 @@ class PCA9685Driver:
             print(f"[PCA9685] write failed reg=0x{register:02X}: {e}")
 
     def _write_word(self, register: int, value: int):
+        """Write a 16-bit word to a register."""
         if not self.available or self.bus is None:
             return
         try:
@@ -373,7 +410,12 @@ class PCA9685Driver:
             print(f"[PCA9685] write word failed reg=0x{register:02X}: {e}")
 
     def set_frequency(self, frequency_hz: float):
-        """Set PWM frequency (approximate)."""
+        """
+        Set PWM frequency (approximate).
+
+        Args:
+            frequency_hz (float): Target frequency in Hz.
+        """
         if not self.available or self.bus is None:
             return
 
@@ -391,7 +433,13 @@ class PCA9685Driver:
             print(f"[PCA9685] set_frequency failed: {e}")
 
     def set_duty(self, channel: int, duty: float):
-        """Set duty cycle for a channel (0-100%)."""
+        """
+        Set duty cycle for a channel.
+
+        Args:
+            channel (int): PWM channel index (0-15).
+            duty (float): Duty cycle (0-100%).
+        """
         if not self.available or self.bus is None:
             return
         if channel < 0 or channel > 15:
@@ -423,6 +471,7 @@ class PCA9685Driver:
                 self.close()
 
     def all_off(self):
+        """Turn off all PWM channels."""
         if not self.available or self.bus is None:
             return
         try:
@@ -434,6 +483,7 @@ class PCA9685Driver:
             print(f"[PCA9685] all_off failed: {e}")
 
     def close(self):
+        """Close the I2C bus connection."""
         if self.bus is not None:
             try:
                 self.bus.close()
@@ -445,13 +495,12 @@ class PCA9685Driver:
 
 class HardwareInterface:
     """
-    Integrated HAL:
-    - GPIO + heaters/motors/relays
-    - ADS1115-based temperature readings (or simulation).
+    Integrated Hardware Abstraction Layer (HAL).
 
-    Constructor (backward compatible):
-        HardwareInterface(pin_config)
-        HardwareInterface(pin_config, sensor_config=..., adc_config=...)
+    This class provides a unified interface for controlling motors, heaters,
+    and relays, as well as reading sensors. It handles the details of GPIO
+    and I2C communication, and falls back to simulation mode if hardware is
+    not present.
     """
 
     def __init__(
@@ -462,6 +511,16 @@ class HardwareInterface:
         pwm_config=None,
         running_event=None,
     ):
+        """
+        Initialize the Hardware Interface.
+
+        Args:
+            pin_config (dict): Mapping of logical names to BCM GPIO pin numbers.
+            sensor_config (dict, optional): Configuration for NTC sensors.
+            adc_config (dict, optional): Configuration for the ADS1115 ADC.
+            pwm_config (dict, optional): Configuration for PCA9685 PWM.
+            running_event (threading.Event, optional): Event to signal system shutdown.
+        """
         self.platform = PLATFORM
         self.pins = pin_config  # Dictionary of Pin Numbers
 
@@ -587,6 +646,12 @@ class HardwareInterface:
         return self._pwm_active and name in self._active_pwm_channels
 
     def _stepper_loop(self, motor_name):
+        """
+        Background loop for handling manual motor stepping.
+
+        Args:
+            motor_name (str): 'main' or 'feed'.
+        """
         while self.running:
             self._stepper_events[motor_name].wait()
 
@@ -633,6 +698,7 @@ class HardwareInterface:
     # --- GPIO setup ------------------------------------------------------
 
     def _setup_gpio(self):
+        """Initialize GPIO pins based on configuration."""
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
@@ -685,12 +751,13 @@ class HardwareInterface:
     # --- Generic GPIO helpers (for manual poking / diagnostics) -----------
 
     def configure_pin(self, pin: int, direction: str = "OUT", pull: str | None = None):
-        """Configure a GPIO pin on the fly.
+        """
+        Configure a GPIO pin on the fly.
 
         Args:
-            pin: BCM pin number
-            direction: "OUT" or "IN"
-            pull: Optional pull setting ("UP", "DOWN", or None)
+            pin (int): BCM pin number.
+            direction (str): "OUT" or "IN".
+            pull (str, optional): Pull direction "UP", "DOWN", or None.
         """
         if pin is None:
             return
@@ -709,7 +776,13 @@ class HardwareInterface:
             self._sim_gpio_state.setdefault(int(pin), False)
 
     def gpio_write(self, pin: int, state: bool):
-        """Set a pin high/low. Assumes output mode."""
+        """
+        Set a pin high/low. Assumes output mode.
+
+        Args:
+            pin (int): BCM pin number.
+            state (bool): True for High, False for Low.
+        """
         if pin is None:
             return
         if self.platform == "PI" and GPIO is not None:
@@ -718,7 +791,15 @@ class HardwareInterface:
             self._sim_gpio_state[int(pin)] = bool(state)
 
     def gpio_read(self, pin: int) -> bool:
-        """Read a pin. If not configured, returns False."""
+        """
+        Read a pin state.
+
+        Args:
+            pin (int): BCM pin number.
+
+        Returns:
+            bool: True if High, False if Low (or not configured).
+        """
         if pin is None:
             return False
         if self.platform == "PI" and GPIO is not None:
@@ -731,6 +812,10 @@ class HardwareInterface:
     # --- Hardware loop (motors, relays, fault) ---------------------------
 
     def _hardware_loop(self):
+        """
+        Main loop for updating hardware outputs.
+        Runs continuously in a background thread.
+        """
         while self.running:
             if not self.running_event.is_set():
                 self._force_all_off()
@@ -751,6 +836,7 @@ class HardwareInterface:
             time.sleep(0.01)
 
     def _simulate_physics(self):
+        """Simulate thermal physics and motor feedback for testing on non-hardware platforms."""
         heat_z1 = 0.1 if self.heaters["z1"] > 0 else -0.05
         heat_z2 = 0.1 if self.heaters["z2"] > 0 else -0.05
 
@@ -772,6 +858,7 @@ class HardwareInterface:
             self.temps[k] = max(20, self.temps[k])
 
     def _run_real_hardware(self):
+        """Update actual GPIO outputs based on internal state."""
         if GPIO is None:
             return
 
@@ -824,6 +911,10 @@ class HardwareInterface:
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
     def _temp_loop(self):
+        """
+        Main loop for polling temperature sensors.
+        Runs continuously in a background thread.
+        """
         while self.running:
             now = time.time()
 
@@ -979,6 +1070,13 @@ class HardwareInterface:
     # --- Public API ------------------------------------------------------
 
     def set_heater_duty(self, heater, duty):
+        """
+        Set the duty cycle for a heater.
+
+        Args:
+            heater (str): "z1" or "z2".
+            duty (float): 0.0 to 100.0.
+        """
         if heater in self.heaters:
             clamped = max(0.0, min(100.0, float(duty)))
             self.heaters[heater] = clamped
@@ -986,6 +1084,13 @@ class HardwareInterface:
                 self.set_pwm_output(heater, clamped)
 
     def set_motor_rpm(self, motor, rpm):
+        """
+        Set the RPM for a motor.
+
+        Args:
+            motor (str): "main" or "feed".
+            rpm (float): Target RPM.
+        """
         if motor in self.motors:
             self.motors[motor] = float(rpm)
             if float(rpm) != 0:
@@ -1005,6 +1110,13 @@ class HardwareInterface:
             GPIO.output(int(pin), GPIO.LOW if enable else GPIO.HIGH)
 
     def set_pwm_output(self, name: str, duty: float):
+        """
+        Set a direct PWM output value.
+
+        Args:
+            name (str): The logical name of the PWM channel.
+            duty (float): Duty cycle (0-100).
+        """
         if not self._is_pwm_channel_active(name):
             return
 
@@ -1016,6 +1128,14 @@ class HardwareInterface:
             self._pwm.set_duty(channel, duty)
 
     def move_motor_steps(self, motor, steps, speed=1000):
+        """
+        Manually step a motor.
+
+        Args:
+            motor (str): "main" or "feed".
+            steps (int): Number of steps (positive or negative for direction).
+            speed (int, optional): Steps per second. Defaults to 1000.
+        """
         if motor not in ("main", "feed"):
             return
 
@@ -1033,31 +1153,70 @@ class HardwareInterface:
         self._stepper_events[motor].set()
 
     def stop_manual_move(self, motor):
+        """
+        Stop any pending manual motor moves.
+
+        Args:
+            motor (str): "main" or "feed".
+        """
         if motor in self.manual_steps_pending:
             with self._manual_move_lock:
                 self.manual_steps_pending[motor] = 0
 
     def set_relay(self, relay, state):
+        """
+        Set a relay state.
+
+        Args:
+            relay (str): "fan" or "pump".
+            state (bool): True for On, False for Off.
+        """
         if relay in self.relays:
             self.relays[relay] = bool(state)
             if self._is_pwm_channel_active(relay):
                 self.set_pwm_output(relay, 100.0 if state else 0.0)
 
     def set_peltier_duty(self, duty):
+        """
+        Set the Peltier element duty cycle.
+
+        Args:
+            duty (float): 0.0 to 100.0.
+        """
         clamped = max(0.0, min(100.0, float(duty)))
         self.peltier_duty = clamped
         if self._is_pwm_channel_active("peltier"):
             self.set_pwm_output("peltier", clamped)
 
     def get_temps(self):
+        """
+        Get the current temperatures.
+
+        Returns:
+            dict: Dictionary of temperatures {"t1", "t2", "t3", "motor"}.
+        """
         with self._temp_lock:
             return dict(self.temps)
 
     def is_motor_fault(self):
+        """
+        Check if the motor driver is signaling a fault.
+
+        Returns:
+            bool: True if fault is active, False otherwise.
+        """
         return bool(self.motor_fault_active)
 
     def get_button_state(self, btn_name):
-        """Returns True if button is pressed (Active LOW assumed for pull-up)."""
+        """
+        Get the state of a button.
+
+        Args:
+            btn_name (str): Logical button name (e.g., "btn_start").
+
+        Returns:
+            bool: True if pressed, False otherwise.
+        """
         if self.platform != "PI" or GPIO is None:
             # Simulation: Allow setting button states via internal variable if needed
             # For now, return False
@@ -1071,6 +1230,13 @@ class HardwareInterface:
         return GPIO.input(int(pin)) == GPIO.LOW
 
     def set_led_state(self, led_name, state):
+        """
+        Set the state of an LED.
+
+        Args:
+            led_name (str): Logical LED name.
+            state (bool): True for On, False for Off.
+        """
         if self._is_pwm_channel_active(led_name):
             self.set_pwm_output(led_name, 100.0 if state else 0.0)
             return
@@ -1083,7 +1249,12 @@ class HardwareInterface:
             GPIO.output(int(pin), GPIO.HIGH if state else GPIO.LOW)
 
     def get_gpio_status(self):
-        """Returns the status of all GPIO pins."""
+        """
+        Get the status of all GPIO pins.
+
+        Returns:
+            dict: Nested dictionary mapping pin numbers to status info.
+        """
         status = {}
         reported_pins: set[int] = set()
 
@@ -1135,7 +1306,14 @@ class HardwareInterface:
         return status
 
     def set_gpio_mode(self, pin, mode, pull_up_down='up'):
-        """Sets the mode of a GPIO pin."""
+        """
+        Set the mode of a GPIO pin.
+
+        Args:
+            pin (int): BCM pin number.
+            mode (str): "IN" or "OUT".
+            pull_up_down (str, optional): "up", "down", or "off". Defaults to "up".
+        """
         normalized_mode = mode.upper()
         if normalized_mode not in ("IN", "OUT"):
             return
@@ -1160,14 +1338,28 @@ class HardwareInterface:
             GPIO.setup(pin, GPIO.OUT)
 
     def get_gpio_value(self, pin):
-        """Gets the value of a GPIO pin."""
+        """
+        Get the value of a GPIO pin.
+
+        Args:
+            pin (int): BCM pin number.
+
+        Returns:
+            int: 0 or 1.
+        """
         if self.platform != "PI" or GPIO is None:
             return self._sim_gpio_values.get(pin, 0)
 
         return GPIO.input(pin)
 
     def set_gpio_value(self, pin, value):
-        """Sets the value of a GPIO pin."""
+        """
+        Set the value of a GPIO pin.
+
+        Args:
+            pin (int): BCM pin number.
+            value (bool): True for High, False for Low.
+        """
         if self.platform != "PI" or GPIO is None:
             self._sim_gpio_values[pin] = 1 if value else 0
             return
@@ -1185,18 +1377,29 @@ class HardwareInterface:
     # --- Config hooks ----------------------------------------------------
 
     def set_temp_poll_interval(self, seconds: float):
+        """Set the temperature polling interval."""
         self.temp_poll_interval = max(0.05, float(seconds))
 
     def set_temp_average_window(self, seconds: float):
+        """Set the window size for moving average calculation."""
         self.temp_avg_window = max(0.1, float(seconds))
 
     def set_temp_use_average(self, use_average: bool):
+        """Enable or disable temperature averaging."""
         self.temp_use_average = bool(use_average)
 
     def set_temp_decimals_default(self, decimals: int):
+        """Set default number of decimal places for temperatures."""
         self.temp_decimals_default = max(0, int(decimals))
 
     def map_sensor(self, logical_name: str, adc_channel):
+        """
+        Map a logical sensor name to an ADC channel.
+
+        Args:
+            logical_name (str): e.g., "t1".
+            adc_channel (int): 0-3.
+        """
         logical_name = str(logical_name)
         if logical_name not in LOGICAL_SENSORS:
             raise ValueError(f"Unknown logical sensor '{logical_name}'")
@@ -1225,6 +1428,19 @@ class HardwareInterface:
         cal_points=None,
         decimals=None,
     ):
+        """
+        Update calibration parameters for a sensor channel.
+
+        Args:
+            adc_channel (int): The ADC channel index.
+            r_fixed (float, optional): Series resistor value in Ohms.
+            r_25 (float, optional): NTC resistance at 25°C in Ohms.
+            beta (float, optional): NTC Beta value.
+            v_ref (float, optional): Reference voltage.
+            wiring (str, optional): "ntc_to_gnd" or "ntc_to_vref".
+            cal_points (list, optional): List of calibration points.
+            decimals (int, optional): Number of decimal places.
+        """
         if adc_channel not in self.sensor_config:
             raise ValueError(f"ADC channel {adc_channel} not in sensor_config")
 
@@ -1248,6 +1464,9 @@ class HardwareInterface:
             cfg["corr_offset"] = offset
 
     def _force_all_off(self):
+        """
+        Turn off all high-power outputs (heaters, motors).
+        """
         self.heaters["z1"] = 0.0
         self.heaters["z2"] = 0.0
         self.motors["main"] = 0.0
@@ -1279,6 +1498,10 @@ class HardwareInterface:
             # because we might want to blink it during an alarm state.
 
     def shutdown(self):
+        """
+        Cleanly shut down the hardware interface.
+        Stops threads and cleans up GPIO.
+        """
         self.running = False
         for thread in (getattr(self, "_hw_thread", None), getattr(self, "_temp_thread", None)):
             if thread is not None:

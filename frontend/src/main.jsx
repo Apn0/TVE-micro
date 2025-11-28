@@ -62,9 +62,12 @@ style.innerHTML = `
 `;
 document.head.appendChild(style);
 
+/**
+ * Main application entry point.
+ * Mounts the root App component to the DOM.
+ */
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
 )
-
