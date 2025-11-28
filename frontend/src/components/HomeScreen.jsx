@@ -1,5 +1,5 @@
 // file: frontend/src/tabs/HomeScreen.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { styles } from "../App";
 import { validateSetpoint } from "../utils/validation";
 
@@ -16,8 +16,9 @@ import { validateSetpoint } from "../utils/validation";
  * @param {object} props.data - The current system state data (temperatures, motors, etc.).
  * @param {function} props.sendCmd - Function to send commands to the backend API.
  * @param {object} props.keypad - The keypad hook object for handling numeric input.
+ * @param {Array} props.history - Rolling history of sensor data.
  */
-function HomeScreen({ data, sendCmd, keypad }) {
+function HomeScreen({ data, sendCmd, keypad, history = [] }) {
   const status = data.state?.status || "UNKNOWN";
   const mode = data.state?.mode || "AUTO";
   const temps = data.state?.temps || {};
@@ -60,6 +61,10 @@ function HomeScreen({ data, sendCmd, keypad }) {
       relays.heater_z2 ??
       (data.state?.manual_duty_z2 ?? 0) > 0
   );
+
+  // Calculated averages
+  const z1 = (Number.isFinite(t1) && Number.isFinite(t2)) ? (t1 + t2) / 2 : null;
+  const z2 = (Number.isFinite(t2) && Number.isFinite(t3)) ? (t2 + t3) / 2 : null;
 
   const tempBox = (label, value) => {
     const isValid = value !== null && value !== undefined;
@@ -505,9 +510,18 @@ function HomeScreen({ data, sendCmd, keypad }) {
 
       <div style={styles.panel}>
         <h3>Temperature summary</h3>
-        <div style={styles.grid2}>
-          {tempBox("Nozzle", t3)}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px" }}>
           {tempBox("Motor", tm)}
+          {tempBox("T1", t1)}
+          {tempBox("T2", t2)}
+          {tempBox("T3", t3)}
+
+          <div style={{ background: "#111", borderRadius: "6px", padding: "10px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div style={{ color: "#aaa", fontSize: "0.9em", marginBottom: 5 }}>Motor plot</div>
+            <MotorSparkline history={history} />
+          </div>
+          {tempBox("Z1", z1)}
+          {tempBox("Z2", z2)}
         </div>
       </div>
 
@@ -539,5 +553,53 @@ function HomeScreen({ data, sendCmd, keypad }) {
     </div>
   );
 }
+
+const MotorSparkline = ({ history }) => {
+  const points = useMemo(() => {
+    if (!history || history.length === 0) return "";
+    // Last 60 points
+    const slice = history.slice(-60);
+    const values = slice.map((h) => h.temps?.motor).filter((v) => v !== null && v !== undefined);
+    if (values.length < 2) return "";
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    // Add padding
+    const paddedMin = min - range * 0.1;
+    const paddedMax = max + range * 0.1;
+    const paddedRange = paddedMax - paddedMin;
+
+    return values
+      .map((v, i) => {
+        const x = (i / (values.length - 1)) * 100;
+        const y = 100 - ((v - paddedMin) / paddedRange) * 100;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [history]);
+
+  if (!points) {
+    return (
+      <div style={{ height: 30, color: "#333", fontSize: "0.8em", display: "flex", alignItems: "center" }}>
+        No Data
+      </div>
+    );
+  }
+
+  return (
+    <svg width="100%" height="30" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ overflow: "visible" }}>
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#2ecc71"
+        strokeWidth="4"
+        vectorEffect="non-scaling-stroke"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
 
 export default HomeScreen;
