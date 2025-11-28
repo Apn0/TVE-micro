@@ -205,8 +205,16 @@ function App() {
 
       {data ? (
         <div style={styles.content}>
-          {view === "HOME" && (
-            <HomeScreen data={data} sendCmd={sendCmd} keypad={keypad} history={history} />
+        {view === "HOME" && (
+            <HomeScreen
+              data={data}
+              sendCmd={sendCmd}
+              keypad={keypad}
+              setView={setView}
+              history={history}
+            />
+          )}
+
           )}
           {view === "ALARMS" && (
             <AlarmsScreen

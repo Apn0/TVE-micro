@@ -16,9 +16,10 @@ import { validateSetpoint } from "../utils/validation";
  * @param {object} props.data - The current system state data (temperatures, motors, etc.).
  * @param {function} props.sendCmd - Function to send commands to the backend API.
  * @param {object} props.keypad - The keypad hook object for handling numeric input.
+ * @param {function} props.setView - Function to switch between main views.
  * @param {Array} props.history - Rolling history of sensor data.
  */
-function HomeScreen({ data, sendCmd, keypad, history = [] }) {
+function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
   const status = data.state?.status || "UNKNOWN";
   const mode = data.state?.mode || "AUTO";
   const temps = data.state?.temps || {};
@@ -51,15 +52,15 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
 
   const heaterZ1On = Boolean(
     relays.ssr_z1 ??
-      relays.z1 ??
-      relays.heater_z1 ??
-      (data.state?.manual_duty_z1 ?? 0) > 0
+    relays.z1 ??
+    relays.heater_z1 ??
+    (data.state?.manual_duty_z1 ?? 0) > 0
   );
   const heaterZ2On = Boolean(
     relays.ssr_z2 ??
-      relays.z2 ??
-      relays.heater_z2 ??
-      (data.state?.manual_duty_z2 ?? 0) > 0
+    relays.z2 ??
+    relays.heater_z2 ??
+    (data.state?.manual_duty_z2 ?? 0) > 0
   );
 
   // Calculated averages
@@ -113,84 +114,75 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
     </span>
   );
 
-  const handleSetpointClick = (zoneKey, targetValue, event) => {
-    event?.stopPropagation?.();
-    const rect = event?.currentTarget?.getBoundingClientRect?.();
-    const initial = Number.isFinite(targetValue) ? String(targetValue) : "";
-
-    keypad?.openKeypad?.(initial, rect, (val) => {
-      const validated = validateSetpoint(val);
-        if (validated === null) {
-          keypad?.closeKeypad?.();
-          return;
-        }
-
-      const nextZ1 = zoneKey === "z1" ? validated : targetZ1;
-      const nextZ2 = zoneKey === "z2" ? validated : targetZ2;
-
-      if (zoneKey === "z1") setTargetZ1(validated);
-      if (zoneKey === "z2") setTargetZ2(validated);
-        sendCmd("SET_TARGET", { z1: nextZ1, z2: nextZ2 });
-
-        keypad?.closeKeypad?.();
-      });
-    };
-
-  const handleMotorSetpointClick = (event) => {
-    const rect = event?.currentTarget?.getBoundingClientRect?.();
-    const initial = Number.isFinite(mainRpm) ? String(mainRpm) : "";
-
-    keypad?.openKeypad?.(initial, rect, (val) => {
-      const rpm = parseFloat(val);
-      if (!Number.isFinite(rpm) || rpm < 0) {
-        keypad?.closeKeypad?.();
-        return;
-      }
-
-      sendCmd("SET_MOTOR", { motor: "main", rpm });
-      keypad?.closeKeypad?.();
-    });
-  };
-
   const schematicCardStyle = {
     ...styles.metricCard,
     minHeight: 80,
-    height: 80,
     width: 140,
-    padding: 10,
-    gap: 6,
+    padding: 0,
+    gap: 0,
     position: "absolute",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    flexDirection: "column",
+    overflow: "hidden",
+    cursor: "pointer",
   };
 
-  const renderSchematicCard = ({ key, label, value, color, position, actionLabel, onAction }) => (
-    <div
-      key={key}
-      style={{
-        ...schematicCardStyle,
-        left: position.left,
-        top: position.top,
-        transform: "translate(-50%, -50%)",
-        pointerEvents: "auto",
-      }}
-    >
-      <div style={{ ...styles.metricLabel, textTransform: "none" }}>{label}</div>
-      <div style={{ ...styles.metricValue, fontSize: "1.2em", color: color ?? "#ecf0f1" }}>
-        {value}
+  const renderSchematicCard = ({ key, label, value, color, position, tab, setpoint }) => {
+    const hasSetpoint = setpoint !== undefined && setpoint !== null;
+
+    return (
+      <div
+        key={key}
+        style={{
+          ...schematicCardStyle,
+          left: position.left,
+          top: position.top,
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "auto",
+        }}
+        onClick={(e) => {
+          e.stopPropagation(); // prevent closing overlay if any
+          if (setView && tab) setView(tab);
+        }}
+      >
+        {/* Title Section */}
+        <div style={{
+          padding: "6px 10px",
+          borderBottom: "1px solid #333",
+          background: "rgba(255, 255, 255, 0.05)"
+        }}>
+          <div style={{ ...styles.metricLabel, textTransform: "none", fontSize: "0.8em" }}>{label}</div>
+        </div>
+
+        {/* Value Section */}
+        <div style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "8px",
+          borderBottom: hasSetpoint ? "1px solid #333" : "none"
+        }}>
+          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#ecf0f1" }}>
+            {value}
+          </div>
+        </div>
+
+        {/* Setpoint Section (Conditional) */}
+        {hasSetpoint && (
+          <div style={{
+            padding: "6px 10px",
+            background: "rgba(0, 0, 0, 0.2)",
+            textAlign: "center"
+          }}>
+            <div style={{ color: "#7f8c8d", fontSize: "1.0em", fontWeight: "bold" }}>
+              {setpoint}
+            </div>
+          </div>
+        )}
       </div>
-      {actionLabel && (
-        <button
-          style={{ ...styles.buttonSecondary, padding: "6px 10px", marginRight: 0, alignSelf: "flex-start" }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAction?.(e);
-          }}
-        >
-          {actionLabel}
-        </button>
-      )}
-    </div>
-  );
+    );
+  };
 
   return (
     <div className={hasAlarm ? "alarm-glow" : ""}>
@@ -223,12 +215,12 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
           </div>
         </div>
 
-        <div style={{ marginTop: 14, position: "relative", minHeight: 240 }}>
-          <svg width="100%" viewBox="0 0 600 140" style={{ display: "block" }}>
+        <div style={{ marginTop: 14, position: "relative", minHeight: 400 }}>
+          <svg width="100%" viewBox="0 0 600 240" style={{ display: "block" }}>
             {/* Motor */}
             <rect
               x="10"
-              y="50"
+              y="100"
               width="40"
               height="50"
               fill={motors.main > 0 ? "#27ae60" : "#2c3e50"}
@@ -237,7 +229,7 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
             />
             <text
               x="30"
-              y="80"
+              y="130"
               textAnchor="middle"
               fill="#ecf0f1"
               fontSize="10"
@@ -246,21 +238,21 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
             </text>
 
             {/* Barrel + feed */}
-            <rect x="50" y="60" width="500" height="30" fill="#7f8c8d" rx="5" />
+            <rect x="50" y="110" width="500" height="30" fill="#7f8c8d" rx="5" />
             <line
               x1="60"
-              y1="75"
+              y1="125"
               x2="540"
-              y2="75"
+              y2="125"
               stroke={flowActive ? "#2ecc71" : "#4b4b4b"}
               strokeWidth="6"
               className={flowActive ? "flow-line" : ""}
               opacity={flowActive ? 0.9 : 0.5}
             />
-            <polygon points="90,60 110,60 100,90" fill="#95a5a6" />
+            <polygon points="90,110 110,110 100,140" fill="#95a5a6" />
             <text
               x="100"
-              y="50"
+              y="100"
               textAnchor="middle"
               fill="#aaa"
               fontSize="10"
@@ -268,11 +260,13 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
               FEED
             </text>
 
-            {/* Zone 1 */}
-            <circle cx="130" cy="75" r="5" fill="#e67e22" />
+            {/* Zone 1 Sensor (T1/T2 Avg) */}
+            <circle cx="250" cy="75" r="5" fill="#e67e22" />
+            
+            {/* Zone 1 Heater */}
             <rect
               x="200"
-              y="55"
+              y="105"
               width="100"
               height="40"
               fill={relays.ssr_z1 ? "#e74c3c" : "#555"}
@@ -281,11 +275,13 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
               className={relays.ssr_z1 ? "heater-on" : ""}
             />
 
-            {/* Zone 2 */}
-            <circle cx="310" cy="75" r="5" fill="#e67e22" />
+            {/* Zone 2 Sensor (T2/T3 Avg) */}
+            <circle cx="370" cy="75" r="5" fill="#e67e22" />
+            
+            {/* Zone 2 Heater */}
             <rect
               x="320"
-              y="55"
+              y="105"
               width="100"
               height="40"
               fill={relays.ssr_z2 ? "#e74c3c" : "#555"}
@@ -298,17 +294,22 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
             <circle cx="450" cy="75" r="5" fill="#e67e22" />
             <polygon points="550,65 570,75 550,85" fill="#f1c40f" />
           </svg>
+
+          {/* Overlay Cards */}
           <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
+
+            {/* Main Motor: Top Left */}
             {renderSchematicCard({
               key: "motor",
               label: "Main motor",
               value: `${rpmDisplay(mainRpm)} RPM`,
               color: "#2ecc71",
-              position: { left: "10%", top: "18%" },
-              actionLabel: "Set RPM",
-              onAction: handleMotorSetpointClick,
+              position: { left: "12%", top: "25%" },
+              tab: "MOTOR",
+              setpoint: `${rpmDisplay(mainRpm)} RPM`, // Using current as setpoint proxy since target not separated in API yet
             })}
 
+              {/* Cooling Fan: Top Left-ish */}
             {renderSchematicCard({
               key: "fan",
               label: "Cooling fan",
@@ -319,59 +320,96 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
                   ? "ON"
                   : "OFF",
               color: fanActive ? "#2ecc71" : "#7f8c8d",
-              position: { left: "28%", top: "18%" },
+              position: { left: "30%", top: "25%" },
+              tab: "MOTOR",
             })}
 
+            {/* Heater Z1: Top Right */}
             {renderSchematicCard({
               key: "heater-z1",
               label: "Heater Z1",
-              value: `${heaterZ1On ? "ON" : "OFF"} · ${
-                targetZ1?.toFixed?.(0) ?? "--"
-              }°C`,
+              value: t2 !== null && t2 !== undefined ? `${t2.toFixed(1)} °C` : "--.- °C",
               color: heaterZ1On ? "#e74c3c" : "#7f8c8d",
-              position: { left: "44%", top: "18%" },
-              actionLabel: "Set point",
-              onAction: (e) => handleSetpointClick("z1", targetZ1, e),
+              position: { left: "55%", top: "25%" },
+              tab: "HEATERS",
+              setpoint: targetZ1?.toFixed?.(0) ? `${targetZ1.toFixed(0)} °C` : "-- °C",
             })}
 
+            {/* Heater Z2: Top Right */}
             {renderSchematicCard({
               key: "heater-z2",
               label: "Heater Z2",
-              value: `${heaterZ2On ? "ON" : "OFF"} · ${
-                targetZ2?.toFixed?.(0) ?? "--"
-              }°C`,
+              value: t3 !== null && t3 !== undefined ? `${t3.toFixed(1)} °C` : "--.- °C",
               color: heaterZ2On ? "#e74c3c" : "#7f8c8d",
-              position: { left: "64%", top: "18%" },
-              actionLabel: "Set point",
-              onAction: (e) => handleSetpointClick("z2", targetZ2, e),
+              position: { left: "80%", top: "25%" },
+              tab: "HEATERS",
+              setpoint: targetZ2?.toFixed?.(0) ? `${targetZ2.toFixed(0)} °C` : "-- °C",
             })}
 
+
+            {/* T1: Bottom Center */}
             {renderSchematicCard({
               key: "t1",
               label: "T1 barrel",
               value: t1 !== null && t1 !== undefined ? `${t1.toFixed(1)} °C` : "--.- °C",
-              position: { left: "28%", top: "70%" },
+              position: { left: "35%", top: "65%" },
+              tab: "HEATERS",
             })}
 
+            {/* T2: Bottom Right */}
             {renderSchematicCard({
               key: "t2",
               label: "T2 barrel",
               value: t2 !== null && t2 !== undefined ? `${t2.toFixed(1)} °C` : "--.- °C",
-              position: { left: "55%", top: "70%" },
+              position: { left: "55%", top: "65%" },
+              tab: "HEATERS",
             })}
 
+              {/* T3: Bottom Right */}
             {renderSchematicCard({
               key: "t3",
               label: "T3 barrel",
               value: t3 !== null && t3 !== undefined ? `${t3.toFixed(1)} °C` : "--.- °C",
-              position: { left: "78%", top: "70%" },
+              position: { left: "75%", top: "65%" },
+              tab: "HEATERS",
             })}
 
+            {/* Motor Temp: Bottom Left */}
             {renderSchematicCard({
               key: "tm",
               label: "Motor temp",
               value: tm !== null && tm !== undefined ? `${tm.toFixed(1)} °C` : "--.- °C",
-              position: { left: "12%", top: "70%" },
+              position: { left: "15%", top: "65%" },
+              tab: "MOTOR",
+            })}
+
+            {/* NEW PLACEHOLDERS */}
+
+            {/* Load %: Near Motor (Middle Left) */}
+            {renderSchematicCard({
+              key: "motor-load",
+              label: "Motor Load",
+              value: "-- %",
+              position: { left: "12%", top: "45%" },
+              tab: "MOTOR",
+            })}
+
+            {/* Amps: Near Motor (Middle Left) */}
+            {renderSchematicCard({
+              key: "motor-amps",
+              label: "Motor Current",
+              value: "-- A",
+              position: { left: "12%", top: "85%" },
+              tab: "MOTOR",
+            })}
+
+              {/* Valve: Top Left? */}
+            {renderSchematicCard({
+              key: "valve",
+              label: "Valve Pos",
+              value: "-- %",
+              position: { left: "30%", top: "85%" },
+              tab: "SENSORS",
             })}
           </div>
         </div>
@@ -399,10 +437,10 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
                       ? "#e74c3c"
                       : "#f1c40f", // STARTING, STOPPING, etc.
                 }}
-              >
-                {status}
-              </span>
-            </div>
+                >
+                  {status}
+                </span>
+              </div>
               <div style={styles.row}>
                 <span>Mode</span>
                 <span>{mode}</span>
@@ -440,8 +478,8 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
                   <>--.-&nbsp;&deg;C</>
                 )}
               </span>
+              </div>
             </div>
-          </div>
         </div>
       </div>
 
