@@ -233,6 +233,12 @@ SYSTEM_DEFAULTS = {
         ],
         "check_temp_before_start": True,
     },
+    "motion": {
+        "ramp_up": 0.0,
+        "ramp_down": 0.0,
+        "max_accel": 0.0,
+        "max_jerk": 0.0,
+    },
 }
 
 # --- Helper: linear calibration -----------------------------------------------
@@ -290,9 +296,13 @@ class ADS1115Driver:
         if self.available:
             try:
                 self.bus = SMBus(self.bus_id)
+                # Probe the device to see if it's really there
+                # Try reading Config Register (0x01)
+                self.bus.read_word_data(self.address, 0x01)
             except Exception as e:
-                print(f"[ADS1115] SMBus init failed: {e}")
+                print(f"[ADS1115] Init failed (device not found at 0x{self.address:02X}): {e}")
                 self.available = False
+                self.close()
 
     def read_voltage(self, channel: int, retries: int = 1):
         """
@@ -334,7 +344,7 @@ class ADS1115Driver:
                 return volts
             except Exception as e:
                 if attempt == attempts - 1:
-                    print(f"[ADS1115] read failed ch{channel}: {e}")
+                    hardware_logger.warning(f"[ADS1115] read failed ch{channel}: {e}")
                     return None
                 time.sleep(0.005)
 

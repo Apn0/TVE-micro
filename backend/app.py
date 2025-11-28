@@ -99,11 +99,15 @@ def _validate_pins(section: dict, errors: list[str]):
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
-            if section[name] is None:
+            val = section[name]
+            if val is None:
+                result[name] = None
+                continue
+            if isinstance(val, str) and not val.strip():
                 result[name] = None
                 continue
             try:
-                pin = int(section[name])
+                pin = int(val)
                 if 0 <= pin <= 40:
                     result[name] = pin
                 else:
@@ -281,6 +285,24 @@ def _validate_logging(section: dict, errors: list[str]):
     return result
 
 
+def _validate_motion(section: dict, errors: list[str]):
+    """
+    Validate motion configuration settings.
+    """
+    result = copy.deepcopy(SYSTEM_DEFAULTS["motion"])
+    for key in ("ramp_up", "ramp_down", "max_accel", "max_jerk"):
+        if key in section:
+            try:
+                value = float(section[key])
+                if value >= 0 and math.isfinite(value):
+                    result[key] = value
+                else:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors.append(f"Invalid motion.{key}, using default")
+    return result
+
+
 ALLOWED_SEQUENCE_DEVICES = {"main_motor", "feed_motor", "fan", "pump"}
 ALLOWED_SEQUENCE_ACTIONS = {"on", "off"}
 
@@ -438,6 +460,7 @@ def validate_config(raw_cfg: dict):
 
     cfg["temp_settings"] = _validate_temp_settings(raw_cfg.get("temp_settings", {}), errors)
     cfg["logging"] = _validate_logging(raw_cfg.get("logging", {}), errors)
+    cfg["motion"] = _validate_motion(raw_cfg.get("motion", {}), errors)
     cfg["extruder_sequence"] = _validate_extruder_sequence(
         raw_cfg.get("extruder_sequence", {}), errors
     )
@@ -1337,13 +1360,26 @@ def control():
             temps = dict(state["temps"])
             temps_timestamp = state.get("temps_timestamp", 0.0)
         if rpm != 0:
+            # Check for Manual mode bypass of Cold Extrusion Protection
+            is_manual = False
+            with state_lock:
+                if state.get("mode") == "MANUAL":
+                    is_manual = True
+
             fresh, reason = _temps_fresh(request_time)
             if not fresh:
                 return jsonify({"success": False, "msg": reason}), 400
-            if request_time - temps_timestamp > 0:
-                allowed, reason = safety.guard_motor_temp(temps)
-            else:
-                allowed, reason = False, "TEMP_DATA_STALE"
+
+            allowed = True
+            reason = "OK"
+
+            # Only enforce Cold Extrusion Protection in AUTO mode
+            if not is_manual:
+                if request_time - temps_timestamp > 0:
+                    allowed, reason = safety.guard_motor_temp(temps)
+                else:
+                    allowed, reason = False, "TEMP_DATA_STALE"
+
             if not allowed:
                 hal.set_motor_rpm("main", 0)
                 hal.set_motor_rpm("feed", 0)
@@ -1658,6 +1694,23 @@ def control():
             )
         sys_config["logging"] = validated
         logger.configure(validated)
+
+    elif cmd == "UPDATE_MOTION_CONFIG":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_MOTION_PARAMS"}), 400
+
+        validation_errors: list[str] = []
+        current = sys_config.get("motion", SYSTEM_DEFAULTS["motion"])
+        validated = _validate_motion({**current, **params}, validation_errors)
+
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+
+        sys_config["motion"] = validated
 
     elif cmd == "SET_SENSOR_CALIBRATION":
         params = req.get("params", {})
