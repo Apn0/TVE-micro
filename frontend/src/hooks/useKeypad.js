@@ -16,12 +16,15 @@ import { useState } from "react";
  *         cb (function): Callback function to execute when "Enter" is pressed.
  *   - closeKeypad (function): Function to close the keypad without submitting.
  *   - submit (function): Function to submit the current value and close the keypad.
+ *   - handleKeyPress (function): Main handler for keypad interactions.
+ *   - isFirstPress (boolean): Whether the user hasn't typed anything yet since opening.
  */
 export default function useKeypad() {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ x: 400, y: 400 });
   const [value, setValue] = useState("");
   const [callback, setCallback] = useState(() => () => {});
+  const [isFirstPress, setIsFirstPress] = useState(true);
 
   const openKeypad = (initial, rect, cb) => {
     let x = rect.right + 20;
@@ -36,6 +39,7 @@ export default function useKeypad() {
 
     setPosition({ x, y });
     setValue(initial);
+    setIsFirstPress(true);
     setCallback(() => cb);
     setVisible(true);
   };
@@ -47,6 +51,41 @@ export default function useKeypad() {
     callback(val);
   };
 
+  const handleKeyPress = (key) => {
+    if (key === "ESC") {
+      closeKeypad();
+      return;
+    }
+    if (key === "↵") {
+      submit(value);
+      return;
+    }
+    if (key === "Del") {
+      if (isFirstPress) {
+        setValue("");
+        setIsFirstPress(false);
+      } else {
+        setValue((prev) => prev.slice(0, -1));
+      }
+      return;
+    }
+    if (key === "Ins") return;
+
+    // Numbers, decimal point, negative sign
+    if (isFirstPress) {
+      // If dot is pressed first, prefix with 0 for better UX, or just set it.
+      // E.g. "0."
+      if (key === ".") {
+        setValue("0.");
+      } else {
+        setValue(key);
+      }
+      setIsFirstPress(false);
+    } else {
+      setValue((prev) => prev + key);
+    }
+  };
+
   return {
     visible,
     position,
@@ -55,5 +94,7 @@ export default function useKeypad() {
     openKeypad,
     closeKeypad,
     submit,
+    handleKeyPress,
+    isFirstPress,
   };
 }

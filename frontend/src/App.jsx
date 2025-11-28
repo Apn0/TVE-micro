@@ -285,8 +285,8 @@ function App() {
           visible={keypad.visible}
           position={keypad.position}
           value={keypad.value}
-          setValue={keypad.setValue}
-          submit={keypad.submit}
+          onKey={keypad.handleKeyPress}
+          highlight={keypad.isFirstPress}
           close={keypad.closeKeypad}
         />
 
