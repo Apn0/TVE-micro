@@ -265,21 +265,6 @@ function HomeScreen({ data, sendCmd, keypad }) {
 
             {/* Zone 1 */}
             <circle cx="130" cy="75" r="5" fill="#e67e22" />
-            <text
-              x="130"
-              y="110"
-              textAnchor="middle"
-              fill="#e67e22"
-              fontSize="12"
-            >
-              {t1 !== null ? (
-                <>
-                  T1: {t1.toFixed(1)}&deg;C
-                </>
-              ) : (
-                <>T1: --.-&deg;C</>
-              )}
-            </text>
             <rect
               x="200"
               y="55"
@@ -290,33 +275,9 @@ function HomeScreen({ data, sendCmd, keypad }) {
               rx="5"
               className={relays.ssr_z1 ? "heater-on" : ""}
             />
-            <text
-              x="250"
-              y="50"
-              textAnchor="middle"
-              fill="#aaa"
-              fontSize="10"
-            >
-              MICA Z1
-            </text>
 
             {/* Zone 2 */}
             <circle cx="310" cy="75" r="5" fill="#e67e22" />
-            <text
-              x="310"
-              y="110"
-              textAnchor="middle"
-              fill="#e67e22"
-              fontSize="12"
-            >
-              {t2 !== null ? (
-                <>
-                  T2: {t2.toFixed(1)}&deg;C
-                </>
-              ) : (
-                <>T2: --.-&deg;C</>
-              )}
-            </text>
             <rect
               x="320"
               y="55"
@@ -327,33 +288,9 @@ function HomeScreen({ data, sendCmd, keypad }) {
               rx="5"
               className={relays.ssr_z2 ? "heater-on" : ""}
             />
-            <text
-              x="370"
-              y="50"
-              textAnchor="middle"
-              fill="#aaa"
-              fontSize="10"
-            >
-              MICA Z2
-            </text>
 
             {/* Nozzle */}
             <circle cx="450" cy="75" r="5" fill="#e67e22" />
-            <text
-              x="450"
-              y="110"
-              textAnchor="middle"
-              fill="#e67e22"
-              fontSize="12"
-            >
-              {t3 !== null ? (
-                <>
-                  T3: {t3.toFixed(1)}&deg;C
-                </>
-              ) : (
-                <>T3: --.-&deg;C</>
-              )}
-            </text>
             <polygon points="550,65 570,75 550,85" fill="#f1c40f" />
           </svg>
           <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
