@@ -1273,8 +1273,9 @@ class HardwareInterface:
                 safe_out("ssr_pump", GPIO.LOW)
             if not self._is_pwm_channel_active("peltier"):
                 safe_out("peltier", GPIO.LOW)
-            safe_out("en_main", GPIO.LOW)
-            safe_out("en_feed", GPIO.LOW)
+            # Motor enable pins are active LOW, so set HIGH to disable
+            safe_out("en_main", GPIO.HIGH)
+            safe_out("en_feed", GPIO.HIGH)
             # NOTE: We specifically DO NOT force led_status off here,
             # because we might want to blink it during an alarm state.
 
