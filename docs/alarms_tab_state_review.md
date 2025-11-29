@@ -22,6 +22,5 @@ This note summarizes how the current UI manages alarm-related state in the Alarm
 ## Data sources
 - `activeAlarms` and `alarmHistory` are derived from the `/api/status` payload via `data.state.active_alarms` and `data.state.alarm_history` inside `App` before being passed to `AlarmsScreen`.
 
-## Potential UX considerations
-- Because `showHistory` is local state, users returning to the Alarms tab always start on the active view. Persisting the toggle (e.g., in higher-level state or storage) would keep the last selected view.
-- There is currently no empty-state cue for history besides the "No alarm history." message.
+## UX Considerations
+(Pending UX improvements moved to `docs/TODO.md`)
