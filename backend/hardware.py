@@ -719,34 +719,42 @@ class HardwareInterface:
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
-        outs_low = []   # Pins to initialize LOW (Off)
-        outs_high = []  # Pins to initialize HIGH (Disabled/Off)
+        # Pins that should be initialized LOW (Standard outputs: Relays, SSRs, LEDs, Step/Dir)
+        keys_low = [
+            "ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump", "peltier",
+            "step_main", "dir_main",
+            "step_feed", "dir_feed",
+            "led_status", "led_red", "led_green", "led_yellow"
+        ]
 
-        for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump", "peltier",
-                    "step_main", "dir_main", "en_main",
-                    "step_feed", "dir_feed", "en_feed"):
-            # Skip if using PWM for this function
-            if key == "ssr_z1" and self._is_pwm_channel_active("z1"):
-                continue
-            if key == "ssr_z2" and self._is_pwm_channel_active("z2"):
-                continue
-            if key == "ssr_fan" and self._is_pwm_channel_active("fan"):
-                continue
-            if key == "ssr_pump" and self._is_pwm_channel_active("pump"):
-                continue
-            if key == "peltier" and self._is_pwm_channel_active("peltier"):
-                continue
+        # Pins that should be initialized HIGH (Active-Low Enables)
+        keys_high = ["en_main", "en_feed"]
+
+        outs_low = []
+        outs_high = []
+
+        # Collect LOW outputs
+        for key in keys_low:
+            # Check PWM exemption
+            # Some keys map to PWM channels (z1, z2, fan, pump, peltier, led_status).
+            # If active, we skip GPIO setup for them.
+            if key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump", "peltier", "led_status"):
+                # Map logical key to PWM channel name
+                pwm_name = key.replace("ssr_", "")  # ssr_z1 -> z1, ssr_fan -> fan
+                if self._is_pwm_channel_active(pwm_name):
+                    continue
 
             pin_val = self.pins.get(key)
             if pin_val is not None:
-                pin_num = int(pin_val)
-                # Enable pins are Active LOW, so default HIGH to disable.
-                # All other outputs (relays, steps) default LOW (Off).
-                if key in ("en_main", "en_feed"):
-                    outs_high.append(pin_num)
-                else:
-                    outs_low.append(pin_num)
+                outs_low.append(int(pin_val))
 
+        # Collect HIGH outputs
+        for key in keys_high:
+            pin_val = self.pins.get(key)
+            if pin_val is not None:
+                outs_high.append(int(pin_val))
+
+        # Initialize Outputs
         if outs_low:
             GPIO.setup(outs_low, GPIO.OUT, initial=GPIO.LOW)
         if outs_high:
@@ -760,15 +768,6 @@ class HardwareInterface:
         for btn in ("btn_start", "btn_emergency"):
             if btn in self.pins and self.pins[btn] is not None:
                  GPIO.setup(int(self.pins[btn]), GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-        # Output (LED)
-        if (
-            "led_status" in self.pins
-            and self.pins["led_status"] is not None
-            and not self._is_pwm_channel_active("led_status")
-        ):
-            GPIO.setup(int(self.pins["led_status"]), GPIO.OUT)
-            GPIO.output(int(self.pins["led_status"]), GPIO.LOW)
 
         print("[HAL] GPIO Initialized with Config.")
 
