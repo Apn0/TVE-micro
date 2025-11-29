@@ -26,6 +26,7 @@ if REPO_ROOT not in sys.path:
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO
 
 from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
@@ -575,6 +576,9 @@ TOGGLE_DEBOUNCE_SEC = 0.25
 app = Flask(__name__)
 CORS(app)
 
+# Initialize SocketIO in 'threading' mode to work with your existing threads
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
 
 def _safe_float(val: object) -> float | None:
     """Safely convert object to finite float or None."""
@@ -766,6 +770,37 @@ def _ensure_hal_started():
 last_btn_start_state = False
 last_btn_stop_state = False
 
+def emit_change(category, key, value, state_obj):
+    """
+    Updates state_obj and emits a WebSocket event if the value changed.
+    """
+    # Initialize category if missing
+    if category not in state_obj:
+        state_obj[category] = {}
+
+    old_val = state_obj[category].get(key)
+
+    # Update the internal state (so polling still works!)
+    state_obj[category][key] = value
+
+    # If value changed, push to WebSocket clients
+    # (We use a small epsilon for floats to avoid noise)
+    changed = False
+    if old_val is None:
+        changed = True
+    elif isinstance(value, float) and isinstance(old_val, float):
+        if abs(value - old_val) > 0.001:
+            changed = True
+    elif value != old_val:
+        changed = True
+
+    if changed:
+        socketio.emit('io_update', {
+            "category": category,
+            "key": key,
+            "val": value
+        })
+
 def control_loop():
     """
     Main background thread loop for system control.
@@ -845,8 +880,26 @@ def control_loop():
             temps = hal.get_temps()
 
             with state_lock:
-                state["temps"] = temps
+                # 1. Update Temperatures via emit_change
+                for sensor, val in temps.items():
+                    emit_change("temps", sensor, val, state)
+
                 state["temps_timestamp"] = hal.get_last_temp_timestamp() or now
+
+                # 2. Update Motors (get current RPMs from HAL)
+                # We assume HAL has current values stored in self.motors
+                emit_change("motors", "main", hal.motors.get("main", 0.0), state)
+                emit_change("motors", "feed", hal.motors.get("feed", 0.0), state)
+
+                # 3. Update Relays
+                emit_change("relays", "fan", hal.relays.get("fan", False), state)
+                emit_change("relays", "pump", hal.relays.get("pump", False), state)
+
+                # 4. Update PWM
+                for ch_name, duty in hal.pwm_outputs.items():
+                    emit_change("pwm", ch_name, duty, state)
+
+                # Standard status updates
                 status = state["status"]
                 mode = state["mode"]
                 target_z1 = state["target_z1"]
@@ -1842,4 +1895,6 @@ if __name__ == "__main__":
         port,
         "eager" if eager_start else "lazy",
     )
-    app.run(host=host, port=port, debug=debug)
+    # USE socketio.run INSTEAD OF app.run
+    app_logger.info("Starting Hybrid Server (HTTP + WebSocket)")
+    socketio.run(app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
