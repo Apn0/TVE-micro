@@ -227,25 +227,34 @@ function App() {
     fetchHistory();
   }, []);
 
-  // --- NEW: History Snapshot Effect ---
-  // This runs every 1 second, regardless of how 'data' arrived (Poll or WS)
-  useEffect(() => {
-    if (!data) return;
+  // Ref to hold the latest data without triggering re-renders of the timer
+  const latestDataRef = useRef(data);
 
+  // Sync ref with data
+  useEffect(() => {
+    latestDataRef.current = data;
+  }, [data]);
+
+  // History Timer - Runs once on mount, never resets
+  useEffect(() => {
     const timer = setInterval(() => {
+      const currentData = latestDataRef.current; // Read from ref
+
+      if (!currentData) return;
+
       const entry = {
         t: Date.now(),
-        temps: data.state?.temps || {},
-        relays: data.state?.relays || {},
-        motors: data.state?.motors || {},
-        fans: data.state?.fans || data.state?.cooling || {},
-        pwm: data.state?.pwm || {},
-        manual_duty_z1: data.state?.manual_duty_z1,
-        manual_duty_z2: data.state?.manual_duty_z2,
-        target_z1: data.state?.target_z1,
-        target_z2: data.state?.target_z2,
-        status: data.state?.status,
-        mode: data.state?.mode,
+        temps: currentData.state?.temps || {},
+        relays: currentData.state?.relays || {},
+        motors: currentData.state?.motors || {},
+        fans: currentData.state?.fans || currentData.state?.cooling || {},
+        pwm: currentData.state?.pwm || {},
+        manual_duty_z1: currentData.state?.manual_duty_z1,
+        manual_duty_z2: currentData.state?.manual_duty_z2,
+        target_z1: currentData.state?.target_z1,
+        target_z2: currentData.state?.target_z2,
+        status: currentData.state?.status,
+        mode: currentData.state?.mode,
       };
 
       setHistory((prev) => {
@@ -256,7 +265,7 @@ function App() {
     }, 1000); // Sample rate: 1 second
 
     return () => clearInterval(timer);
-  }, [data]); // Re-creates timer if data object ref changes, but logic holds.
+  }, []); // Empty dependency array ensures timer is stable
 
   const sendCmd = async (command, value = {}) => {
     setMessage("");
