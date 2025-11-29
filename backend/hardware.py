@@ -719,10 +719,13 @@ class HardwareInterface:
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
-        outs = []
+        outs_low = []   # Pins to initialize LOW (Off)
+        outs_high = []  # Pins to initialize HIGH (Disabled/Off)
+
         for key in ("ssr_z1", "ssr_z2", "ssr_fan", "ssr_pump", "peltier",
                     "step_main", "dir_main", "en_main",
                     "step_feed", "dir_feed", "en_feed"):
+            # Skip if using PWM for this function
             if key == "ssr_z1" and self._is_pwm_channel_active("z1"):
                 continue
             if key == "ssr_z2" and self._is_pwm_channel_active("z2"):
@@ -733,17 +736,21 @@ class HardwareInterface:
                 continue
             if key == "peltier" and self._is_pwm_channel_active("peltier"):
                 continue
-            if key in self.pins and self.pins[key] is not None:
-                outs.append(int(self.pins[key]))
 
-        if outs:
-            GPIO.setup(outs, GPIO.OUT)
+            pin_val = self.pins.get(key)
+            if pin_val is not None:
+                pin_num = int(pin_val)
+                # Enable pins are Active LOW, so default HIGH to disable.
+                # All other outputs (relays, steps) default LOW (Off).
+                if key in ("en_main", "en_feed"):
+                    outs_high.append(pin_num)
+                else:
+                    outs_low.append(pin_num)
 
-        # Ensure enable pins are disabled (HIGH) initially, if defined
-        if "en_main" in self.pins and self.pins["en_main"] is not None:
-             GPIO.output(int(self.pins["en_main"]), GPIO.HIGH)
-        if "en_feed" in self.pins and self.pins["en_feed"] is not None:
-             GPIO.output(int(self.pins["en_feed"]), GPIO.HIGH)
+        if outs_low:
+            GPIO.setup(outs_low, GPIO.OUT, initial=GPIO.LOW)
+        if outs_high:
+            GPIO.setup(outs_high, GPIO.OUT, initial=GPIO.HIGH)
 
         # Inputs (DM556 Alarm)
         if "alm_main" in self.pins and self.pins["alm_main"] is not None:
