@@ -1,5 +1,6 @@
 // file: frontend/src/App.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import io from "socket.io-client";
 
 import useKeypad from "./hooks/useKeypad";
 import KeypadOverlay from "./components/KeypadOverlay";
@@ -92,6 +93,96 @@ import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 import AlarmsScreen from "./components/AlarmsScreen";
 
+// 1. Create this hook function OUTSIDE of your App component (or inside, but above return)
+function useHybridData(mode) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const socketRef = useRef(null);
+
+  // Poll Mode Effect
+  useEffect(() => {
+    if (mode !== 'POLLING') return;
+    console.log("Switched to POLLING mode");
+
+    let stop = false;
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/status");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const json = await res.json();
+        if (!stop) setData(json);
+      } catch (e) {
+        if (!stop) setError("Poll error: " + e.message);
+      } finally {
+        if (!stop) setTimeout(poll, 1000);
+      }
+    };
+    poll();
+    return () => { stop = true; };
+  }, [mode]);
+
+  // Socket Mode Effect
+  useEffect(() => {
+    if (mode !== 'SOCKET') return;
+    console.log("Switched to SOCKET mode");
+
+    // 1. Fetch full state ONCE to initialize
+    fetch("/api/status").then(r => r.json()).then(setData).catch(e => setError(e.message));
+
+    // 2. Open Socket
+    // We assume the socket server is on the same host/port as the API if proxied,
+    // or if we are in dev mode, we might need to point to localhost:5000.
+    // Given the Vite proxy setup, connecting to window.location.host should work if proxied correctly for WS,
+    // OR we point directly to the Flask backend. The guide says "http://localhost:5000".
+    // For robustness in dev vs prod, let's try to infer or just use the hardcoded one if instructed.
+    // The guide says: `const socket = io("http://localhost:5000"); // Adjust URL if needed`
+    // Since we are running on a Pi likely accessed via IP, localhost might fail if the browser is remote.
+    // It should be `window.location.hostname + ":5000"` if we are accessing port 3000 but want port 5000,
+    // OR if we are using the proxy, just path.
+    // However, the guide explicitly said `io("http://localhost:5000")`. I will use a smarter default that works for remote access.
+    // If we are on port 3000 (dev), we want port 5000 on the same hostname.
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const port = "5000"; // Backend port
+    const url = `${protocol}//${hostname}:${port}`;
+
+    const socket = io(url);
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      setError("");
+      console.log("WS Connected");
+    });
+
+    socket.on("io_update", (packet) => {
+      // packet = { category: "temps", key: "t1", val: 23.5 }
+      setData((prev) => {
+        if (!prev) return prev;
+        // Deep copy state to ensure React triggers re-render
+        // We need to be careful with deep copying.
+        const next = { ...prev, state: { ...prev.state } };
+
+        // Ensure category exists
+        if (!next.state[packet.category]) {
+            next.state[packet.category] = {};
+        } else {
+            next.state[packet.category] = { ...next.state[packet.category] };
+        }
+
+        // Update value
+        next.state[packet.category][packet.key] = packet.val;
+        return next;
+      });
+    });
+
+    socket.on("disconnect", () => setError("WS Disconnected"));
+
+    return () => socket.disconnect();
+  }, [mode]);
+
+  return { data, error };
+}
+
 /**
  * App Component.
  *
@@ -101,9 +192,19 @@ import AlarmsScreen from "./components/AlarmsScreen";
  */
 function App() {
   const [view, setView] = useState("HOME");
-  const [data, setData] = useState(null);
+  // NEW: State for the toggle
+  const [commMode, setCommMode] = useState("SOCKET");
+
+  // NEW: Use the hook instead of the old useEffect
+  const { data, error: pollError } = useHybridData(commMode);
+
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  // We can merge pollError into a general error display or keep them separate.
+  // The original app had a single `error` state.
+  // Let's use `pollError` if `error` is empty, or manage it locally.
+  const [cmdError, setCmdError] = useState("");
+  const error = cmdError || pollError;
+
   const [history, setHistory] = useState([]);
   const HISTORY_RETENTION_MS = 1000 * 60 * 60 * 24 * 7; // keep a rolling 7-day window
   const keypad = useKeypad();
@@ -126,50 +227,36 @@ function App() {
     fetchHistory();
   }, []);
 
-  // Status polling
+  // --- NEW: History Snapshot Effect ---
+  // This runs every 1 second, regardless of how 'data' arrived (Poll or WS)
   useEffect(() => {
-    let stop = false;
+    if (!data) return;
 
-    async function poll() {
-      try {
-        const res = await fetch("/api/status");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const json = await res.json();
+    const timer = setInterval(() => {
+      const entry = {
+        t: Date.now(),
+        temps: data.state?.temps || {},
+        relays: data.state?.relays || {},
+        motors: data.state?.motors || {},
+        fans: data.state?.fans || data.state?.cooling || {},
+        pwm: data.state?.pwm || {},
+        manual_duty_z1: data.state?.manual_duty_z1,
+        manual_duty_z2: data.state?.manual_duty_z2,
+        target_z1: data.state?.target_z1,
+        target_z2: data.state?.target_z2,
+        status: data.state?.status,
+        mode: data.state?.mode,
+      };
 
-        if (!stop) {
-          setData(json);
-          setError("");
+      setHistory((prev) => {
+        const cutoff = entry.t - HISTORY_RETENTION_MS;
+        const trimmed = prev.filter((h) => h.t >= cutoff);
+        return [...trimmed, entry];
+      });
+    }, 1000); // Sample rate: 1 second
 
-          const entry = {
-            t: Date.now(),
-            temps: json.state?.temps || {},
-            relays: json.state?.relays || {},
-            motors: json.state?.motors || {},
-            fans: json.state?.fans || json.state?.cooling || {},
-            pwm: json.state?.pwm || {},
-            manual_duty_z1: json.state?.manual_duty_z1,
-            manual_duty_z2: json.state?.manual_duty_z2,
-            target_z1: json.state?.target_z1,
-            target_z2: json.state?.target_z2,
-            status: json.state?.status,
-            mode: json.state?.mode,
-          };
-          setHistory((prev) => {
-            const cutoff = entry.t - HISTORY_RETENTION_MS;
-            const trimmed = prev.filter((h) => h.t >= cutoff);
-            return [...trimmed, entry];
-          });
-        }
-      } catch (e) {
-        if (!stop) setError("Lost connection: " + e.message);
-      } finally {
-        if (!stop) setTimeout(poll, 1000);
-      }
-    }
-
-    poll();
-    return () => { stop = true; };
-  }, []);
+    return () => clearInterval(timer);
+  }, [data]); // Re-creates timer if data object ref changes, but logic holds.
 
   const sendCmd = async (command, value = {}) => {
     setMessage("");
@@ -185,7 +272,7 @@ function App() {
       setMessage(command + " OK");
       return json;
     } catch (e) {
-      setError("Cmd error: " + e.message);
+      setCmdError("Cmd error: " + e.message);
       throw e;
     }
   };
@@ -279,6 +366,27 @@ function App() {
           message ? <span style={{ color: "#2ecc71" }}>{message}</span> :
           "Backend: " + (data ? "connected" : "connecting…")}
         </div>
+
+        {/* Toggle Button */}
+        <div style={{ zIndex: 2000 }}>
+            <button
+                onClick={() => setCommMode(prev => prev === 'POLLING' ? 'SOCKET' : 'POLLING')}
+                style={{
+                padding: "2px 8px",
+                background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
+                color: "white",
+                border: "1px solid #444",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "0.8em",
+                borderRadius: "4px",
+                marginLeft: "10px"
+                }}
+            >
+                {commMode === 'SOCKET' ? '⚡ REAL-TIME' : '🐢 POLLING 1s'}
+            </button>
+        </div>
+
         <div>Mini Hackstruder HMI · v0.4</div>
       </div>
         <KeypadOverlay
