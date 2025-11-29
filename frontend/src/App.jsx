@@ -141,12 +141,22 @@ function useHybridData(mode) {
     // OR if we are using the proxy, just path.
     // However, the guide explicitly said `io("http://localhost:5000")`. I will use a smarter default that works for remote access.
     // If we are on port 3000 (dev), we want port 5000 on the same hostname.
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const port = "5000"; // Backend port
-    const url = `${protocol}//${hostname}:${port}`;
+    // However, with Nginx proxying /socket.io, we can just use relative path (or empty io()).
+    // io() will connect to the same host:port as the page.
+    // If served via Nginx (port 80), it connects to port 80, and Nginx proxies /socket.io -> 5000.
+    // If dev server (port 3000), we still need to point to 5000 directly unless we setup proxy in Vite too.
+    // But for production (Nginx), `io()` is best.
+    // To support both: if port is 3000, force 5000. If port is 80 (prod), use auto-detect.
 
-    const socket = io(url);
+    let socket;
+    if (window.location.port === "3000") {
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname;
+        socket = io(`${protocol}//${hostname}:5000`);
+    } else {
+        socket = io(); // Auto-detect (uses Nginx proxy)
+    }
+
     socketRef.current = socket;
 
     socket.on("connect", () => {
