@@ -1386,16 +1386,58 @@ def control():
 
     with state_lock:
         alarm = state["status"] == "ALARM"
+        active_alarms = state.get("active_alarms", [])
 
-    # Allow setpoint adjustments while latched in ALARM so the operator can
-    # safely reduce heater targets without having to clear alarms first.
-    if alarm and cmd not in (
+    is_critical = False
+    if alarm:
+        is_critical = any(a.get("severity") == "CRITICAL" for a in active_alarms)
+
+    # Always allowed commands regardless of alarm state
+    ALWAYS_ALLOWED = (
         "CLEAR_ALARM",
         "EMERGENCY_STOP",
-        "SET_TARGET",
         "ACKNOWLEDGE_ALARM",
-    ):
-        return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
+        "GPIO_READ",
+    )
+
+    # Commands allowed in ALARM state ONLY if the alarm is NOT critical (i.e., Warnings).
+    # This whitelist enables the user to:
+    # 1. Switch to MANUAL mode (SET_MODE) to bypass certain checks or handle the machine manually.
+    # 2. Fix configuration issues (UPDATE_*, SET_*_SETTINGS) that might be causing the alarm.
+    # 3. Control non-heater actuators (Relays, Peltier, Motors) if safe/manual.
+    # Note: SET_MOTOR and SET_PWM_OUTPUT have their own internal safety checks (temp freshness),
+    # so they remain safe to unblock here. SET_HEATER is intentionally excluded to prevent
+    # unmonitored heating during an alarm.
+    WARNING_ALLOWED = (
+        "SET_TARGET",
+        "SET_MODE",
+        "SET_MOTOR",
+        "SET_RELAY",
+        "SET_PELTIER",
+        "SET_PWM_OUTPUT",
+        "MOVE_MOTOR_STEPS",
+        "STOP_MANUAL_MOVE",
+        "UPDATE_PID",
+        "UPDATE_PINS",
+        "SET_PIN_NAME",
+        "UPDATE_EXTRUDER_SEQ",
+        "UPDATE_DM556",
+        "SET_TEMP_SETTINGS",
+        "SET_LOGGING_SETTINGS",
+        "UPDATE_MOTION_CONFIG",
+        "SET_SENSOR_CALIBRATION",
+        "SAVE_CONFIG",
+        "GPIO_CONFIG",
+        "GPIO_WRITE",
+    )
+
+    if alarm:
+        if cmd in ALWAYS_ALLOWED:
+            pass
+        elif not is_critical and cmd in WARNING_ALLOWED:
+            pass
+        else:
+            return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
 
     if cmd == "SET_MODE":
         mode = req.get("mode")
