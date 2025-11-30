@@ -1,6 +1,6 @@
 // file: frontend/src/components/HistoryScreen.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 const SERIES_DEFS = [
   { key: "t1", label: "Zone 1 Temp", color: "#e74c3c", unit: "°C", accessor: (h) => h.temps?.t1, axis: "right" },
@@ -660,7 +660,7 @@ function HistoryScreen({ history }) {
   const pauseLive = () => setLiveMode(false);
 
   return (
-    <div>
+    <div style={styles.container}>
       <div style={styles.panel}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px" }}>
           <div>

@@ -1,6 +1,6 @@
 // file: frontend/src/components/SequencingConfig.jsx
 import React, { useMemo, useState } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 export const SEQUENCE_PHASES = [
   { key: "startup", label: "Startup" },

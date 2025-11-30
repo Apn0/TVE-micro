@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/SettingsScreen.jsx
 import React, { useState, useEffect } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 import DipSwitchBlock from "./DipSwitchBlock";
 import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 import SequencingConfig, { normalizeSequenceConfig } from "./SequencingConfig";
@@ -103,7 +103,7 @@ function SettingsScreen({ data, sendCmd, setView }) {
   const adc = data.config?.adc || {};
 
   return (
-    <div>
+    <div style={styles.container}>
 
       <div style={{ ...styles.panel, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
