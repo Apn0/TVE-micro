@@ -5,8 +5,6 @@ This document consolidates pending tasks and technical debt identified from code
 ## High Priority (Stability & Safety)
 
 ### Backend Logic
-- [ ] **Fix unconditional STOPPING transition**: In `control_loop` (`backend/app.py`), the `else` clause unconditionally sets status to `STOPPING` if not `STARTING` or `RUNNING`, causing oscillation. Guard this transition to respect explicit stop events.
-- [ ] **Fix Sensor Parsing Crash**: Remove duplicate `_validate_sensor_section` helper in `backend/app.py` and fix the call signature in `_validate_sensors` to prevent crashes during config load.
 - [ ] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
 - [ ] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
 - [ ] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
