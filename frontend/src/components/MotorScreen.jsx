@@ -5,36 +5,128 @@ import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 
 const rpmDisplay = (rpm) => `${rpm?.toFixed(0) ?? 0} RPM`;
 
+// Helper components moved outside to prevent re-mounting issues
+const MainControlContent = ({ rpm, setRpm, sendCmd }) => (
+    <div>
+      <h4 style={{ color: "#dfe6ec", margin: "0 0 6px 0" }}>Target RPM</h4>
+      <input
+          type="range"
+          min="0"
+          max="120"
+          step="1"
+          value={rpm}
+          onChange={(e) => setRpm(parseFloat(e.target.value))} // Update local state for smooth slider
+          onMouseUp={(e) => sendCmd("SET_MOTOR", { motor: "main", rpm: parseFloat(e.target.value) })} // Send command on release
+          onTouchEnd={(e) => sendCmd("SET_MOTOR", { motor: "main", rpm: parseFloat(e.target.value) })}
+          style={{ width: "100%", marginBottom: "10px" }}
+      />
+      <div style={{ textAlign: "center", marginBottom: "10px", fontSize: "1.2em", fontWeight: "bold", color: "#fff" }}>
+          {rpmDisplay(rpm)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+           {[15, 30, 60, 90].map((preset) => (
+              <button
+                key={preset}
+                style={styles.buttonSecondary}
+                onClick={() => {
+                    setRpm(preset);
+                    sendCmd("SET_MOTOR", { motor: "main", rpm: preset });
+                }}
+              >
+                {preset}
+              </button>
+            ))}
+      </div>
+      <button
+          style={{ ...styles.buttonSecondary, width: "100%", marginTop: "8px", background: "#e74c3c" }}
+          onClick={() => {
+              setRpm(0);
+              sendCmd("SET_MOTOR", { motor: "main", rpm: 0 });
+          }}
+      >
+          STOP
+      </button>
+    </div>
+);
+
+const FeedControlContent = ({ rpm, setRpm, sendCmd, mainRpm }) => (
+    <div>
+      <h4 style={{ color: "#dfe6ec", margin: "0 0 6px 0" }}>Target RPM</h4>
+      <input
+          type="range"
+          min="0"
+          max="60"
+          step="1"
+          value={rpm}
+          onChange={(e) => setRpm(parseFloat(e.target.value))}
+          onMouseUp={(e) => sendCmd("SET_MOTOR", { motor: "feed", rpm: parseFloat(e.target.value) })}
+          onTouchEnd={(e) => sendCmd("SET_MOTOR", { motor: "feed", rpm: parseFloat(e.target.value) })}
+          style={{ width: "100%", marginBottom: "10px" }}
+      />
+      <div style={{ textAlign: "center", marginBottom: "10px", fontSize: "1.2em", fontWeight: "bold", color: "#fff" }}>
+          {rpmDisplay(rpm)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+           {[5, 10, 20, 40].map((preset) => (
+              <button
+                key={preset}
+                style={styles.buttonSecondary}
+                onClick={() => {
+                    setRpm(preset);
+                    sendCmd("SET_MOTOR", { motor: "feed", rpm: preset });
+                }}
+              >
+                {preset}
+              </button>
+            ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "8px" }}>
+          <button style={styles.buttonSecondary} onClick={() => {
+              setRpm(mainRpm);
+              sendCmd("SET_MOTOR", { motor: "feed", rpm: mainRpm });
+          }}>
+              Match
+          </button>
+          <button style={{...styles.buttonSecondary, background: "#e74c3c"}} onClick={() => {
+              setRpm(0);
+              sendCmd("SET_MOTOR", { motor: "feed", rpm: 0 });
+          }}>
+              Stop
+          </button>
+      </div>
+    </div>
+);
+
 /**
  * MotorScreen Component.
  *
  * Provides comprehensive control and monitoring for the main screw motor and feeder motor.
+ * Uses a schematic-based layout for primary controls and detailed panels for configuration.
  *
  * Features:
- * - Live monitoring of RPM and calculated steps/second.
- * - Slider and preset controls for setting motor speeds.
- * - Configuration interface for DM556 stepper driver settings (Microsteps, Peak Current).
- * - Visual DIP switch representation based on driver settings.
- * - Manual jogging controls (CW/CCW, specific steps/rotations).
- * - Display of acceleration and ramp settings.
- *
- * @param {object} props - Component props.
- * @param {object} props.data - Current system state and configuration.
- * @param {function} props.sendCmd - Function to send API commands.
- * @param {object} props.keypad - The keypad hook object.
+ * - Schematic visualization of Extruder and Feeder.
+ * - Overlay interactive cards for Main Motor and Feeder Motor control.
+ * - Configuration interface for DM556 stepper driver settings.
+ * - Manual jogging controls.
  */
 function MotorScreen({ data, sendCmd, keypad }) {
   const motors = data.state?.motors || {};
   const temps = data.state?.temps || {};
   const motionConfig = data.config?.motion || data.config?.motors || {};
+
+  // Local state for controls
   const [mainRpm, setMainRpm] = useState(motors.main ?? 0);
   const [feedRpm, setFeedRpm] = useState(motors.feed ?? 0);
+
+  // Local state for manual jog settings
   const [mainManualSteps, setMainManualSteps] = useState(100);
   const [feedManualSteps, setFeedManualSteps] = useState(100);
   const [mainManualRotations, setMainManualRotations] = useState(1);
   const [feedManualRotations, setFeedManualRotations] = useState(1);
   const [mainManualSpeed, setMainManualSpeed] = useState(1000);
   const [feedManualSpeed, setFeedManualSpeed] = useState(1000);
+
+  // Driver settings
   const [dm, setDm] = useState({
     ...DEFAULT_DM556,
     ...(data.config?.dm556 || {}),
@@ -43,16 +135,22 @@ function MotorScreen({ data, sendCmd, keypad }) {
   const [expandedCard, setExpandedCard] = useState(null);
   const overlayRef = useRef(null);
 
+  // Sync state with props
   useEffect(() => {
-    setMainRpm(motors.main ?? 0);
-    setFeedRpm(motors.feed ?? 0);
-  }, [motors.main, motors.feed]);
+    // Only update if not currently interacting (optional optimization, but here we just sync)
+    // Actually, to prevent slider jumping while dragging due to external updates,
+    // we might want to check focus or similar, but for now simple sync is standard.
+    // However, if we drag, we update local state. If a poll happens, it might overwrite.
+    // For now, we sync. The slider uses onMouseUp to commit.
+    if (expandedCard === null) {
+        setMainRpm(motors.main ?? 0);
+        setFeedRpm(motors.feed ?? 0);
+    }
+  }, [motors.main, motors.feed, expandedCard]);
 
   const dmFromConfig = data.config?.dm556;
-
   useEffect(() => {
     if (!dmFromConfig) return;
-
     setDm((prev) => {
       const next = { ...DEFAULT_DM556, ...dmFromConfig };
       if (
@@ -62,18 +160,16 @@ function MotorScreen({ data, sendCmd, keypad }) {
       ) {
         return prev;
       }
-
       return next;
     });
-  }, [dmFromConfig?.current_peak, dmFromConfig?.microsteps, dmFromConfig?.idle_half]);
+  }, [dmFromConfig]);
 
+  // Click outside listener for closing expanded cards
   useEffect(() => {
     if (!expandedCard) return undefined;
 
     const handleClick = (event) => {
-      // Check if click was inside overlay box (overlayRef)
       const insideOverlay = overlayRef.current && overlayRef.current.contains(event.target);
-
       if (!insideOverlay) {
         setExpandedCard(null);
         keypad?.closeKeypad?.();
@@ -84,27 +180,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
     return () => document.removeEventListener("click", handleClick);
   }, [expandedCard, keypad]);
 
-  const microstepOptions = useMemo(
-    () => Object.keys(DM556_TABLE.steps).map(Number).sort((a, b) => a - b),
-    []
-  );
-  const currentOptions = useMemo(
-    () => Object.keys(DM556_TABLE.current).map(Number).sort((a, b) => a - b),
-    []
-  );
-
-  const sendMain = (rpm) => {
-    const safeRpm = Math.max(0, rpm);
-    setMainRpm(safeRpm);
-    sendCmd("SET_MOTOR", { motor: "main", rpm: safeRpm });
-  };
-
-  const sendFeed = (rpm) => {
-    const safeRpm = Math.max(0, rpm);
-    setFeedRpm(safeRpm);
-    sendCmd("SET_MOTOR", { motor: "feed", rpm: safeRpm });
-  };
-
+  // Command helpers
   const applyDm = () => {
     sendCmd("UPDATE_DM556", { params: dm });
   };
@@ -122,6 +198,16 @@ function MotorScreen({ data, sendCmd, keypad }) {
     sendCmd("STOP_MANUAL_MOVE", { motor });
   };
 
+  // Calculations
+  const microstepOptions = useMemo(
+    () => Object.keys(DM556_TABLE.steps).map(Number).sort((a, b) => a - b),
+    []
+  );
+  const currentOptions = useMemo(
+    () => Object.keys(DM556_TABLE.current).map(Number).sort((a, b) => a - b),
+    []
+  );
+
   const switchStates = useMemo(() => {
     return {
       swCurr: DM556_TABLE.current[dm.current_peak] || [false, false, false],
@@ -134,23 +220,8 @@ function MotorScreen({ data, sendCmd, keypad }) {
     const rampDown = motionConfig.ramp_down ?? motionConfig.ramp_down_s ?? 0;
     const accelPerSec = motionConfig.max_accel ?? motionConfig.max_accel_per_s ?? 0;
     const accelPerSec2 = motionConfig.max_jerk ?? motionConfig.max_accel_per_s2 ?? 0;
-
-    return {
-      rampUp,
-      rampDown,
-      accelPerSec,
-      accelPerSec2,
-    };
-  }, [
-    motionConfig.max_accel,
-    motionConfig.max_accel_per_s,
-    motionConfig.max_accel_per_s2,
-    motionConfig.max_jerk,
-    motionConfig.ramp_down,
-    motionConfig.ramp_down_s,
-    motionConfig.ramp_up,
-    motionConfig.ramp_up_s,
-  ]);
+    return { rampUp, rampDown, accelPerSec, accelPerSec2 };
+  }, [motionConfig]);
 
   const formatStepsPerSecond = (rpm) => {
     if (!Number.isFinite(rpm)) return "--";
@@ -159,21 +230,24 @@ function MotorScreen({ data, sendCmd, keypad }) {
 
   const stepsPerSecond = useMemo(
     () => ({
-      main: formatStepsPerSecond(mainRpm),
-      feed: formatStepsPerSecond(feedRpm),
+      main: formatStepsPerSecond(motors.main ?? 0),
+      feed: formatStepsPerSecond(motors.feed ?? 0),
     }),
-    [feedRpm, mainRpm, dm.microsteps]
+    [motors.feed, motors.main, dm.microsteps]
   );
 
   const feedRatio = useMemo(() => {
-    if (!mainRpm) return "—";
-    const ratio = (feedRpm / mainRpm) * 100;
+    const m = motors.main ?? 0;
+    const f = motors.feed ?? 0;
+    if (!m) return "—";
+    const ratio = (f / m) * 100;
     if (!Number.isFinite(ratio)) return "—";
-    return `${ratio.toFixed(0)}% of main`;
-  }, [feedRpm, mainRpm]);
+    return `${ratio.toFixed(0)}%`;
+  }, [motors.feed, motors.main]);
 
-  const motorTemp =
-    temps.motor !== undefined ? `${temps.motor.toFixed(1)} °C` : "--.- °C";
+  const motorTemp = temps.motor !== undefined ? `${temps.motor.toFixed(1)} °C` : "--.- °C";
+
+  // --- UI Helpers ---
 
   const sectionGrid = {
     display: "grid",
@@ -182,7 +256,6 @@ function MotorScreen({ data, sendCmd, keypad }) {
   };
 
   const cardTitle = { color: "#dfe6ec", margin: "0 0 6px 0" };
-
   const fieldBox = {
     background: "#111",
     borderRadius: "8px",
@@ -190,6 +263,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
     border: "1px solid #1f2a36",
   };
 
+  // ADDED toggleCardExpansion function here
   const toggleCardExpansion = (key, event) => {
     event.stopPropagation();
     keypad?.closeKeypad?.();
@@ -204,20 +278,12 @@ function MotorScreen({ data, sendCmd, keypad }) {
     keypad?.openKeypad?.(initial, rect, (val) => {
       const num = parseFloat(val);
       if (!Number.isNaN(num) && num >= 0) {
-        // Construct params object based on what changed
-        // We need to send all current values plus the new one, or relies on backend partial updates?
-        // App.py _validate_motion handles partial updates by merging with defaults?
-        // Actually app.py: UPDATE_MOTION_CONFIG does {**current, **params}.
-        // So we can send partial update.
-
-        // Map UI keys to config keys
         const configKeyMap = {
             "rampUp": "ramp_up",
             "rampDown": "ramp_down",
             "accelPerSec": "max_accel",
             "accelPerSec2": "max_jerk"
         };
-
         const paramKey = configKeyMap[key];
         if (paramKey) {
             sendCmd("UPDATE_MOTION_CONFIG", { params: { [paramKey]: num } });
@@ -226,6 +292,93 @@ function MotorScreen({ data, sendCmd, keypad }) {
       setExpandedCard(null);
       keypad?.closeKeypad?.();
     });
+  };
+
+  const renderSchematicCard = ({ key, label, value, color, position, onClick, expandedContent }) => {
+    const isExpanded = expandedCard === key;
+
+    // Base card style similar to HomeScreen
+    const cardStyle = {
+      ...styles.metricCard,
+      minHeight: 80,
+      width: 140,
+      padding: 0,
+      gap: 0,
+      position: "absolute",
+      justifyContent: "flex-start",
+      flexDirection: "column",
+      overflow: "visible", // Allow expansion
+      cursor: onClick ? "pointer" : "default",
+      left: position.left,
+      top: position.top,
+      transform: "translate(-50%, -50%)",
+      pointerEvents: "auto",
+      zIndex: isExpanded ? 100 : 10,
+      borderColor: isExpanded ? "#3498db" : "#1f2a36",
+      boxShadow: isExpanded ? "0 0 0 2px #3498db, 0 10px 30px rgba(0,0,0,0.5)" : "0 8px 16px rgba(0,0,0,0.25)",
+      transition: "all 0.2s ease"
+    };
+
+    return (
+      <div
+        key={key}
+        style={cardStyle}
+        onClick={(e) => {
+            if (onClick) onClick(e);
+        }}
+      >
+        {/* Title Section */}
+        <div style={{
+          padding: "6px 10px",
+          borderBottom: "1px solid #333",
+          background: "rgba(255, 255, 255, 0.05)",
+          width: "100%",
+          boxSizing: "border-box"
+        }}>
+          <div style={{ ...styles.metricLabel, textTransform: "none", fontSize: "0.8em" }}>{label}</div>
+        </div>
+
+        {/* Value Section */}
+        <div style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "8px",
+          width: "100%",
+          boxSizing: "border-box"
+        }}>
+          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#ecf0f1" }}>
+            {value}
+          </div>
+        </div>
+
+        {/* Expanded Content Overlay */}
+        {isExpanded && expandedContent && (
+            <div
+                ref={overlayRef}
+                style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    width: "280px",
+                    background: "#0c0f15",
+                    border: "1px solid #3498db",
+                    borderRadius: "8px",
+                    marginTop: "10px",
+                    padding: "16px",
+                    zIndex: 101,
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.8)",
+                    cursor: "default"
+                }}
+                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+            >
+                {expandedContent}
+            </div>
+        )}
+      </div>
+    );
   };
 
   const renderMotionCard = (key, label, value, unit, hint) => {
@@ -262,7 +415,6 @@ function MotorScreen({ data, sendCmd, keypad }) {
                         cursor: "pointer",
                     }}
                     onClick={(e) => handleMotionValueClick(key, value, e)}
-                    data-testid={`motion-input-${key}`}
                  >
                     <div style={{ ...styles.label, marginBottom: 6 }}>Set {label} ({unit})</div>
                     <div
@@ -289,97 +441,77 @@ function MotorScreen({ data, sendCmd, keypad }) {
   return (
     <div style={styles.container}>
       <div style={styles.panel}>
-        <h2>Motor overview</h2>
+        <h2>Motor Control</h2>
         <p style={{ fontSize: "0.9em", color: "#aaa", marginTop: 4 }}>
-          Live view of commanded speeds, thermal headroom and driver setup.
-          Use the controls below to retune targets or jog each motor safely.
+          Tap on the Main Screw or Feeder cards to adjust speed settings.
         </p>
-        <div style={{ ...styles.metricGrid, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Main screw</div>
-            <div style={styles.metricBig}>{rpmDisplay(mainRpm)}</div>
-            <div style={styles.cardHint}>Steps/s: {stepsPerSecond.main}</div>
-          </div>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Feeder</div>
-            <div style={styles.metricBig}>{rpmDisplay(feedRpm)}</div>
-            <div style={styles.cardHint}>Steps/s: {stepsPerSecond.feed}</div>
-          </div>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Motor NTC</div>
-            <div style={styles.metricBig}>{motorTemp}</div>
-            <div style={styles.cardHint}>Monitor for thermal drift</div>
-          </div>
-          <div style={styles.metricCard}>
-            <div style={styles.metricLabel}>Feed ratio</div>
-            <div style={styles.metricBig}>{feedRatio}</div>
-            <div style={styles.cardHint}>Feeder speed relative to main screw</div>
-          </div>
-        </div>
-      </div>
 
-      <div style={styles.panel}>
-        <h3>Speed targets</h3>
-        <div style={{ ...styles.grid2, gap: "24px" }}>
-          <div>
-            <h4 style={cardTitle}>Main screw</h4>
-            <div style={styles.label}>Target RPM</div>
-            <input
-              type="range"
-              min="0"
-              max="120"
-              step="1"
-              value={mainRpm}
-              onChange={(e) => sendMain(parseFloat(e.target.value))}
-              style={{ width: "100%" }}
-            />
-            <div style={{ ...styles.metricBig, marginTop: 6 }}>{rpmDisplay(mainRpm)}</div>
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {[15, 30, 60, 90, 120].map((preset) => (
-                <button
-                  key={preset}
-                  style={styles.buttonSecondary}
-                  onClick={() => sendMain(preset)}
-                >
-                  {preset} RPM
-                </button>
-              ))}
-              <button style={styles.buttonSecondary} onClick={() => sendMain(0)}>
-                Stop main
-              </button>
-            </div>
-          </div>
-          <div>
-            <h4 style={cardTitle}>Feeder</h4>
-            <div style={styles.label}>Target RPM</div>
-            <input
-              type="range"
-              min="0"
-              max="60"
-              step="1"
-              value={feedRpm}
-              onChange={(e) => sendFeed(parseFloat(e.target.value))}
-              style={{ width: "100%" }}
-            />
-            <div style={{ ...styles.metricBig, marginTop: 6 }}>{rpmDisplay(feedRpm)}</div>
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {[5, 10, 20, 40, 60].map((preset) => (
-                <button
-                  key={preset}
-                  style={styles.buttonSecondary}
-                  onClick={() => sendFeed(preset)}
-                >
-                  {preset} RPM
-                </button>
-              ))}
-              <button style={styles.buttonSecondary} onClick={() => sendFeed(mainRpm)}>
-                Match main
-              </button>
-              <button style={styles.buttonSecondary} onClick={() => sendFeed(0)}>
-                Stop feeder
-              </button>
-            </div>
-          </div>
+        <div style={{ marginTop: 20, position: "relative", minHeight: 400 }}>
+             <svg width="100%" viewBox="0 0 600 300" style={{ display: "block" }}>
+                {/* Feeder Hopper (Funnel) */}
+                <path d="M 80 80 L 160 80 L 140 140 L 100 140 Z" fill="#7f8c8d" />
+                <rect x="90" y="20" width="60" height="60" fill="#95a5a6" rx="4" />
+                <text x="120" y="55" textAnchor="middle" fill="#2c3e50" fontSize="10" fontWeight="bold">FEEDER</text>
+
+                {/* Connection to Barrel */}
+                <rect x="110" y="140" width="20" height="40" fill="#7f8c8d" />
+
+                {/* Barrel */}
+                <rect x="110" y="180" width="450" height="40" fill="#555" rx="4" />
+
+                {/* Main Motor / Gearbox */}
+                <rect x="40" y="160" width="80" height="80" fill="#34495e" rx="4" />
+                <text x="80" y="205" textAnchor="middle" fill="#ecf0f1" fontSize="10" fontWeight="bold">MAIN</text>
+
+                {/* Screw Hint */}
+                 <line x1="120" y1="200" x2="550" y2="200" stroke="#7f8c8d" strokeWidth="2" strokeDasharray="5,5" />
+             </svg>
+
+             {/* Cards */}
+             {renderSchematicCard({
+                 key: "feed",
+                 label: "Feeder",
+                 value: rpmDisplay(motors.feed ?? 0),
+                 color: motors.feed > 0 ? "#2ecc71" : "#7f8c8d",
+                 position: { left: "20%", top: "15%" },
+                 onClick: (e) => toggleCardExpansion("feed", e),
+                 expandedContent: <FeedControlContent
+                     rpm={feedRpm}
+                     setRpm={setFeedRpm}
+                     sendCmd={sendCmd}
+                     mainRpm={motors.main ?? 0}
+                 />
+             })}
+
+             {renderSchematicCard({
+                 key: "main",
+                 label: "Main screw",
+                 value: rpmDisplay(motors.main ?? 0),
+                 color: motors.main > 0 ? "#2ecc71" : "#7f8c8d",
+                 position: { left: "15%", top: "75%" },
+                 onClick: (e) => toggleCardExpansion("main", e),
+                 expandedContent: <MainControlContent
+                     rpm={mainRpm}
+                     setRpm={setMainRpm}
+                     sendCmd={sendCmd}
+                 />
+             })}
+
+             {renderSchematicCard({
+                 key: "ratio",
+                 label: "Feed Ratio",
+                 value: feedRatio,
+                 color: "#ecf0f1",
+                 position: { left: "45%", top: "15%" },
+             })}
+
+             {renderSchematicCard({
+                 key: "temp",
+                 label: "Motor NTC",
+                 value: motorTemp,
+                 color: temps.motor > 60 ? "#e74c3c" : "#ecf0f1",
+                 position: { left: "45%", top: "75%" },
+             })}
         </div>
       </div>
 
