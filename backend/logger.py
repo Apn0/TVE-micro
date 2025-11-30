@@ -5,6 +5,7 @@ import math
 import json
 import logging
 from datetime import datetime
+from backend.metrics import LOGGER_WRITE_FAILURES_TOTAL
 
 
 class DataLogger:
@@ -212,14 +213,16 @@ class DataLogger:
                 os.fsync(self.file_handle.fileno())
                 return True
             except OSError as exc:
+                LOGGER_WRITE_FAILURES_TOTAL.inc()
                 self._emit_event(
                     "ERROR",
-                    "flush_failed",
+                    "data_logger_error",
                     {
                         "attempt": attempt,
                         "file": self.current_file,
                         "error": str(exc),
                         "buffer_size": len(self.buffer),
+                        "type": "flush_failed"
                     },
                 )
                 self._reopen_current_file()

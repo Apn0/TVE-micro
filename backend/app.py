@@ -38,6 +38,12 @@ from backend.alarm_utils import (
     save_alarms_to_disk,
     create_alarm_object,
 )
+from backend.metrics import (
+    API_VALIDATION_ERRORS_TOTAL,
+    SYSTEM_STATE,
+)
+from prometheus_client import make_wsgi_app
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
@@ -485,8 +491,9 @@ def load_config():
                 raw_cfg = json.load(f)
             return validate_config(raw_cfg)
         except Exception:
-            app_logger.exception("Failed to load config.json")
-            sys.exit(1)
+            app_logger.exception("config_load_failed")
+            print("Falling back to system defaults due to config error.")
+            return validate_config({})
     else:
         print(f"Configuration file {CONFIG_FILE} not found.")
         try:
@@ -581,6 +588,11 @@ CORS(app)
 
 # Initialize SocketIO in 'threading' mode to work with your existing threads
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# Add prometheus wsgi middleware to export metrics at /metrics
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
 
 
 def _safe_float(val: object) -> float | None:
@@ -717,6 +729,12 @@ def _set_status(new_status: str):
             state["seq_start_time"] = 0.0
         elif current_status != new_status:
             state["seq_start_time"] = time.time()
+            app_logger.info(f"state_transition: {current_status} -> {new_status}")
+
+    try:
+        SYSTEM_STATE.state(new_status)
+    except Exception:
+        pass
 
 
 def _latch_alarm(reason: str):
@@ -1361,8 +1379,12 @@ def gpio_control():
             value = int(req.get("value"))
             hal.set_gpio_value(pin, value)
     except (ValueError, TypeError):
+        API_VALIDATION_ERRORS_TOTAL.inc()
+        app_logger.warning("api_validation_failed: INVALID_PIN_OR_VALUE")
         return jsonify({"success": False, "msg": "INVALID_PIN_OR_VALUE"}), 400
     if cmd not in ("SET_GPIO_MODE", "SET_GPIO_VALUE"):
+        API_VALIDATION_ERRORS_TOTAL.inc()
+        app_logger.warning("api_validation_failed: UNKNOWN_GPIO_COMMAND")
         return jsonify({"success": False, "msg": "UNKNOWN_GPIO_COMMAND"})
 
     return jsonify({"success": True})
@@ -1437,11 +1459,15 @@ def control():
         elif not is_critical and cmd in WARNING_ALLOWED:
             pass
         else:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: ALARM_ACTIVE")
             return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
 
     if cmd == "SET_MODE":
         mode = req.get("mode")
         if mode not in ("AUTO", "MANUAL"):
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: INVALID_MODE")
             return jsonify({"success": False, "msg": "INVALID_MODE"})
         with state_lock:
             state["mode"] = mode
@@ -1453,11 +1479,15 @@ def control():
         if "z1" in req:
             t = _coerce_finite(req.get("z1"))
             if t is None:
+                API_VALIDATION_ERRORS_TOTAL.inc()
+                app_logger.warning("api_validation_failed: INVALID_TARGET (z1)")
                 return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
             target_z1 = t
         if "z2" in req:
             t = _coerce_finite(req.get("z2"))
             if t is None:
+                API_VALIDATION_ERRORS_TOTAL.inc()
+                app_logger.warning("api_validation_failed: INVALID_TARGET (z2)")
                 return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
             target_z2 = t
 
@@ -1471,8 +1501,12 @@ def control():
         zone = req.get("zone")
         duty = _coerce_finite(req.get("duty", 0))
         if zone not in ("z1", "z2"):
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: INVALID_ZONE")
             return jsonify({"success": False, "msg": "INVALID_ZONE"})
         if duty is None or duty < MIN_HEATER_DUTY or duty > MAX_HEATER_DUTY:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: INVALID_DUTY")
             return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
         hal.set_heater_duty(zone, duty)
         with state_lock:
@@ -1487,11 +1521,25 @@ def control():
         motor = req.get("motor")
         rpm = _coerce_finite(req.get("rpm", 0))
         if rpm is None:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: INVALID_RPM (None)")
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
         if motor not in ("main", "feed"):
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: INVALID_MOTOR")
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         if abs(rpm) > MAX_MOTOR_RPM:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning(f"api_validation_failed: INVALID_RPM ({rpm})")
             return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
+
+        # Debounce to prevent motor toggle spam
+        motor_key = f"motor_{motor}"
+        last_toggle = relay_toggle_times.get(motor_key, 0.0)
+        if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
+             return jsonify({"success": False, "msg": "MOTOR_DEBOUNCE"}), 429
+        relay_toggle_times[motor_key] = request_time
+
         with state_lock:
             temps = dict(state["temps"])
             temps_timestamp = state.get("temps_timestamp", 0.0)
