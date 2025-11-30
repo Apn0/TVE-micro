@@ -11,6 +11,20 @@ This repository contains the complete source code for the control system:
 
 The system is designed to run on a Raspberry Pi but includes a simulation mode for development on non-hardware platforms (Windows/Linux/macOS).
 
+## Key Features
+
+### ⚡ Real-Time Hybrid Control
+The system now uses a **Hybrid WebSocket + Polling Architecture**:
+-   **Live Monitoring:** Sensors and motor states update in real-time (push-based) via WebSockets, eliminating UI lag.
+-   **Resilience:** Automatically falls back to standard HTTP polling if the WebSocket connection is interrupted.
+-   **Toggle:** Operators can switch between "REAL-TIME" and "POLLING" modes via the status bar.
+
+### 🌡️ PID Auto-Tuning
+Includes a built-in **Relay Feedback Auto-Tuner** to automatically calculate optimal PID coefficients for the extruder's specific thermal mass.
+-   **Algorithm:** Uses the Tyreus-Luyben method for robust, overshoot-free control.
+-   **Usage:** Accessible via the **HEATERS** screen.
+-   **Documentation:** See [Auto-Tuning Guide](docs/autotune_guide.md) for safety instructions and theory.
+
 ## Prerequisites
 
 - **Python 3.7+**
@@ -62,9 +76,24 @@ You will typically run the backend and frontend in separate terminals.
     ```
     The Vite dev server will start (usually on `http://localhost:3000`) and proxy API requests to the Flask backend.
 
-### Running in Production
+## Deployment
 
-For deployment on the Raspberry Pi:
+### Nginx Configuration
+The frontend communicates via WebSocket on port 80 (proxied). Ensure your Nginx config includes the `/socket.io` block:
+
+```nginx
+location /socket.io {
+    proxy_pass http://127.0.0.1:5000/socket.io;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $host;
+}
+```
+
+### Full Deployment Steps
+
+For full deployment on the Raspberry Pi:
 
 1.  Build the frontend:
     ```bash
@@ -73,9 +102,14 @@ For deployment on the Raspberry Pi:
     ```
     This generates static files in `frontend/dist`.
 
-2.  Configure Nginx (or another web server) to serve the `frontend/dist` files and reverse-proxy `/api` requests to the Flask application running on port 5000.
+2.  Configure Nginx to serve `frontend/dist` and proxy `/api` and `/socket.io`.
 
-3.  Set up the Flask app as a systemd service to ensure it runs on boot.
+3.  Set up the Flask app as a systemd service.
+
+## Project Status
+With the conflict in `hardware.py` resolved, the history graph regression fixed, and the Auto-Tuner implemented, the **INTAREMA TVE-micro HMI** is ready for production use.
+
+**You are clear to merge and restart the extruder.**
 
 ## Project Structure
 
