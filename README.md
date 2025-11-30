@@ -122,5 +122,6 @@ npx playwright test
 ## Documentation
 
 - **User Guide**: `docs/user_guide.md`
+- **Auto-Tuner Guide**: `docs/autotune_guide.md`
 - **API Reference**: `docs/api_reference.md`
 - **Runbooks**: `docs/runbooks.md`
