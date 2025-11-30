@@ -22,6 +22,7 @@ import { styles } from "../styles";
  * - Configuration table for each ADC channel (Enabled, Logical Name, Calibration Params).
  * - Buttons to apply configuration changes to the backend.
  * - Local state management to prevent overwriting edits during polling.
+ * - Button to set R_fixed for all channels locally.
  *
  * @param {object} props - Component props.
  * @param {object} props.data - Current system state and configuration.
@@ -196,21 +197,21 @@ function SensorsScreen({ data, sendCmd }) {
             fontSize: "0.9em",
           }}
         >
-          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
             <div style={styles.label}>ADC enabled</div>
             <div style={styles.metricBig}>{adc.enabled ? "Yes" : "No"}</div>
           </div>
-          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
             <div style={styles.label}>Bus</div>
             <div style={styles.metricBig}>{adc.bus ?? "-"}</div>
           </div>
-          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
             <div style={styles.label}>Address</div>
             <div style={styles.metricBig}>
               {adc.address !== undefined ? `0x${adc.address.toString(16)}` : "-"}
             </div>
           </div>
-          <div style={{ background: "#151a21", padding: "12px", borderRadius: 8, border: "1px solid #1f2a36" }}>
+          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
             <div style={styles.label}>FSR (read-only)</div>
             <div style={styles.metricBig}>{adc.fsr ?? "-"} V</div>
           </div>
