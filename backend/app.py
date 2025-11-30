@@ -26,11 +26,13 @@ if REPO_ROOT not in sys.path:
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO
 
 from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
 from backend.logger import DataLogger
 from backend.pid import PID
+from backend.autotune import AutoTuner
 from backend.alarm_utils import (
     load_alarms_from_disk,
     save_alarms_to_disk,
@@ -543,6 +545,8 @@ logger.configure(sys_config.get("logging", {}))
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
 pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
 
+auto_tuner = AutoTuner()
+
 state = {
     "status": "READY",
     "mode": "AUTO",
@@ -574,6 +578,9 @@ TOGGLE_DEBOUNCE_SEC = 0.25
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize SocketIO in 'threading' mode to work with your existing threads
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 
 def _safe_float(val: object) -> float | None:
@@ -766,6 +773,37 @@ def _ensure_hal_started():
 last_btn_start_state = False
 last_btn_stop_state = False
 
+def emit_change(category, key, value, state_obj):
+    """
+    Updates state_obj and emits a WebSocket event if the value changed.
+    """
+    # Initialize category if missing
+    if category not in state_obj:
+        state_obj[category] = {}
+
+    old_val = state_obj[category].get(key)
+
+    # Update the internal state (so polling still works!)
+    state_obj[category][key] = value
+
+    # If value changed, push to WebSocket clients
+    # (We use a small epsilon for floats to avoid noise)
+    changed = False
+    if old_val is None:
+        changed = True
+    elif isinstance(value, float) and isinstance(old_val, float):
+        if abs(value - old_val) > 0.001:
+            changed = True
+    elif value != old_val:
+        changed = True
+
+    if changed:
+        socketio.emit('io_update', {
+            "category": category,
+            "key": key,
+            "val": value
+        })
+
 def control_loop():
     """
     Main background thread loop for system control.
@@ -845,8 +883,26 @@ def control_loop():
             temps = hal.get_temps()
 
             with state_lock:
-                state["temps"] = temps
+                # 1. Update Temperatures via emit_change
+                for sensor, val in temps.items():
+                    emit_change("temps", sensor, val, state)
+
                 state["temps_timestamp"] = hal.get_last_temp_timestamp() or now
+
+                # 2. Update Motors (get current RPMs from HAL)
+                # We assume HAL has current values stored in self.motors
+                emit_change("motors", "main", hal.motors.get("main", 0.0), state)
+                emit_change("motors", "feed", hal.motors.get("feed", 0.0), state)
+
+                # 3. Update Relays
+                emit_change("relays", "fan", hal.relays.get("fan", False), state)
+                emit_change("relays", "pump", hal.relays.get("pump", False), state)
+
+                # 4. Update PWM
+                for ch_name, duty in hal.pwm_outputs.items():
+                    emit_change("pwm", ch_name, duty, state)
+
+                # Standard status updates
                 status = state["status"]
                 mode = state["mode"]
                 target_z1 = state["target_z1"]
@@ -1011,27 +1067,65 @@ def control_loop():
             t2 = temps.get("t2")
             t3 = temps.get("t3")
 
-            pid_z1.setpoint = target_z1
-            pid_z2.setpoint = target_z2
+            # --- Check AutoTuner ---
+            if auto_tuner.active:
+                # Determine which sensor we are tuning
+                tune_input = t2 if auto_tuner.zone_name == 'z1' else t3
 
-            def apply_heater(temp_val, controller, heater_name):
-                if temp_val is None:
-                    controller.reset()
-                    hal.set_heater_duty(heater_name, 0.0)
+                # Update Tuner
+                tune_out = auto_tuner.update(tune_input)
+
+                if tune_out is not None:
+                    # Tuner is controlling this zone
+                    if auto_tuner.zone_name == 'z1':
+                        hal.set_heater_duty("z1", tune_out)
+                        with state_lock:
+                            state["heater_duty_z1"] = tune_out
+                            # Force other PID to track/reset to avoid windup
+                            pid_z1.reset()
+
+                    elif auto_tuner.zone_name == 'z2':
+                        hal.set_heater_duty("z2", tune_out)
+                        with state_lock:
+                            state["heater_duty_z2"] = tune_out
+                            pid_z2.reset()
+
+                    # Update status in state for frontend
                     with state_lock:
-                        state[f"heater_duty_{heater_name}"] = 0.0
-                    return
+                        state["autotune_status"] = auto_tuner.state
+                        state["autotune_cycle"] = auto_tuner.cycle_count
 
-                out = controller.compute(temp_val)
-                if out is None:
-                    return
+                # If tuner finished just now
+                if auto_tuner.state in ("DONE", "FAILED") and not auto_tuner.active:
+                    with state_lock:
+                        state["autotune_status"] = auto_tuner.state
+                        if auto_tuner.state == "DONE":
+                            res = auto_tuner.get_pid_suggestions()
+                            state["autotune_result"] = res
 
-                hal.set_heater_duty(heater_name, out)
-                with state_lock:
-                    state[f"heater_duty_{heater_name}"] = out
+            else:
+                # --- Standard PID Logic ---
+                pid_z1.setpoint = target_z1
+                pid_z2.setpoint = target_z2
 
-            apply_heater(t2, pid_z1, "z1")
-            apply_heater(t3, pid_z2, "z2")
+                def apply_heater(temp_val, controller, heater_name):
+                    if temp_val is None:
+                        controller.reset()
+                        hal.set_heater_duty(heater_name, 0.0)
+                        with state_lock:
+                            state[f"heater_duty_{heater_name}"] = 0.0
+                        return
+
+                    out = controller.compute(temp_val)
+                    if out is None:
+                        return
+
+                    hal.set_heater_duty(heater_name, out)
+                    with state_lock:
+                        state[f"heater_duty_{heater_name}"] = out
+
+                apply_heater(t2, pid_z1, "z1")
+                apply_heater(t3, pid_z2, "z2")
 
         elif mode == "MANUAL":
             # In manual mode, ensure the hardware reflects the state
@@ -1825,6 +1919,63 @@ def control():
 
     return jsonify({"success": True})
 
+@app.route("/api/tune/start", methods=["POST"])
+def tune_start():
+    req = request.get_json(force=True) or {}
+    zone = req.get("zone")
+    setpoint = _safe_float(req.get("setpoint", 100.0))
+
+    if zone not in ("z1", "z2"):
+        return jsonify({"success": False, "msg": "INVALID_ZONE"}), 400
+
+    auto_tuner.start(zone, setpoint)
+    with state_lock:
+        state["autotune_status"] = "STARTING"
+        state["autotune_result"] = None
+
+    return jsonify({"success": True})
+
+@app.route("/api/tune/stop", methods=["POST"])
+def tune_stop():
+    auto_tuner.stop()
+    with state_lock:
+        state["autotune_status"] = "IDLE"
+    return jsonify({"success": True})
+
+@app.route("/api/tune/apply", methods=["POST"])
+def tune_apply():
+    """Apply the calculated PID values to the config."""
+    with state_lock:
+        res = state.get("autotune_result")
+
+    if not res:
+        return jsonify({"success": False, "msg": "NO_RESULT"}), 400
+
+    zone = auto_tuner.zone_name # Last tuned zone
+    if not zone:
+        return jsonify({"success": False, "msg": "UNKNOWN_ZONE"}), 400
+
+    # Apply to runtime PID
+    target_pid = pid_z1 if zone == 'z1' else pid_z2
+    target_pid.kp = res['kp']
+    target_pid.ki = res['ki']
+    target_pid.kd = res['kd']
+    target_pid.reset()
+
+    # Save to Config
+    sys_config[zone]['kp'] = res['kp']
+    sys_config[zone]['ki'] = res['ki']
+    sys_config[zone]['kd'] = res['kd']
+
+    # Trigger save to disk
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(sys_config, f, indent=4)
+    except Exception:
+        app_logger.exception("Failed to save config")
+
+    return jsonify({"success": True})
+
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     host = os.getenv("FLASK_RUN_HOST", "127.0.0.1")
@@ -1842,4 +1993,6 @@ if __name__ == "__main__":
         port,
         "eager" if eager_start else "lazy",
     )
-    app.run(host=host, port=port, debug=debug)
+    # USE socketio.run INSTEAD OF app.run
+    app_logger.info("Starting Hybrid Server (HTTP + WebSocket)")
+    socketio.run(app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)

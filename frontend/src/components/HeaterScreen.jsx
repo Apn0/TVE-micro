@@ -28,14 +28,38 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const [targetZ1, setTargetZ1] = useState(validateSetpoint(data.state?.target_z1));
   const [targetZ2, setTargetZ2] = useState(validateSetpoint(data.state?.target_z2));
   const [expandedZone, setExpandedZone] = useState(null);
+  const [tuneZone, setTuneZone] = useState(null);
   const setpointRef = useRef(null);
   const dutyRef = useRef(null);
   const peltierDutyRef = useRef(null);
+
+  // Extract Autotune state
+  const atStatus = data.state?.autotune_status || "IDLE";
+  const atResult = data.state?.autotune_result;
+  const isTuning = atStatus === "HEATING" || atStatus === "COOLING" || atStatus === "STARTING";
 
   useEffect(() => {
     setTargetZ1(validateSetpoint(data.state?.target_z1));
     setTargetZ2(validateSetpoint(data.state?.target_z2));
   }, [data.state?.target_z1, data.state?.target_z2]);
+
+  const startTune = (zone) => {
+    if (confirm(`Start Auto-Tune for ${zone.toUpperCase()}? This will take 5-10 minutes.`)) {
+      setTuneZone(zone);
+      fetch("/api/tune/start", {
+          method: "POST",
+          body: JSON.stringify({ zone, setpoint: 150 })
+      });
+    }
+  };
+
+  const stopTune = () => {
+    fetch("/api/tune/stop", { method: "POST" });
+  };
+
+  const applyTune = () => {
+    fetch("/api/tune/apply", { method: "POST" });
+  };
 
   const heaterGraph = useMemo(() => {
     if (!history || history.length < 2) return null;
@@ -703,6 +727,63 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
                 </span>
               </div>
             </div>
+
+            {/* Tuning UI */}
+            <div style={{marginTop: 5, borderTop: '1px solid #333', paddingTop: 10}}>
+                {isTuning && tuneZone === zoneKey ? (
+                    <div style={{background: '#d35400', padding: 8, borderRadius: 4, textAlign: 'center'}}>
+                        <div style={{fontWeight: 'bold', color: 'white'}}>TUNING...</div>
+                        <div style={{fontSize: '0.8em', color: '#ecf0f1', marginBottom: 5}}>Status: {atStatus}</div>
+                        <button
+                            onClick={stopTune}
+                            style={{
+                                ...styles.buttonDanger,
+                                marginTop: 5,
+                                width: '100%',
+                                fontSize: '0.9em',
+                                marginRight: 0
+                            }}
+                        >
+                            STOP TUNING
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => startTune(zoneKey)}
+                        disabled={isTuning}
+                        style={{
+                            ...styles.buttonSecondary,
+                            width: '100%',
+                            opacity: isTuning ? 0.3 : 1,
+                            background: '#2c3e50',
+                            border: '1px solid #444'
+                        }}
+                    >
+                        Auto-Tune (Tyreus-Luyben)
+                    </button>
+                )}
+            </div>
+
+            {atStatus === "DONE" && tuneZone === zoneKey && atResult && (
+                <div style={{background: '#27ae60', padding: 8, borderRadius: 4, marginTop: 5}}>
+                    <div style={{fontSize: '0.9em', fontWeight: 'bold', color: 'white', marginBottom: 4}}>Tuning Complete</div>
+                    <div style={{fontSize: '0.8em', color: '#ecf0f1'}}>Kp={atResult.kp}, Ki={atResult.ki}, Kd={atResult.kd}</div>
+                    <button
+                        onClick={applyTune}
+                        style={{
+                            ...styles.button,
+                            width: '100%',
+                            fontSize: '0.9em',
+                            marginTop: 8,
+                            marginRight: 0,
+                            background: '#fff',
+                            color: '#27ae60'
+                        }}
+                    >
+                        APPLY SETTINGS
+                    </button>
+                </div>
+            )}
           </div>
         )}
       </div>
