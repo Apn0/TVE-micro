@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/HomeScreen.jsx
 import React, { useEffect, useState, useMemo } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 import { validateSetpoint } from "../utils/validation";
 
 /**
@@ -185,7 +185,7 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
   };
 
   return (
-    <div className={hasAlarm ? "alarm-glow" : ""}>
+    <div className={hasAlarm ? "alarm-glow" : ""} style={styles.container}>
       {mode === "MANUAL" && (
         <div style={styles.manualBanner}>
           MANUAL MODE - Interlocks/boundaries not enforced. Use carefully.

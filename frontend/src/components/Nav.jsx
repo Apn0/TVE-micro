@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/Nav.jsx
 import React from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 /**
  * Navigation Sidebar Component.

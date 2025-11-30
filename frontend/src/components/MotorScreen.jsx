@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 import DipSwitchBlock from "./DipSwitchBlock";
 import { DM556_TABLE, DEFAULT_DM556 } from "../constants/dm556";
 
@@ -287,7 +287,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
   };
 
   return (
-    <div>
+    <div style={styles.container}>
       <div style={styles.panel}>
         <h2>Motor overview</h2>
         <p style={{ fontSize: "0.9em", color: "#aaa", marginTop: 4 }}>

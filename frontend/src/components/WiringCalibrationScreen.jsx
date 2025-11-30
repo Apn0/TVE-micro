@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 const WIRES = [
   { id: "heater", label: "Heater cartridge", requiresTest: true },
@@ -109,7 +109,7 @@ function WiringCalibrationScreen() {
   );
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto" }}>
+    <div style={styles.container}>
       <h2>Wiring calibration check</h2>
       <p style={{ color: "#ccc", lineHeight: 1.5 }}>
         Confirm each wiring path is reviewed, tested when it is safe to do so,

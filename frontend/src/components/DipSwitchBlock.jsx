@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/DipSwitchBlock.jsx
 import React from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 /**
  * DipSwitchBlock Component.

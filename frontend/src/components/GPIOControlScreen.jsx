@@ -1,6 +1,6 @@
 // file: frontend/src/components/GPIOControlScreen.jsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { styles } from '../App';
+import { styles } from '../styles';
 
 const MODULE_LIBRARY = [
   {
@@ -322,7 +322,7 @@ function GPIOControlScreen() {
   );
 
   return (
-    <div>
+    <div style={styles.container}>
       <h2 style={{ marginBottom: 12 }}>GPIO Control</h2>
       <div style={{ color: '#8c9fb1', marginBottom: 8 }}>
         Pins are shown in <strong>BCM numbering</strong>, not physical header positions

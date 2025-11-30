@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/HeaterScreen.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 import { validateSetpoint } from "../utils/validation";
 
 /**
@@ -791,7 +791,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   };
 
   return (
-    <div>
+    <div style={styles.container}>
       <div style={styles.panel}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
           <div>

@@ -1,6 +1,6 @@
 
 import React, { useState } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 /**
  * AlarmsScreen Component.
@@ -94,7 +94,7 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
   const allAcknowledged = displayActive.every(a => a.acknowledged);
 
   return (
-    <div>
+    <div style={styles.container}>
       <div style={styles.panel}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
           <h2>{showHistory ? "Alarm History" : "Active Alarms"}</h2>

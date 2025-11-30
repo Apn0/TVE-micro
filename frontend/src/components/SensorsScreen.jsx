@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 /*
   NOTE – IMPORTANT BEHAVIOUR CHANGE
@@ -154,7 +154,7 @@ function SensorsScreen({ data, sendCmd }) {
   };
 
   return (
-    <div>
+    <div style={styles.container}>
       <div style={styles.panel}>
         <h2>ADS1115 sensors</h2>
         <p style={{ fontSize: "0.9em", color: "#aaa" }}>

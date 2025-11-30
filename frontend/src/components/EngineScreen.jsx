@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/EngineScreen.jsx
 import React, { useState, useEffect } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 /**
  * EngineScreen Component.

@@ -1,6 +1,6 @@
 // file: frontend/src/tabs/TestScreen.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { styles } from "../App";
+import { styles } from "../styles";
 
 const badge = (label, color) => ({
   display: "inline-flex",
@@ -148,7 +148,7 @@ function TestScreen({ data, sendCmd }) {
   };
 
   return (
-    <div>
+    <div style={styles.container}>
       <div style={styles.panel}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <div>
