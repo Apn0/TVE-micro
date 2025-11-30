@@ -536,11 +536,9 @@ function GPIOControlScreen() {
               <div
                 key={bus.id}
                 style={{
-                  border: '1px solid #1f2a36',
-                  borderRadius: 10,
-                  padding: 14,
+                  ...styles.metricCard,
+                  minHeight: "auto",
                   marginBottom: 12,
-                  background: '#0f141a',
                   display: 'grid',
                   gap: 12,
                 }}
@@ -647,7 +645,7 @@ function GPIOControlScreen() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                   {(bus.modules || []).map((module) => (
-                    <div key={`${bus.id}-${module.address}-${module.type}`} style={{ background: '#141b27', border: '1px solid #2c3e50', borderRadius: 10, padding: 12, display: 'grid', gap: 8 }}>
+                    <div key={`${bus.id}-${module.address}-${module.type}`} style={{ ...styles.metricCard, minHeight: 'auto', display: 'grid', gap: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <div style={{ color: '#ecf0f1', fontWeight: 'bold' }}>{module.type}</div>
@@ -678,7 +676,7 @@ function GPIOControlScreen() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             {uartPorts.map((port) => (
-              <div key={port.id} style={{ background: '#141b27', border: '1px solid #2c3e50', borderRadius: 10, padding: 12 }}>
+              <div key={port.id} style={{ ...styles.metricCard, minHeight: 'auto' }}>
                 <div style={{ color: '#ecf0f1', fontWeight: 'bold' }}>{port.label}</div>
                 <div style={{ color: '#8c9fb1', marginTop: 4 }}>{port.usage || 'Unassigned use'}</div>
                 <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
