@@ -14,7 +14,15 @@ import { styles } from "../styles";
  * @param {function} props.sendCmd - Function to send commands to the backend (e.g., ACKNOWLEDGE_ALARM).
  */
 function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(() => {
+    return localStorage.getItem("alarms_show_history") === "true";
+  });
+
+  const toggleHistory = () => {
+    const newVal = !showHistory;
+    setShowHistory(newVal);
+    localStorage.setItem("alarms_show_history", String(newVal));
+  };
 
   // Filter out cleared alarms from activeAlarms list (just in case backend sends them)
   // Backend active_alarms should only contain active ones, but safety first.
@@ -119,7 +127,7 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
             )}
             <button
               style={styles.buttonSecondary}
-              onClick={() => setShowHistory(!showHistory)}
+              onClick={toggleHistory}
             >
               {showHistory ? "View Active" : "View History"}
             </button>
@@ -128,7 +136,24 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
 
         {showHistory ? (
           <div>
-            {displayHistory.length === 0 && <div style={{color: "#777"}}>No alarm history.</div>}
+            {displayHistory.length === 0 && (
+              <div style={{
+                ...styles.metricCard,
+                minHeight: 'auto',
+                padding: "40px",
+                textAlign: "center",
+                color: "#7f8c8d",
+                border: "2px dashed #7f8c8d",
+                background: "rgba(127, 140, 141, 0.05)"
+              }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+                <h3 style={{ marginTop: "10px" }}>No Alarm History</h3>
+                <p>Past alarms will appear here.</p>
+              </div>
+            )}
             {displayHistory.map((alarm) => (
               <AlarmItem key={alarm.id} alarm={alarm} historic={true} />
             ))}
