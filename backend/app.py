@@ -40,6 +40,15 @@ from backend.alarm_utils import (
     save_alarms_to_disk,
     create_alarm_object,
 )
+from backend.metrics import (
+    API_VALIDATION_ERRORS_TOTAL,
+    SYSTEM_STATE,
+)
+from prometheus_client import make_wsgi_app
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+
+# JSONDecodeError available in json module
+from json import JSONDecodeError
 
 CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
@@ -515,13 +524,97 @@ def load_config():
             return validate_config({})
 
 
-def _coerce_finite(value):
-    """Convert value to float if finite, else None."""
+def _coerce_finite(value: object) -> float | None:
+    """
+    Safely convert object to finite float or None.
+    Unified helper for config loading and API validation.
+    """
     try:
-        coerced = float(value)
+        num = float(value)
     except (TypeError, ValueError):
         return None
-    return coerced if math.isfinite(coerced) else None
+    if not math.isfinite(num):
+        return None
+    return num
+
+
+def _validate_payload(payload: dict, schema: dict) -> tuple[dict, list[str]]:
+    """
+    Validate and clean a payload against a schema.
+    Returns (cleaned_data, errors).
+
+    Schema format:
+    {
+        "field_name": {
+            "type": type (int, float, str, bool),
+            "required": bool,
+            "min": number,
+            "max": number,
+            "allowed": list,
+        }
+    }
+    """
+    cleaned = {}
+    errors = []
+
+    for field, rules in schema.items():
+        val = payload.get(field)
+
+        # Check required
+        if rules.get("required", False) and val is None:
+            errors.append(f"Missing required field: {field}")
+            continue
+
+        if val is None:
+            continue
+
+        target_type = rules.get("type")
+
+        # Type Coercion & Check
+        if target_type == float:
+            val = _coerce_finite(val)
+            if val is None:
+                errors.append(f"{field} must be a number")
+                continue
+        elif target_type == int:
+            try:
+                val = int(val)
+            except (ValueError, TypeError):
+                errors.append(f"{field} must be an integer")
+                continue
+        elif target_type == bool:
+            if not isinstance(val, bool):
+                # Try to coerce mildy? Or strict?
+                # Strict: must be bool. Loose: Allow 0/1.
+                # Let's be strict for API unless it's query param.
+                # But existing code does bool(req.get(...)).
+                if val in (1, 0): val = bool(val)
+                elif isinstance(val, str) and val.lower() in ("true", "false"):
+                    val = val.lower() == "true"
+                elif not isinstance(val, bool):
+                     errors.append(f"{field} must be a boolean")
+                     continue
+        elif target_type == str:
+            if not isinstance(val, str):
+                errors.append(f"{field} must be a string")
+                continue
+
+        # Range Check
+        if "min" in rules and val < rules["min"]:
+            errors.append(f"{field} must be >= {rules['min']}")
+            continue
+        if "max" in rules and val > rules["max"]:
+            errors.append(f"{field} must be <= {rules['max']}")
+            continue
+
+        # Allowed Values
+        if "allowed" in rules and val not in rules["allowed"]:
+            errors.append(f"{field} must be one of {rules['allowed']}")
+            continue
+
+        cleaned[field] = val
+
+    return cleaned, errors
 
 
 def _parse_float_with_suffix(value: object) -> float | None:
@@ -597,16 +690,13 @@ CORS(app)
 # Initialize SocketIO in 'threading' mode to work with your existing threads
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
+# Add prometheus wsgi middleware to export metrics at /metrics
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
 
-def _safe_float(val: object) -> float | None:
-    """Safely convert object to finite float or None."""
-    try:
-        num = float(val)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(num):
-        return None
-    return num
+
+# _safe_float removed in favor of unified _coerce_finite
 
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:
@@ -732,6 +822,12 @@ def _set_status(new_status: str):
             state["seq_start_time"] = 0.0
         elif current_status != new_status:
             state["seq_start_time"] = time.time()
+            app_logger.info(f"state_transition: {current_status} -> {new_status}")
+
+    try:
+        SYSTEM_STATE.state(new_status)
+    except Exception:
+        pass
 
 
 def _latch_alarm(reason: str):
@@ -970,6 +1066,14 @@ def control_loop():
 
         if stop_requested:
             _set_status("STOPPING")
+        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
+             # Fallback for invalid state
+             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
+             _set_status("READY")
+        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
+             # Fallback for invalid state
+             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
+             _set_status("READY")
 
         if alarm_req:
             _latch_alarm(alarm_req)
@@ -1376,8 +1480,12 @@ def gpio_control():
             value = int(req.get("value"))
             hal.set_gpio_value(pin, value)
     except (ValueError, TypeError):
+        API_VALIDATION_ERRORS_TOTAL.inc()
+        app_logger.warning("api_validation_failed: INVALID_PIN_OR_VALUE")
         return jsonify({"success": False, "msg": "INVALID_PIN_OR_VALUE"}), 400
     if cmd not in ("SET_GPIO_MODE", "SET_GPIO_VALUE"):
+        API_VALIDATION_ERRORS_TOTAL.inc()
+        app_logger.warning("api_validation_failed: UNKNOWN_GPIO_COMMAND")
         return jsonify({"success": False, "msg": "UNKNOWN_GPIO_COMMAND"})
 
     return jsonify({"success": True})
@@ -1452,11 +1560,15 @@ def control():
         elif not is_critical and cmd in WARNING_ALLOWED:
             pass
         else:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: ALARM_ACTIVE")
             return jsonify({"success": False, "msg": "ALARM_ACTIVE"})
 
     if cmd == "SET_MODE":
         mode = req.get("mode")
         if mode not in ("AUTO", "MANUAL"):
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning("api_validation_failed: INVALID_MODE")
             return jsonify({"success": False, "msg": "INVALID_MODE"})
         with state_lock:
             state["mode"] = mode
@@ -1468,11 +1580,15 @@ def control():
         if "z1" in req:
             t = _coerce_finite(req.get("z1"))
             if t is None:
+                API_VALIDATION_ERRORS_TOTAL.inc()
+                app_logger.warning("api_validation_failed: INVALID_TARGET (z1)")
                 return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
             target_z1 = t
         if "z2" in req:
             t = _coerce_finite(req.get("z2"))
             if t is None:
+                API_VALIDATION_ERRORS_TOTAL.inc()
+                app_logger.warning("api_validation_failed: INVALID_TARGET (z2)")
                 return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
             target_z2 = t
 
@@ -1483,12 +1599,19 @@ def control():
                 state["target_z2"] = target_z2
 
     elif cmd == "SET_HEATER":
-        zone = req.get("zone")
-        duty = _coerce_finite(req.get("duty", 0))
-        if zone not in ("z1", "z2"):
-            return jsonify({"success": False, "msg": "INVALID_ZONE"})
-        if duty is None or duty < MIN_HEATER_DUTY or duty > MAX_HEATER_DUTY:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        schema = {
+            "zone": {"type": str, "allowed": ["z1", "z2"], "required": True},
+            "duty": {"type": float, "min": MIN_HEATER_DUTY, "max": MAX_HEATER_DUTY, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        zone = cleaned["zone"]
+        duty = cleaned["duty"]
+
         hal.set_heater_duty(zone, duty)
         with state_lock:
             if zone == "z1":
@@ -1499,14 +1622,26 @@ def control():
                 state["heater_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
-        motor = req.get("motor")
-        rpm = _coerce_finite(req.get("rpm", 0))
-        if rpm is None:
-            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
-        if motor not in ("main", "feed"):
-            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
-        if abs(rpm) > MAX_MOTOR_RPM:
-            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
+        schema = {
+            "motor": {"type": str, "allowed": ["main", "feed"], "required": True},
+            "rpm": {"type": float, "min": -MAX_MOTOR_RPM, "max": MAX_MOTOR_RPM, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+            return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        motor = cleaned["motor"]
+        rpm = cleaned["rpm"]
+
+        # Debounce to prevent motor toggle spam
+        motor_key = f"motor_{motor}"
+        last_toggle = relay_toggle_times.get(motor_key, 0.0)
+        if request_time - last_toggle < TOGGLE_DEBOUNCE_SEC:
+             return jsonify({"success": False, "msg": "MOTOR_DEBOUNCE"}), 429
+        relay_toggle_times[motor_key] = request_time
+
         with state_lock:
             temps = dict(state["temps"])
             temps_timestamp = state.get("temps_timestamp", 0.0)
@@ -1980,7 +2115,7 @@ def control():
 def tune_start():
     req = request.get_json(force=True) or {}
     zone = req.get("zone")
-    setpoint = _safe_float(req.get("setpoint", 100.0))
+    setpoint = _coerce_finite(req.get("setpoint", 100.0))
 
     if zone not in ("z1", "z2"):
         return jsonify({"success": False, "msg": "INVALID_ZONE"}), 400
