@@ -5,6 +5,10 @@ This document consolidates pending tasks and technical debt identified from code
 ## High Priority (Stability & Safety)
 
 ### Backend Logic
+- [x] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
+- [x] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
+- [x] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
+- [x] **Guard Motor Safety**: Enhance `SET_MOTOR` safety checks to include guards for repeated toggles and invalid GPIO writes, in addition to existing temperature checks.
 - [ ] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
 - [ ] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
 - [ ] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
