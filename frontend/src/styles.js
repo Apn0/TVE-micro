@@ -42,8 +42,37 @@ export const styles = {
     flexDirection: "column",
     justifyContent: "space-between",
     gap: "8px",
-    overflow: "hidden",
+    overflow: "visible",
     color: "#000"
+  },
+  metricFooter: {
+    borderTop: "1px solid #000",
+    margin: "14px -14px -14px -14px",
+    padding: "8px 14px",
+    background: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    borderRadius: "0 0 4px 4px"
+  },
+  setpointBadge: {
+    background: "#6c5ce7",
+    color: "#fff",
+    padding: "2px 6px",
+    borderRadius: "4px",
+    fontWeight: "bold",
+    fontSize: "1.1em"
+  },
+  metricValueReadOnly: {
+    fontSize: "1.6em",
+    fontWeight: "bold",
+    color: "#555",
+    textAlign: "center",
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
   },
   cardGrid: {
     display: "grid",

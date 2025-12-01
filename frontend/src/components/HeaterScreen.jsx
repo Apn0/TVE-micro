@@ -456,6 +456,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     ...styles.metricCard,
     cursor: "pointer",
     transition: "box-shadow 0.2s ease",
+    position: "relative",
+    overflow: "visible", // For overlay
+    zIndex: 1 // Default z
   };
 
   const renderSchematic = () => {
@@ -549,12 +552,14 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     const isExpanded = expandedZone === "peltier";
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div style={{ position: "relative" }}>
         <div
           style={{
             ...cardStyle,
-            boxShadow: isExpanded ? "0 0 0 1px #3498db" : styles.metricCard.boxShadow,
-            borderColor: duty > 0 ? "#3498db" : "#1f2a36",
+            boxShadow: isExpanded ? "0 0 0 1px #3498db" : "none",
+            borderColor: duty > 0 ? "#3498db" : "#000",
+            zIndex: isExpanded ? 100 : 1,
+            color: "#000"
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -563,32 +568,45 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           data-testid="peltier-card"
         >
           <div style={styles.metricLabel}>Peltier Cooling</div>
-          <div style={{ ...styles.metricValue, color: duty > 0 ? "#3498db" : "#7f8c8d" }}>
+          <div style={{ ...styles.metricValue, color: duty > 0 ? "#3498db" : "#000" }}>
             {duty.toFixed(1)} %
           </div>
-          <div style={styles.cardHint}>
-            {duty > 0 ? "Cooling Active" : "Idle"}
-          </div>
+           {/* Footer style for consistency, though Peltier has no explicit setpoint display in footer usually */}
+           <div style={styles.metricFooter}>
+                <span style={styles.setpointBadge}>{duty.toFixed(0)}</span>
+                <span style={{color: "#555"}}>%</span>
+           </div>
         </div>
 
         {isExpanded && (
           <div
              ref={(node) => { if (isExpanded) peltierDutyRef.current = node; }}
             style={{
-              ...styles.metricCard,
-              minHeight: 'auto',
+              position: "absolute",
+              top: "100%",
+              left: "0",
+              width: "100%",
+              marginTop: "8px",
               background: "#0c0f15",
               border: "1px solid #3498db",
-              cursor: "pointer",
+              borderRadius: "8px",
+              padding: "12px",
+              zIndex: 101,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.8)",
+              cursor: "default"
             }}
-            onClick={handlePeltierClick}
-            data-testid="peltier-duty-input"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="peltier-overlay"
           >
-             <div style={styles.metricLabel}>Set Duty Cycle (%)</div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#ecf0f1" }}>
-                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{duty.toFixed(1)}</span>
-                <span style={styles.cardHint}>Tap to edit</span>
+             <h4 style={{ color: "#dfe6ec", margin: "0 0 10px 0" }}>Set Duty Cycle</h4>
+              <div
+                style={{ ...styles.metricCard, minHeight: 'auto', background: '#151920', borderColor: '#333', cursor: 'pointer', marginBottom: 10 }}
+                onClick={handlePeltierClick}
+              >
+                <div style={styles.label}>Tap to Edit</div>
+                <div style={{ fontSize: "1.4em", fontWeight: "bold", color: "#ecf0f1", textAlign: 'center' }}>{duty.toFixed(1)} %</div>
               </div>
+              <button style={{ ...styles.buttonDanger, width: '100%' }} onClick={() => sendCmd("SET_PELTIER", { duty: 0 })}>Turn Off</button>
           </div>
         )}
       </div>
@@ -609,11 +627,12 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     }
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div style={{ position: "relative" }}>
         <div
           style={{
             ...cardStyle,
-            boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : styles.metricCard.boxShadow,
+            boxShadow: expandedZone === zoneKey ? "0 0 0 1px #3498db" : "none",
+            zIndex: expandedZone === zoneKey ? 100 : 1
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -621,64 +640,85 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           }}
           data-testid={`heater-card-${zoneKey}`}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-             <div style={styles.metricLabel}>{label}</div>
-             {tempIsValid && (
-                 <div style={{fontSize: '0.8em', color: '#555', fontWeight: 'bold'}}>
-                    TARGET: {target?.toFixed(1)}°
-                 </div>
-             )}
-          </div>
+          <div style={styles.metricLabel}>{label}</div>
 
           <div style={{ ...styles.metricValue, color }}>
             {tempIsValid ? `${temp.toFixed(1)} °C` : "--.- °C"}
           </div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={styles.cardHint}>
-                Duty: {heaterDuty.toFixed(1)}% {relayOn && "🔥"}
-              </div>
+          <div style={styles.metricFooter}>
+              <span style={styles.setpointBadge}>{target?.toFixed(0)}</span>
+              <span style={{color: "#555"}}>°C</span>
           </div>
         </div>
 
         {expandedZone === zoneKey && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div
+            style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                width: "100%",
+                marginTop: "8px",
+                background: "#0c0f15",
+                border: "1px solid #3498db",
+                borderRadius: "8px",
+                padding: "12px",
+                zIndex: 101,
+                boxShadow: "0 10px 30px rgba(0,0,0,0.8)",
+                cursor: "default"
+             }}
+             onClick={(e) => e.stopPropagation()}
+          >
+            <h4 style={{ color: "#dfe6ec", margin: "0 0 10px 0" }}>{label} Control</h4>
+
             {/* Setpoint Editor */}
             <div
               ref={(node) => { if (expandedZone === zoneKey) setpointRef.current = node; }}
               style={{
                 ...styles.metricCard,
                 minHeight: 'auto',
-                background: "#0c0f15",
-                border: "1px solid #3498db",
+                background: "#151920",
+                borderColor: "#333",
                 cursor: "pointer",
+                marginBottom: 10
               }}
               onClick={(e) => handleSetpointClick(zoneKey, target, e)}
               data-testid={`setpoint-dropdown-${zoneKey}`}
             >
-              <div style={styles.metricLabel}>Set point (°C)</div>
+              <div style={styles.label}>Set point</div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#ecf0f1" }}>
                 <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{target?.toFixed?.(1) ?? target}</span>
-                <span style={styles.cardHint}>Tap to edit</span>
+                <span style={{color: "#aaa", fontSize: "0.8em"}}>Tap to edit</span>
               </div>
             </div>
 
-            {/* Advanced Settings Link */}
-            <button
-                onClick={() => setShowSettings(true)}
-                style={{
-                    ...styles.buttonSecondary,
-                    width: "100%",
-                    marginTop: "5px",
-                    background: "#2c3e50",
-                    border: "1px solid #444"
-                }}
+            {/* Duty Cycle Editor (Manual Mode Only) */}
+            <div
+              ref={(node) => { if (expandedZone === zoneKey) dutyRef.current = node; }}
+              style={{
+                ...styles.metricCard,
+                minHeight: 'auto',
+                background: "#151920",
+                borderColor: isManual ? "#e67e22" : "#333",
+                cursor: isManual ? "pointer" : "default",
+                opacity: isManual ? 1 : 0.6,
+                marginBottom: 10
+              }}
+              onClick={(e) => handleDutyClick(zoneKey, heaterDuty, e)}
+              data-testid={`duty-dropdown-${zoneKey}`}
             >
-                Advanced Settings (PID / Duty)
-            </button>
+              <div style={styles.label}>Duty Cycle ({relayOn ? "ON" : "OFF"})</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#ecf0f1" }}>
+                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{heaterDuty.toFixed(1)}%</span>
+                <span style={{ fontSize: "0.85em", color: isManual ? "#e67e22" : "#8c9fb1" }}>
+                  {isManual ? "Tap to edit" : "Auto"}
+                </span>
+              </div>
+            </div>
 
             {/* Tuning UI */}
-            <div style={{marginTop: 5, borderTop: '1px solid #333', paddingTop: 10}}>
+            <div style={{paddingTop: 5}}>
                 {isTuning && tuneZone === zoneKey ? (
                     <div style={{background: '#d35400', padding: 8, borderRadius: 4, textAlign: 'center'}}>
                         <div style={{fontWeight: 'bold', color: 'white'}}>TUNING...</div>
@@ -687,7 +727,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
                             onClick={stopTune}
                             style={{ ...styles.buttonDanger, marginTop: 5, width: '100%', fontSize: '0.9em', marginRight: 0 }}
                         >
-                            STOP TUNING
+                            STOP
                         </button>
                     </div>
                 ) : (
@@ -696,20 +736,24 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
                         disabled={isTuning}
                         style={{ ...styles.buttonSecondary, width: '100%', opacity: isTuning ? 0.3 : 1, background: '#2c3e50', border: '1px solid #444' }}
                     >
-                        Auto-Tune (Tyreus-Luyben)
+                        Auto-Tune
                     </button>
                 )}
+            </div>
+
+            {/* PID Info Small */}
+            <div style={{fontSize: '0.7em', color: '#666', marginTop: 10, textAlign: 'center'}}>
+                 PID: {pidParams.kp} / {pidParams.ki} / {pidParams.kd}
             </div>
 
             {atStatus === "DONE" && tuneZone === zoneKey && atResult && (
                 <div style={{background: '#27ae60', padding: 8, borderRadius: 4, marginTop: 5}}>
                     <div style={{fontSize: '0.9em', fontWeight: 'bold', color: 'white', marginBottom: 4}}>Tuning Complete</div>
-                    <div style={{fontSize: '0.8em', color: '#ecf0f1'}}>Kp={atResult.kp}, Ki={atResult.ki}, Kd={atResult.kd}</div>
                     <button
                         onClick={applyTune}
                         style={{ ...styles.button, width: '100%', fontSize: '0.9em', marginTop: 8, marginRight: 0, background: '#fff', color: '#27ae60' }}
                     >
-                        APPLY SETTINGS
+                        APPLY
                     </button>
                 </div>
             )}

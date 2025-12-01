@@ -294,7 +294,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
     });
   };
 
-  const renderSchematicCard = ({ key, label, value, color, position, onClick, expandedContent }) => {
+  const renderSchematicCard = ({ key, label, value, color, position, onClick, expandedContent, setpoint, unit }) => {
     const isExpanded = expandedCard === key;
 
     // Base card style similar to HomeScreen
@@ -305,7 +305,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
       padding: 0,
       gap: 0,
       position: "absolute",
-      justifyContent: "flex-start",
+      justifyContent: "space-between",
       flexDirection: "column",
       overflow: "visible", // Allow expansion
       cursor: onClick ? "pointer" : "default",
@@ -314,8 +314,8 @@ function MotorScreen({ data, sendCmd, keypad }) {
       transform: "translate(-50%, -50%)",
       pointerEvents: "auto",
       zIndex: isExpanded ? 100 : 10,
-      borderColor: isExpanded ? "#3498db" : "#1f2a36",
-      boxShadow: isExpanded ? "0 0 0 2px #3498db, 0 10px 30px rgba(0,0,0,0.5)" : "0 8px 16px rgba(0,0,0,0.25)",
+      borderColor: isExpanded ? "#3498db" : "#000",
+      boxShadow: isExpanded ? "0 0 0 2px #3498db, 0 10px 30px rgba(0,0,0,0.5)" : "none",
       transition: "all 0.2s ease"
     };
 
@@ -361,6 +361,19 @@ function MotorScreen({ data, sendCmd, keypad }) {
             {value}
           </div>
         </div>
+
+        {/* Footer Section (Setpoint) */}
+        {setpoint !== undefined && (
+             <div style={{
+                 ...styles.metricFooter,
+                 margin: 0,
+                 padding: "6px 10px",
+                 fontSize: "0.85em"
+             }}>
+                 <span style={{...styles.setpointBadge, fontSize: "1.0em"}}>{setpoint}</span>
+                 {unit && <span style={{color: "#555"}}>{unit}</span>}
+             </div>
+        )}
 
         {/* Expanded Content Overlay */}
         {isExpanded && expandedContent && (
@@ -481,9 +494,11 @@ function MotorScreen({ data, sendCmd, keypad }) {
                  key: "feed",
                  label: "Feeder",
                  value: rpmDisplay(motors.feed ?? 0),
-                 color: motors.feed > 0 ? "#2ecc71" : "#7f8c8d",
+                 color: motors.feed > 0 ? "#2ecc71" : "#000",
                  position: { left: "20%", top: "15%" },
                  onClick: (e) => toggleCardExpansion("feed", e),
+                 setpoint: feedRpm.toFixed(0),
+                 unit: "rpm",
                  expandedContent: <FeedControlContent
                      rpm={feedRpm}
                      setRpm={setFeedRpm}
@@ -496,9 +511,11 @@ function MotorScreen({ data, sendCmd, keypad }) {
                  key: "main",
                  label: "Main screw",
                  value: rpmDisplay(motors.main ?? 0),
-                 color: motors.main > 0 ? "#2ecc71" : "#7f8c8d",
+                 color: motors.main > 0 ? "#2ecc71" : "#000",
                  position: { left: "15%", top: "75%" },
                  onClick: (e) => toggleCardExpansion("main", e),
+                 setpoint: mainRpm.toFixed(0),
+                 unit: "rpm",
                  expandedContent: <MainControlContent
                      rpm={mainRpm}
                      setRpm={setMainRpm}
@@ -510,7 +527,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
                  key: "ratio",
                  label: "Feed Ratio",
                  value: feedRatio,
-                 color: "#ecf0f1",
+                 color: "#000",
                  position: { left: "45%", top: "15%" },
              })}
 
@@ -518,7 +535,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
                  key: "temp",
                  label: "Motor NTC",
                  value: motorTemp,
-                 color: temps.motor > 60 ? "#e74c3c" : "#ecf0f1",
+                 color: temps.motor > 60 ? "#e74c3c" : "#555",
                  position: { left: "45%", top: "75%" },
              })}
         </div>
