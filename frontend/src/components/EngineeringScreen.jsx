@@ -1,6 +1,9 @@
 // file: frontend/src/components/EngineeringScreen.jsx
 import React, { useState, useEffect } from "react";
 import { styles } from "../styles";
+import ConfigSection from "./ConfigSection";
+import SettingRow from "./SettingRow";
+import ActionRow from "./ActionRow";
 
 /**
  * EngineeringScreen Component.
@@ -28,28 +31,6 @@ function EngineeringScreen({ data, sendCmd, setView }) {
   const handleSaveSystem = () => {
     sendCmd("SET_LOGGING_SETTINGS", { params: logging });
   };
-
-  const SettingRow = ({ label, children, description }) => (
-    <div style={{ display: "flex", flexDirection: "column", marginBottom: "12px", borderBottom: "1px solid #333", paddingBottom: "8px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <label style={{ color: "#ecf0f1", fontWeight: "500", fontSize: "0.95em" }}>{label}</label>
-        <div style={{ marginLeft: "10px" }}>{children}</div>
-      </div>
-      {description && <div style={{ color: "#7f8c8d", fontSize: "0.8em", marginTop: "2px" }}>{description}</div>}
-    </div>
-  );
-
-  const SectionHeader = ({ title }) => (
-    <h3 style={{
-      borderBottom: "2px solid #e67e22",
-      paddingBottom: "5px",
-      marginTop: "20px",
-      marginBottom: "15px",
-      color: "#e67e22"
-    }}>
-      {title}
-    </h3>
-  );
 
   const Input = (props) => (
     <input
@@ -94,8 +75,7 @@ function EngineeringScreen({ data, sendCmd, setView }) {
       </div>
 
       {/* --- SECTION 1: SYSTEM & LOGGING --- */}
-      <div style={styles.panel}>
-        <SectionHeader title="System & Logging" />
+      <ConfigSection title="System & Logging">
         <SettingRow label="Data Log Interval" description="Seconds between data points recorded to CSV">
           <Input
             type="number" step="0.1"
@@ -110,15 +90,14 @@ function EngineeringScreen({ data, sendCmd, setView }) {
             onChange={(e) => setLogging({ ...logging, flush_interval: parseFloat(e.target.value) })}
           />
         </SettingRow>
-        <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+        <ActionRow>
           <button style={styles.button} onClick={handleSaveSystem}>Apply System Settings</button>
           <button style={{ ...styles.button, background: "#c0392b" }}>Restart Backend Service</button>
-        </div>
-      </div>
+        </ActionRow>
+      </ConfigSection>
 
       {/* --- SECTION 2: PROCESS CYCLE --- */}
-      <div style={styles.panel}>
-        <SectionHeader title="Process Cycle Logic" />
+      <ConfigSection title="Process Cycle Logic">
         <SettingRow label="Auto-Start on Power Up" description="Automatically begin heating sequence when device turns on">
           <Toggle
             checked={cycle.autoStart}
@@ -132,11 +111,10 @@ function EngineeringScreen({ data, sendCmd, setView }) {
              onChange={(e) => setCycle({...cycle, safetyTimeout: parseInt(e.target.value)})}
           />
         </SettingRow>
-      </div>
+      </ConfigSection>
 
       {/* --- SECTION 3: HEATERS --- */}
-      <div style={styles.panel}>
-        <SectionHeader title="Heaters (Thermal)" />
+      <ConfigSection title="Heaters (Thermal)">
         <SettingRow label="Max Heater Duty Cycle" description="Limit global power output (%) to prevent overshoot/SSR stress">
           <Input
             type="number" max="100" min="0"
@@ -159,11 +137,10 @@ function EngineeringScreen({ data, sendCmd, setView }) {
                 <div><small>Kd</small><br/><Input defaultValue={10.0} style={{width: "100%"}} /></div>
             </div>
         </div>
-      </div>
+      </ConfigSection>
 
       {/* --- SECTION 4: MOTORS --- */}
-      <div style={styles.panel}>
-        <SectionHeader title="Main Motor (Drive)" />
+      <ConfigSection title="Main Motor (Drive)">
         <SettingRow label="Max RPM" description="Absolute hardware limit for safety">
             <Input
                 type="number"
@@ -178,11 +155,10 @@ function EngineeringScreen({ data, sendCmd, setView }) {
                 onChange={(e) => setMotorLimits({...motorLimits, accel: parseInt(e.target.value)})}
             />
         </SettingRow>
-      </div>
+      </ConfigSection>
 
       {/* --- SECTION 5: PERIPHERALS (FAN/LED) --- */}
-      <div style={styles.panel}>
-        <SectionHeader title="Peripherals (Fan & LED)" />
+      <ConfigSection title="Peripherals (Fan & LED)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
             <div>
                 <h4 style={{ margin: "0 0 10px 0", color: "#bdc3c7" }}>Cooling Fan</h4>
@@ -203,12 +179,11 @@ function EngineeringScreen({ data, sendCmd, setView }) {
                 </SettingRow>
             </div>
         </div>
-      </div>
+      </ConfigSection>
 
       {/* --- SECTION 6: BACKEND / IO MAPPING --- */}
-      <div style={styles.panel}>
-        <SectionHeader title="Hardware I/O Mapping" />
-        <p style={{ color: "#e74c3c", fontSize: "0.9em" }}>
+      <ConfigSection title="Hardware I/O Mapping">
+        <p style={{ color: "#e74c3c", fontSize: "0.9em", margin: "-10px 0 15px 0" }}>
             Warning: Changing pin assignments requires a full system restart.
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "10px" }}>
@@ -223,7 +198,7 @@ function EngineeringScreen({ data, sendCmd, setView }) {
                 </div>
             ))}
         </div>
-      </div>
+      </ConfigSection>
 
       <div style={{ height: "40px" }}></div>
     </div>
