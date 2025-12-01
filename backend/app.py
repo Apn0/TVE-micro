@@ -16,6 +16,8 @@ import copy
 import math
 import logging
 import atexit
+import shutil
+from datetime import datetime
 
 # Ensure the repository root is on the import path when the file is executed
 # directly (e.g., `python app.py` from the backend directory).
@@ -486,32 +488,40 @@ def validate_config(raw_cfg: dict):
 def load_config():
     """
     Load and validate configuration from config.json.
-    Falls back to user prompt or defaults if file is missing.
+    Falls back to defaults if file is missing (non-interactive) or corrupt.
+    Backs up corrupt files.
     """
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
             return validate_config(raw_cfg)
-        except JSONDecodeError as e:
-            app_logger.error(f"Config file is malformed JSON: {e}")
-            print("Falling back to system defaults due to config error.")
-            return validate_config({})
-        except Exception:
-            app_logger.exception("config_load_failed")
-            print("Falling back to system defaults due to unexpected config error.")
+        except Exception as e:
+            ts = datetime.now().strftime("%Y%m%d%H%M%S")
+            backup_path = f"{CONFIG_FILE}.bak.{ts}"
+            app_logger.error(f"Failed to load config.json: {e}")
+            app_logger.warning(f"Backing up corrupt config to {backup_path} and loading defaults.")
+            try:
+                shutil.copy(CONFIG_FILE, backup_path)
+            except Exception as copy_err:
+                app_logger.error(f"Failed to backup corrupt config: {copy_err}")
+
             return validate_config({})
     else:
         print(f"Configuration file {CONFIG_FILE} not found.")
-        try:
-            resp = input("Use default configuration from hardware.py? [y/N] ")
-            if resp.lower().startswith("y"):
-                return validate_config({})
-        except (EOFError, OSError):
-            pass
-
-        print("Startup aborted: No configuration file.")
-        sys.exit(1)
+        # Check if running interactively
+        if sys.stdin.isatty():
+            try:
+                resp = input("Use default configuration from hardware.py? [y/N] ")
+                if resp.lower().startswith("y"):
+                    return validate_config({})
+            except (EOFError, OSError):
+                pass
+            print("Startup aborted: No configuration file.")
+            sys.exit(1)
+        else:
+            print("Non-interactive mode detected. Using default configuration.")
+            return validate_config({})
 
 
 def _coerce_finite(value: object) -> float | None:
