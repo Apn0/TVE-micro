@@ -29,6 +29,9 @@ if REPO_ROOT not in sys.path:
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from flask_httpauth import HTTPBasicAuth
+from werkzeug.security import check_password_hash
+from functools import wraps
 
 from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
@@ -59,6 +62,9 @@ MAX_MOTOR_RPM = 5000.0
 
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
+
+# Initialize Auth
+auth = HTTPBasicAuth()
 
 
 def _coerce_finite(value: object) -> float | None:
@@ -629,6 +635,14 @@ def validate_config(raw_cfg: dict):
     )
     cfg["history"] = _validate_history_settings(raw_cfg.get("history", {}), errors)
 
+    # Security Configuration
+    cfg["security"] = {"enabled": False, "users": {}}
+    if "security" in raw_cfg and isinstance(raw_cfg["security"], dict):
+        sec = raw_cfg["security"]
+        cfg["security"]["enabled"] = bool(sec.get("enabled", False))
+        if isinstance(sec.get("users"), dict):
+            cfg["security"]["users"] = sec["users"]
+
     if errors:
         for err in errors:
             print(f"CONFIG_WARNING: {err}")
@@ -781,6 +795,42 @@ def _validate_payload(payload: dict, schema: dict) -> tuple[dict, list[str]]:
 
 sys_config = load_config()
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
+
+# --- Auth Verification Logic ---
+@auth.verify_password
+def verify_password(username, password):
+    security_cfg = sys_config.get("security", {})
+    if not security_cfg.get("enabled", False):
+        return True # Should not happen if decorator is used correctly, but failsafe
+
+    users = security_cfg.get("users", {})
+    if username in users:
+        stored = users[username]
+        # Support hashed passwords or plain text (transitional)
+        # Assuming hashed if it looks like a hash, but simpler to try both or rely on format.
+        # We try check_password_hash, if it raises or fails, we check equality (for simple plain text).
+        try:
+            if check_password_hash(stored, password):
+                return username
+        except ValueError:
+            pass # Stored password is not a valid hash format
+
+        if stored == password:
+             return username
+    return None
+
+def maybe_auth(f):
+    """
+    Decorator that enforces authentication only if enabled in config.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        security_cfg = sys_config.get("security", {})
+        if security_cfg.get("enabled", False):
+            return auth.login_required(f)(*args, **kwargs)
+        return f(*args, **kwargs)
+    return decorated
+
 
 running_event = threading.Event()
 running_event.set()
@@ -1502,12 +1552,14 @@ def api_data():
     })
 
 @app.route("/api/log/start", methods=["POST"])
+@maybe_auth
 def log_start():
     """Start the data logger."""
     logger.start()
     return jsonify({"success": True})
 
 @app.route("/api/log/stop", methods=["POST"])
+@maybe_auth
 def log_stop():
     """Stop the data logger."""
     logger.stop()
@@ -1631,6 +1683,7 @@ def history_sensors():
     return jsonify(sorted_data[-1000:])
 
 @app.route("/api/gpio", methods=["GET", "POST"])
+@maybe_auth
 def gpio_control():
     """
     Get GPIO status or control GPIO pins directly.
@@ -1676,6 +1729,7 @@ def gpio_control():
     return jsonify({"success": True})
 
 @app.route("/api/control", methods=["POST"])
+@maybe_auth
 def control():
     """
     Main control endpoint for sending commands to the system.
@@ -2274,6 +2328,7 @@ def control():
     return jsonify({"success": True})
 
 @app.route("/api/tune/start", methods=["POST"])
+@maybe_auth
 def tune_start():
     req = request.get_json(force=True) or {}
     zone = req.get("zone")
@@ -2290,6 +2345,7 @@ def tune_start():
     return jsonify({"success": True})
 
 @app.route("/api/tune/stop", methods=["POST"])
+@maybe_auth
 def tune_stop():
     auto_tuner.stop()
     with state_lock:
@@ -2297,6 +2353,7 @@ def tune_stop():
     return jsonify({"success": True})
 
 @app.route("/api/tune/apply", methods=["POST"])
+@maybe_auth
 def tune_apply():
     """Apply the calculated PID values to the config."""
     with state_lock:
