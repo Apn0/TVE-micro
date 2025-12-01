@@ -1119,10 +1119,6 @@ def control_loop():
              # Fallback for invalid state
              app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
              _set_status("READY")
-        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
-             # Fallback for invalid state
-             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
-             _set_status("READY")
 
         if alarm_req:
             _latch_alarm(alarm_req)
