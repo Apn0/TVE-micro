@@ -1629,20 +1629,20 @@ def control():
         target_z1 = state.get("target_z1")
         target_z2 = state.get("target_z2")
 
-        if "z1" in req:
-            t = _coerce_finite(req.get("z1"))
-            if t is None:
-                API_VALIDATION_ERRORS_TOTAL.inc()
-                app_logger.warning("api_validation_failed: INVALID_TARGET (z1)")
-                return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
-            target_z1 = t
-        if "z2" in req:
-            t = _coerce_finite(req.get("z2"))
-            if t is None:
-                API_VALIDATION_ERRORS_TOTAL.inc()
-                app_logger.warning("api_validation_failed: INVALID_TARGET (z2)")
-                return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
-            target_z2 = t
+        schema = {
+            "z1": {"type": float, "min": 0.0, "max": 450.0},
+            "z2": {"type": float, "min": 0.0, "max": 450.0},
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+            return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        if "z1" in cleaned:
+            target_z1 = cleaned["z1"]
+        if "z2" in cleaned:
+            target_z2 = cleaned["z2"]
 
         with state_lock:
             if target_z1 is not None:
@@ -1747,20 +1747,34 @@ def control():
             state["relays"][relay] = st
 
     elif cmd == "SET_PELTIER":
-        duty = _coerce_finite(req.get("duty", 0))
-        if duty is None or duty < 0.0 or duty > 100.0:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        schema = {
+            "duty": {"type": float, "min": 0.0, "max": 100.0, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        duty = cleaned["duty"]
         hal.set_peltier_duty(duty)
         with state_lock:
             state["peltier_duty"] = duty
 
     elif cmd == "SET_PWM_OUTPUT":
-        name = req.get("name")
-        duty = _coerce_finite(req.get("duty", 0))
-        if duty is None:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
-        if duty < 0.0 or duty > MAX_PWM_DUTY:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        schema = {
+            "name": {"type": str, "required": True},
+            "duty": {"type": float, "min": 0.0, "max": MAX_PWM_DUTY, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        name = cleaned["name"]
+        duty = cleaned["duty"]
+
         if name not in getattr(hal, "pwm_channels", {}):
             return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
         fresh, reason = _temps_fresh(request_time)
@@ -1768,7 +1782,7 @@ def control():
             return jsonify({"success": False, "msg": reason}), 400
         hal.set_pwm_output(name, duty)
         with state_lock:
-            state.setdefault("pwm", {})[name] = max(0.0, min(100.0, float(duty)))
+            state.setdefault("pwm", {})[name] = duty
 
     elif cmd == "MOVE_MOTOR_STEPS":
         motor = req.get("motor")
@@ -1777,7 +1791,10 @@ def control():
             speed = int(req.get("speed", 1000))
         except (TypeError, ValueError):
             return jsonify({"success": False, "msg": "INVALID_MOVE_PARAMS"}), 400
-        speed = max(1, min(20000, speed))
+
+        if not (1 <= speed <= 20000):
+            return jsonify({"success": False, "msg": "INVALID_SPEED"}), 400
+
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         hal.move_motor_steps(motor, steps, speed=speed)
