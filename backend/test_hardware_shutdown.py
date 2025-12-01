@@ -18,30 +18,31 @@ class TestHardwareShutdown(unittest.TestCase):
         self.mock_output = MagicMock()
         self.mock_gpio.output = self.mock_output
 
-        # Patch sys.modules to return our mock for RPi and RPi.GPIO
+        # We need to ensure that when we reload backend.hardware, it thinks it's on a Pi.
+        # This requires RPi.GPIO to be importable.
         self.modules_patcher = patch.dict(sys.modules, {
             'RPi': MagicMock(),
             'RPi.GPIO': self.mock_gpio
         })
         self.modules_patcher.start()
 
-        # IMPORTANT: We must also mock RPi module's GPIO attribute,
-        # because some imports might access it via RPi.GPIO
+        # Also ensure RPi.GPIO is set on the RPi mock
         sys.modules['RPi'].GPIO = self.mock_gpio
 
-        # Force reload of backend.hardware to ensure it picks up the mocked RPi.GPIO
+        # Force reload of backend.hardware to pick up the mock
         if 'backend.hardware' in sys.modules:
             del sys.modules['backend.hardware']
 
         from backend import hardware
-        # Ensure that hardware.GPIO is indeed our mock
-        # If it's None, it means the import failed to catch the mock (possibly due to cached bytecode or order)
-        # However, deleting from sys.modules should force reload.
-        # But wait, hardware.py does `try: import RPi.GPIO ... except ImportError`.
-        # If we patched sys.modules, ImportError shouldn't happen.
-
         self.hardware_module = hardware
         self.HardwareInterface = hardware.HardwareInterface
+
+        # If the import failed inside hardware.py (which catches ImportError),
+        # GPIO will be None. We can manually fix this for the test context
+        # because we are controlling the environment.
+        if self.hardware_module.GPIO is None:
+            self.hardware_module.GPIO = self.mock_gpio
+            self.hardware_module.PLATFORM = "PI"
 
     def tearDown(self):
         self.modules_patcher.stop()
