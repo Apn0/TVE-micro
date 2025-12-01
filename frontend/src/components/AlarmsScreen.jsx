@@ -41,12 +41,12 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
 
   const AlarmItem = ({ alarm, historic }) => (
     <div style={{
-      background: "#1a1f27",
+      ...styles.metricCard,
+      minHeight: 'auto',
       borderLeft: `5px solid ${getSeverityColor(alarm.severity)}`,
-      borderRadius: "4px",
-      padding: "15px",
       marginBottom: "10px",
       display: "flex",
+      flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center"
     }}>
@@ -137,11 +137,12 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
           <div>
             {displayActive.length === 0 && (
               <div style={{
+                ...styles.metricCard,
+                minHeight: 'auto',
                 padding: "40px",
                 textAlign: "center",
                 color: "#2ecc71",
                 border: "2px dashed #2ecc71",
-                borderRadius: "8px",
                 background: "rgba(46, 204, 113, 0.05)"
               }}>
                 <h3>No Active Alarms</h3>
