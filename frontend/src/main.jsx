@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
+import { ErrorProvider } from './hooks/useError.jsx'
 
 // Simple global style reset + shared animations
 const style = document.createElement('style');
@@ -68,6 +70,10 @@ document.head.appendChild(style);
  */
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <ErrorProvider>
+        <App />
+      </ErrorProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 )
