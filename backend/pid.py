@@ -51,8 +51,15 @@ class PID:
 
         Returns:
             float or None: The calculated control output clamped to the output limits,
-                           or None if the function is called faster than the sample_time.
+                           or None if the function is called faster than the sample_time,
+                           or if the input is invalid (None/NaN).
         """
+        if input_val is None or not math.isfinite(input_val):
+            # Do not update state or calculate if input is invalid.
+            # We return None to indicate no valid control action could be calculated.
+            # The caller should handle this (e.g. by turning off the actuator or holding last state).
+            return None
+
         now = time.time()
         dt = now - self._last_time
         
@@ -69,9 +76,10 @@ class PID:
         error = self.setpoint - input_val
 
         # Derivative term
+        # If this is the first valid input, we cannot calculate derivative. Assume 0.
         d_input = 0 if self._last_input is None else (input_val - self._last_input) / dt
 
-        # Integral term proposal (apply after saturation logic)
+        # Integral term proposal
         proposed_integral = self._integral + error * dt
 
         # Compute unsaturated output
@@ -81,8 +89,11 @@ class PID:
         output = max(min(unsat_output, self.max_out), self.min_out)
 
         # Anti-windup: only accept integral update if it helps drive output away from saturation
+        # If output is saturated at max, and we are trying to go higher (error > 0), don't wind up.
+        # If output is saturated at min, and we are trying to go lower (error < 0), don't wind up.
         at_upper_limit = output >= self.max_out and unsat_output >= self.max_out
         at_lower_limit = output <= self.min_out and unsat_output <= self.min_out
+
         if not (at_upper_limit and error > 0) and not (at_lower_limit and error < 0):
             self._integral = max(min(proposed_integral, self.max_out), self.min_out)
 

@@ -524,6 +524,22 @@ def load_config():
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
             return validate_config(raw_cfg)
+          
+        except JSONDecodeError:
+            app_logger.error(f"Malformed JSON in {CONFIG_FILE}")
+
+            # Backup malformed file
+            ts = datetime.now().strftime("%Y%m%d%H%M%S")
+            backup_path = f"{CONFIG_FILE}.bak.{ts}"
+            app_logger.warning(f"Backing up malformed config to {backup_path}")
+            try:
+                shutil.copy(CONFIG_FILE, backup_path)
+            except Exception as copy_err:
+                app_logger.error(f"Failed to backup corrupt config: {copy_err}")
+
+            print(f"Error: {CONFIG_FILE} contains invalid JSON. Using defaults.")
+            return validate_config({})
+
         except Exception as e:
             ts = datetime.now().strftime("%Y%m%d%H%M%S")
             backup_path = f"{CONFIG_FILE}.bak.{ts}"
@@ -535,6 +551,7 @@ def load_config():
                 app_logger.error(f"Failed to backup corrupt config: {copy_err}")
 
             return validate_config({})
+
     else:
         print(f"Configuration file {CONFIG_FILE} not found.")
         # Check if running interactively
