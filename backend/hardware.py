@@ -134,17 +134,17 @@ DEFAULT_ADC_CONFIG: Dict[str, Any] = {
 # --- Default PWM configuration -----------------------------------------------
 
 DEFAULT_PWM_CONFIG: Dict[str, Any] = {
-    "enabled": False,
+    "enabled": True,
     "bus": 1,
     "address": 0x40,
     "frequency": 1000,
     "channels": {
-        "z1": 0,
-        "z2": 1,
-        "fan": 2,
+        "z1": 8,
+        "z2": 9,
+        "fan": 0,
         "fan_nozzle": 3,
-        "pump": 4,
-        "led_status": 5,
+        "pump": 2,
+        "led_status": 4,
         "peltier": 6,
     },
 }
@@ -185,12 +185,12 @@ SYSTEM_DEFAULTS = {
         "address": 0x40,
         "frequency": 1000,
         "channels": {
-            "z1": 0,
-            "z2": 1,
-            "fan": 2,
+            "z1": 8,
+            "z2": 9,
+            "fan": 0,
             "fan_nozzle": 3,
-            "pump": 4,
-            "led_status": 5,
+            "pump": 2,
+            "led_status": 4,
             "peltier": 6,
         },
     },
