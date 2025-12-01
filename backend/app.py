@@ -524,6 +524,13 @@ def load_config():
             with open(CONFIG_FILE, "r") as f:
                 raw_cfg = json.load(f)
             return validate_config(raw_cfg)
+        except json.JSONDecodeError:
+            app_logger.error(f"Malformed JSON in {CONFIG_FILE}")
+            print(f"Error: {CONFIG_FILE} contains invalid JSON. Using defaults.")
+            return validate_config({})
+        except Exception:
+            app_logger.exception("config_load_failed")
+            print("Falling back to system defaults due to config error.")
           
         except JSONDecodeError:
             app_logger.error(f"Malformed JSON in {CONFIG_FILE}")
