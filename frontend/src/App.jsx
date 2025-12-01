@@ -15,6 +15,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
+import EngineeringScreen from "./components/EngineeringScreen";
 import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 import AlarmsScreen from "./components/AlarmsScreen";
@@ -265,12 +266,13 @@ function App() {
               keypad={keypad}
             />
           )}
-          {view === "HISTORY" && <HistoryScreen history={history} />}
+          {view === "HISTORY" && <HistoryScreen history={history} config={data?.config} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
           {view === "GPIO" && <GPIOControlScreen />}
           {view === "WIRING CALIBRATION" && <WiringCalibrationScreen />}
-          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} />}
+          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} setView={setView} />}
+          {view === "ENGINEERING" && <EngineeringScreen data={data} sendCmd={sendCmd} setView={setView} />}
         </div>
       ) : (
         <div style={styles.disconnectOverlay}>

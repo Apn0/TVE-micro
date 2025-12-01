@@ -100,6 +100,10 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
     """
     Validate PID configuration section.
     """
+    if not isinstance(section, dict):
+        errors.append(f"Invalid {name} section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS[name])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS[name])
     for param in ("kp", "ki", "kd"):
         if param in section:
@@ -119,6 +123,10 @@ def _validate_dm556(section: dict, errors: list[str]):
     """
     Validate DM556 motor driver configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid dm556 section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
     if "microsteps" in section:
         try:
@@ -147,6 +155,10 @@ def _validate_pins(section: dict, errors: list[str]):
     """
     Validate GPIO pin configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid pins section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["pins"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
@@ -172,6 +184,10 @@ def _validate_pwm(section: dict, errors: list[str]):
     """
     Validate PWM configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid pwm section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
     if "enabled" in section:
         result["enabled"] = bool(section.get("enabled", result["enabled"]))
@@ -295,6 +311,10 @@ def _validate_temp_settings(section: dict, errors: list[str]):
     """
     Validate temperature monitoring settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid temp_settings section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
 
     if "poll_interval" in section:
@@ -337,6 +357,10 @@ def _validate_logging(section: dict, errors: list[str]):
     """
     Validate data logging settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid logging section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["logging"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
 
     if "interval" in section:
@@ -366,6 +390,10 @@ def _validate_motion(section: dict, errors: list[str]):
     """
     Validate motion configuration settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid motion section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["motion"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["motion"])
     for key in ("ramp_up", "ramp_down", "max_accel", "max_jerk"):
         if key in section:
@@ -440,10 +468,50 @@ def _merge_seq_steps(base: list[dict], incoming: list[dict]):
     return list(merged.values())
 
 
+def _validate_history_settings(section: dict, errors: list[str]):
+    """
+    Validate history tab configuration.
+    """
+    result = copy.deepcopy(SYSTEM_DEFAULTS["history"])
+
+    # Validate Y-Axis Min/Max
+    for key in ("y_left_min", "y_left_max", "y_right_min", "y_right_max"):
+        if key in section:
+            val = section[key]
+            # Allow None or finite float
+            if val is None or val == "":
+                result[key] = None
+            else:
+                coerced = _coerce_finite(val)
+                if coerced is not None:
+                    result[key] = coerced
+                else:
+                    errors.append(f"Invalid history.{key}, using default")
+
+    # Validate Series Allocation
+    if "series_axis" in section:
+        if isinstance(section["series_axis"], dict):
+            valid_keys = SYSTEM_DEFAULTS["history"]["series_axis"].keys()
+            for s_key, s_val in section["series_axis"].items():
+                if s_key in valid_keys:
+                    if s_val in ("left", "right"):
+                        result["series_axis"][s_key] = s_val
+                    else:
+                        errors.append(f"Invalid axis '{s_val}' for history series '{s_key}'")
+        else:
+             errors.append("Invalid history.series_axis, expected object")
+
+    return result
+
+
 def _validate_extruder_sequence(section: dict, errors: list[str]):
     """
     Validate the extruder startup/shutdown sequence.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid extruder_sequence section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
 
     if "check_temp_before_start" in section:
@@ -507,7 +575,20 @@ def validate_config(raw_cfg: dict):
         dict: A validated configuration dictionary with defaults applied where necessary.
     """
     errors: list[str] = []
+    if not isinstance(raw_cfg, dict):
+        errors.append("Config root must be a dictionary")
+        # Use an empty dict to allow validation of individual sections to proceed
+        # (they will all receive defaults due to get(..., {}) defaulting to empty dict
+        # or due to the keys missing in the empty dict)
+        raw_cfg = {}
+
     cfg = copy.deepcopy(SYSTEM_DEFAULTS)
+
+    # Use .get() with default None first to let the validator see if it's missing ({} default there)
+    # or explicitly None.
+    # Actually, we pass {} as default to get(), so if key is missing, it passes {}.
+    # If key is present but value is None (from JSON null), get returns None.
+    # The validators now handle None via isinstance(section, dict).
 
     cfg["z1"] = _validate_pid_section(raw_cfg.get("z1", {}), "z1", errors)
     cfg["z2"] = _validate_pid_section(raw_cfg.get("z2", {}), "z2", errors)
@@ -516,24 +597,29 @@ def validate_config(raw_cfg: dict):
     cfg["pwm"] = _validate_pwm(raw_cfg.get("pwm", {}), errors)
     cfg["sensors"] = _validate_sensors(raw_cfg.get("sensors", {}), errors)
     cfg["adc"] = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
+
     if "adc" in raw_cfg:
-        try:
-            result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
-            if "enabled" in raw_cfg["adc"]:
-                result["enabled"] = bool(raw_cfg["adc"].get("enabled", result["enabled"]))
-            if "bus" in raw_cfg["adc"]:
-                result["bus"] = int(raw_cfg["adc"]["bus"])
-            if "address" in raw_cfg["adc"]:
-                result["address"] = int(raw_cfg["adc"]["address"])
-            if "fsr" in raw_cfg["adc"]:
-                fsr = float(raw_cfg["adc"]["fsr"])
-                if fsr > 0:
-                    result["fsr"] = fsr
-                else:
-                    raise ValueError
-            cfg["adc"] = result
-        except (TypeError, ValueError):
-            errors.append("Invalid adc configuration, using defaults")
+        adc_section = raw_cfg["adc"]
+        if isinstance(adc_section, dict):
+            try:
+                result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
+                if "enabled" in adc_section:
+                    result["enabled"] = bool(adc_section.get("enabled", result["enabled"]))
+                if "bus" in adc_section:
+                    result["bus"] = int(adc_section["bus"])
+                if "address" in adc_section:
+                    result["address"] = int(adc_section["address"])
+                if "fsr" in adc_section:
+                    fsr = float(adc_section["fsr"])
+                    if fsr > 0:
+                        result["fsr"] = fsr
+                    else:
+                        raise ValueError
+                cfg["adc"] = result
+            except (TypeError, ValueError):
+                errors.append("Invalid adc configuration, using defaults")
+        else:
+            errors.append("Invalid adc section (expected dict), using defaults")
 
     cfg["temp_settings"] = _validate_temp_settings(raw_cfg.get("temp_settings", {}), errors)
     cfg["logging"] = _validate_logging(raw_cfg.get("logging", {}), errors)
@@ -541,6 +627,7 @@ def validate_config(raw_cfg: dict):
     cfg["extruder_sequence"] = _validate_extruder_sequence(
         raw_cfg.get("extruder_sequence", {}), errors
     )
+    cfg["history"] = _validate_history_settings(raw_cfg.get("history", {}), errors)
 
     if errors:
         for err in errors:
@@ -584,6 +671,7 @@ def load_config():
             return validate_config({})
 
         except Exception as e:
+            # Catch-all for unexpected errors (should be rare with hardened validation)
             ts = datetime.now().strftime("%Y%m%d%H%M%S")
             backup_path = f"{CONFIG_FILE}.bak.{ts}"
             app_logger.error(f"Failed to load config.json: {e}")
@@ -703,6 +791,7 @@ hal: HardwareInterface | None = None
 safety = SafetyMonitor()
 logger = DataLogger()
 logger.configure(sys_config.get("logging", {}))
+
 
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
 pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
@@ -888,7 +977,10 @@ def _latch_alarm(reason: str):
 
     # Determine severity
     severity = "WARNING"
-    if "EMERGENCY" in reason or "CRITICAL" in reason:
+    # LOGGING_DISK_FULL should also be CRITICAL or just WARNING?
+    # Usually disk full is critical for data integrity but maybe not safety.
+    # However, if we can't log, we shouldn't run blind.
+    if "EMERGENCY" in reason or "CRITICAL" in reason or "DISK_FULL" in reason:
         severity = "CRITICAL"
 
     running_event.clear()
@@ -911,6 +1003,17 @@ def _latch_alarm(reason: str):
             save_alarms_to_disk(state["alarm_history"])
 
         state["status"] = "ALARM"
+
+def _handle_logger_error(payload: dict):
+    """
+    Callback for DataLogger errors.
+    """
+    event = payload.get("event")
+    if event == "disk_full":
+        app_logger.critical("Disk full detected by logger. Latching alarm.")
+        _latch_alarm("LOGGING_DISK_FULL")
+
+logger.set_error_handler(_handle_logger_error)
 
 startup_lock = threading.Lock()
 
@@ -1413,82 +1516,119 @@ def log_stop():
 @app.route("/api/history/sensors", methods=["GET"])
 def history_sensors():
     """
-    Retrieve sensor history from the log file.
+    Retrieve sensor history from the log file AND the in-memory buffer.
     Returns the last 1000 records.
     """
-    # Read the logging.csv file and return data
-    log_file = "logging.csv"
-    if not os.path.exists(log_file):
-        return jsonify([])
+    data = []
 
-    try:
-        data = []
-        # Basic CSV reading - optimization: read only last N lines or by timestamp
-        # For now, we'll return the last 1000 lines to avoid payload explosion
-        with open(log_file, "r") as f:
-            lines = f.readlines()
+    # Helper to parse a raw row (list or dict) into the frontend format
+    def parse_entry(entry):
+        # We need "Timestamp" to be present and a number
+        ts_val = entry.get("Timestamp")
+        if ts_val is None:
+            # Fallback: try "timestamp" lowercase if it exists
+            ts_val = entry.get("timestamp", 0)
 
-        header = lines[0].strip().split(",")
-        # Skip header, take last 1000
-        content_lines = lines[1:][-1000:]
+        try:
+            ts_float = float(ts_val)
+        except (ValueError, TypeError):
+            ts_float = 0.0
 
-        for line in content_lines:
-            parts = line.strip().split(",")
-            if len(parts) != len(header):
+        mapped = {
+            "t": int(ts_float * 1000), # JS uses ms
+            "temps": {},
+            "relays": {},
+            "motors": {},
+            "pwm": {},
+            "status": entry.get("Status", entry.get("status", "UNKNOWN")),
+            "mode": entry.get("Mode", entry.get("mode", "AUTO")) # Log doesn't have mode yet, but safe default
+        }
+
+        # Map known columns
+        # entry keys come from CSV header (e.g. "T1_Feed") or buffer logic
+        mapping = {
+            "T1_Feed": ("temps", "t1"),
+            "T2_Mid": ("temps", "t2"),
+            "T3_Nozzle": ("temps", "t3"),
+            "T_Motor": ("temps", "motor"),
+            "RPM_Main": ("motors", "main"),
+            "RPM_Feed": ("motors", "feed"),
+            "Target_Z1": (None, "target_z1"),
+            "Target_Z2": (None, "target_z2"),
+            "Pwr_Z1_%": (None, "heater_duty_z1"),
+            "Pwr_Z2_%": (None, "heater_duty_z2"),
+            # Legacy/Fallback keys just in case
+            "t1": ("temps", "t1"),
+            "main_rpm": ("motors", "main"),
+            "ssr_fan": ("relays", "fan"),
+            "ssr_pump": ("relays", "pump")
+        }
+
+        for key, val in entry.items():
+            if val == "NAN" or val is None:
                 continue
-            entry = {}
-            for i, col in enumerate(header):
-                # Try to convert to float/int if possible
-                val = parts[i]
-                try:
-                    if "." in val:
-                        entry[col] = float(val)
-                    else:
-                        entry[col] = int(val)
-                except ValueError:
-                    entry[col] = val
 
-            # Map CSV columns to the format frontend expects in 'history'
-            # Frontend expects: { t, temps: {t1, t2...}, ... }
-            # The CSV likely has flattened structure like timestamp, t1, t2, z1_duty, etc.
-            # We need to reconstruct the structure or let frontend parse it.
-            # However, existing frontend code for history uses specific object structure.
-            # Let's map it here to match what App.jsx expects in `setHistory`.
+            # Convert numeric if possible
+            try:
+                num_val = float(val)
+            except (ValueError, TypeError):
+                num_val = val
 
-            mapped = {
-                "t": int(entry.get("timestamp", 0) * 1000), # JS uses ms
-                "temps": {},
-                "relays": {},
-                "motors": {},
-                "pwm": {},
-                "status": entry.get("status", "UNKNOWN"),
-                "mode": entry.get("mode", "AUTO")
-            }
+            if key in mapping:
+                cat, target = mapping[key]
+                if cat:
+                    mapped[cat][target] = num_val
+                else:
+                    mapped[target] = num_val
+            # Fallback heuristics for other fields
+            elif key.startswith("Pwr_") and "%" in key:
+                # e.g. Pwr_Z1_% -> heater_duty_z1
+                zone = key.split("_")[1].lower()
+                mapped[f"heater_duty_{zone}"] = num_val
 
-            # Helper to extract potential keys
-            for key, val in entry.items():
-                if key in ("t1", "t2", "t3", "motor_temp", "motor"): # sensor names
-                    if key == "motor": mapped["temps"]["motor"] = val # disambiguate
-                    else: mapped["temps"][key] = val
-                elif key.startswith("temp_"):
-                    mapped["temps"][key.replace("temp_", "")] = val
-                elif key in ("fan", "pump", "ssr_z1", "ssr_z2"):
-                    mapped["relays"][key] = bool(val)
-                elif key.startswith("relay_"):
-                    mapped["relays"][key.replace("relay_", "")] = bool(val)
-                elif key in ("main_rpm", "feed_rpm"):
-                    mapped["motors"][key.replace("_rpm", "")] = val
-                elif key.startswith("motor_"):
-                    mapped["motors"][key.replace("motor_", "")] = val
-                elif key in ("manual_duty_z1", "manual_duty_z2", "target_z1", "target_z2"):
-                    mapped[key] = val
+        return mapped
 
-            data.append(mapped)
+    # 1. Read from Disk (Current or Recent)
+    log_file = logger.current_file
+    if not log_file:
+        log_dir = logger.log_dir
+        if os.path.exists(log_dir):
+            files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".csv")]
+            if files:
+                log_file = max(files, key=os.path.getctime)
 
-        return jsonify(data)
-    except Exception as e:
-        app_logger.error(f"Failed to read history: {e}")
-        return jsonify({"error": str(e)}), 500
+    if log_file and os.path.exists(log_file):
+        try:
+            with open(log_file, "r") as f:
+                lines = f.readlines()
+            if len(lines) > 1:
+                header = lines[0].strip().split(",")
+                # Read last 1000 lines max
+                content = lines[1:][-1000:]
+                for line in content:
+                    parts = line.strip().split(",")
+                    if len(parts) != len(header): continue
+                    entry = {header[i]: parts[i] for i in range(len(header))}
+                    data.append(parse_entry(entry))
+        except Exception as e:
+            app_logger.error(f"Failed to read history file: {e}")
+
+    # 2. Read from In-Memory Buffer (if active)
+    # logger.buffer contains lists of raw values. We need logger.headers to map them.
+    if logger.recording and logger.buffer:
+        # Buffer format matches header order
+        headers = logger.headers
+        for row in logger.buffer:
+            if len(row) != len(headers): continue
+            entry = {headers[i]: row[i] for i in range(len(headers))}
+            data.append(parse_entry(entry))
+
+    # Deduplicate by timestamp (rare case of overlap) and sort
+    # Convert to dict by time to dedupe
+    deduped = {d["t"]: d for d in data}
+    sorted_data = sorted(deduped.values(), key=lambda x: x["t"])
+
+    return jsonify(sorted_data[-1000:])
 
 @app.route("/api/gpio", methods=["GET", "POST"])
 def gpio_control():
@@ -1593,6 +1733,7 @@ def control():
         "SET_TEMP_SETTINGS",
         "SET_LOGGING_SETTINGS",
         "UPDATE_MOTION_CONFIG",
+        "SET_HISTORY_SETTINGS",
         "SET_SENSOR_CALIBRATION",
         "SAVE_CONFIG",
         "GPIO_CONFIG",
@@ -2002,6 +2143,22 @@ def control():
             )
 
         sys_config["motion"] = validated
+
+    elif cmd == "SET_HISTORY_SETTINGS":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_HISTORY_PARAMS"}), 400
+
+        validation_errors: list[str] = []
+        current = sys_config.get("history", SYSTEM_DEFAULTS["history"])
+        validated = _validate_history_settings({**current, **params}, validation_errors)
+
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        sys_config["history"] = validated
 
     elif cmd == "SET_SENSOR_CALIBRATION":
         params = req.get("params", {})
