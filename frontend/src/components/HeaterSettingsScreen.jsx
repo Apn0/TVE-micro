@@ -11,13 +11,20 @@ import { styles } from "../styles";
  * - PID Parameter editing (Kp, Ki, Kd) for Zone 1 and Zone 2.
  * - Manual Duty Cycle control (when in Manual Mode).
  * - Global Temperature Settings (Poll Interval, Averaging).
- *
- * Design Pattern: Engineering UI (docs/ENGINEERING_UI_DESIGN.md)
  */
 function HeaterSettingsScreen({ data, sendCmd, onBack, keypad }) {
   const config = data.config || {};
   const state = data.state || {};
   const isManual = state.mode === "MANUAL";
+
+  // Local state for form values to avoid jumping inputs while typing (though keypad handles this mostly)
+  // We actually rely on the keypad for inputs, so we display current config/state values.
+
+  const renderSectionHeader = (title) => (
+    <h3 style={{ borderBottom: "1px solid #333", paddingBottom: "10px", marginTop: "20px", color: "#ccc" }}>
+      {title}
+    </h3>
+  );
 
   const handleEdit = (label, currentValue, onSave, numeric = true) => (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -37,29 +44,31 @@ function HeaterSettingsScreen({ data, sendCmd, onBack, keypad }) {
   };
 
   const updatePID = (zone, param, value) => {
-    // We send only the changed parameter; backend merges it.
+    const current = config[zone] || {};
+    const newParams = { ...current, [param]: value };
+    // We only send the changed param to UPDATE_PID, or we can send all.
+    // The backend merges.
     sendCmd("UPDATE_PID", { zone, params: { [param]: value } });
   };
 
   const updateDuty = (zone, value) => {
-    let num = parseFloat(value);
-    if (num < 0) num = 0;
-    if (num > 100) num = 100;
-    sendCmd("SET_HEATER", { zone, duty: num });
+    if (value < 0) value = 0;
+    if (value > 100) value = 100;
+    sendCmd("SET_HEATER", { zone, duty: value });
   };
 
   const updateGlobal = (param, value) => {
     sendCmd("SET_TEMP_SETTINGS", { params: { [param]: value } });
   };
 
-  const renderZoneSettings = (zoneKey, title, subtitle) => {
+  const renderZoneSettings = (zoneKey, label) => {
     const pid = config[zoneKey] || { kp: 0, ki: 0, kd: 0 };
     const duty = state[`heater_duty_${zoneKey}`] ?? 0;
+    const manualDuty = state[`manual_duty_${zoneKey}`] ?? 0; // Configured manual duty
 
     return (
-      <div style={styles.panel} key={zoneKey}>
-        <h2 style={{ margin: "0 0 5px 0" }}>{title}</h2>
-        <div style={{ color: "#aaa", fontSize: "0.9em", marginBottom: "20px" }}>{subtitle}</div>
+      <div style={{ marginBottom: 20 }}>
+        {renderSectionHeader(label)}
 
         <div style={styles.grid2}>
           {/* Manual Duty Cycle */}
@@ -128,12 +137,11 @@ function HeaterSettingsScreen({ data, sendCmd, onBack, keypad }) {
         </div>
       </div>
 
-      {renderZoneSettings("z1", "Zone 1 (Feed/Transition)", "PID tuning and manual override for the feed section.")}
-      {renderZoneSettings("z2", "Zone 2 (Metering/Die)", "PID tuning and manual override for the compression section.")}
-
       <div style={styles.panel}>
-        <h2 style={{ margin: "0 0 5px 0" }}>Global Temperature Settings</h2>
-        <div style={{ color: "#aaa", fontSize: "0.9em", marginBottom: "20px" }}>Sensor behavior and system-wide limits.</div>
+        {renderZoneSettings("z1", "Zone 1 (Feed/Transition)")}
+        {renderZoneSettings("z2", "Zone 2 (Metering/Die)")}
+
+        {renderSectionHeader("Global Temperature Settings")}
         <div style={styles.grid2}>
              <div style={styles.metricCard}>
                 <div style={styles.metricLabel}>Poll Interval</div>
