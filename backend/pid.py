@@ -1,4 +1,5 @@
 import time
+import math
 
 class PID:
     """
@@ -57,6 +58,12 @@ class PID:
         
         if dt < self.sample_time:
             return None # Too soon
+
+        # Sanitize input
+        if input_val is None or not math.isfinite(input_val):
+            # Update last_time to prevent large dt jump on next valid sample
+            self._last_time = now
+            return None
 
         # Error calculation
         error = self.setpoint - input_val
