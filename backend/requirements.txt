@@ -3,3 +3,4 @@ flask-cors
 flask-socketio
 simple-websocket
 prometheus_client
+Flask-HTTPAuth
