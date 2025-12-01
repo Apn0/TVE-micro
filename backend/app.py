@@ -965,7 +965,7 @@ def _set_status(new_status: str):
     try:
         SYSTEM_STATE.state(new_status)
     except Exception:
-        pass
+        app_logger.exception("Failed to update system state metric")
 
 
 def _latch_alarm(reason: str):

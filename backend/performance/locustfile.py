@@ -33,7 +33,7 @@ class ControlUser(HttpUser):
 
     @task(2)
     def set_targets(self):
-        z1, z2 = random.choice(CONTROL_TARGETS)
+        z1, z2 = random.choice(CONTROL_TARGETS)  # nosec B311
         self.client.post(
             "/api/control",
             json={"command": "SET_TARGET", "value": {"z1": z1, "z2": z2}},
@@ -42,8 +42,8 @@ class ControlUser(HttpUser):
 
     @task(2)
     def set_motors(self):
-        rpm = random.choice(MOTOR_RPMS)
-        motor = random.choice(["main", "feed"])
+        rpm = random.choice(MOTOR_RPMS)  # nosec B311
+        motor = random.choice(["main", "feed"])  # nosec B311
         self.client.post(
             "/api/control",
             json={"command": "SET_MOTOR", "value": {"motor": motor, "rpm": rpm}},
@@ -52,8 +52,8 @@ class ControlUser(HttpUser):
 
     @task(1)
     def set_heater(self):
-        zone = random.choice(["z1", "z2"])
-        duty = random.choice(HEATER_DUTIES)
+        zone = random.choice(["z1", "z2"])  # nosec B311
+        duty = random.choice(HEATER_DUTIES)  # nosec B311
         self.client.post(
             "/api/control",
             json={"command": "SET_HEATER", "value": {"zone": zone, "duty": duty}},
@@ -62,7 +62,7 @@ class ControlUser(HttpUser):
 
     @task(1)
     def set_mode(self):
-        mode = random.choice(["AUTO", "MANUAL"])
+        mode = random.choice(["AUTO", "MANUAL"])  # nosec B311
         self.client.post(
             "/api/control",
             json={"command": "SET_MODE", "value": {"mode": mode}},
@@ -93,8 +93,8 @@ class GpioUser(HttpUser):
 
     @task
     def toggle_gpio(self):
-        pin = random.choice([17, 22, 27])
-        value = random.choice([0, 1])
+        pin = random.choice([17, 22, 27])  # nosec B311
+        value = random.choice([0, 1])  # nosec B311
         self.client.post(
             "/api/gpio",
             json={"command": "SET_GPIO_VALUE", "value": {"pin": pin, "value": value}},
