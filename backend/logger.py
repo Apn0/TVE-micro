@@ -2,6 +2,7 @@ import csv
 import time
 import os
 import math
+import errno
 import json
 import logging
 from datetime import datetime
@@ -30,7 +31,7 @@ class DataLogger:
         self.recording = False
 
         self.headers = [
-            "Timestamp", "Status",
+            "Timestamp", "Time_Str", "Status",
             "T1_Feed", "T2_Mid", "T3_Nozzle", "T_Motor",
             "Target_Z1", "Target_Z2",
             "Pwr_Z1_%", "Pwr_Z2_%",
@@ -47,8 +48,9 @@ class DataLogger:
         self.flush_retry_attempts = 3
         self.flush_retry_delay = 0.5
 
-        # Indices of columns to monitor for SD deviation (T1, T2, T3, T_Motor are indices 2, 3, 4, 5)
-        self.monitored_indices = [2, 3, 4, 5]
+        # Indices of columns to monitor for SD deviation (T1, T2, T3, T_Motor are indices 3, 4, 5, 6)
+        # Shifted by 1 due to added Time_Str
+        self.monitored_indices = [3, 4, 5, 6]
 
         # Error handling hooks
         self.on_error = None
@@ -213,6 +215,15 @@ class DataLogger:
                 os.fsync(self.file_handle.fileno())
                 return True
             except OSError as exc:
+                if exc.errno == errno.ENOSPC:
+                    self._emit_event(
+                        "CRITICAL",
+                        "disk_full",
+                        {"file": self.current_file, "buffer_size": len(self.buffer)},
+                    )
+                    self.stop(flush=False)
+                    return False
+
                 LOGGER_WRITE_FAILURES_TOTAL.inc()
                 self._emit_event(
                     "ERROR",
@@ -432,8 +443,10 @@ class DataLogger:
         if len(self.buffer) >= self.max_buffer_size:
             self._apply_backpressure(make_room_for=1)
 
+        now_ts = time.time()
         row = [
-            datetime.now().strftime("%H:%M:%S.%f")[:-3],
+            f"{now_ts:.3f}",
+            datetime.fromtimestamp(now_ts).strftime("%H:%M:%S.%f")[:-3],
             status,
             self._format_val(t1, ".2f"),
             self._format_val(t2, ".2f"),
@@ -459,14 +472,18 @@ class DataLogger:
         elif (now - self.last_flush_time) >= self.flush_interval:
             self.flush()
 
-    def stop(self):
+    def stop(self, flush=True):
         """
         Stop the logger and close the file.
 
         Flushes any remaining buffered data and closes the file handle.
+
+        Args:
+            flush (bool): Whether to attempt flushing the buffer before closing.
+                          Should be False if stopping due to write errors (e.g. disk full).
         """
-        # Flush remaining data
-        self.flush()
+        if flush:
+            self.flush()
 
         if self.file_handle:
             self.file_handle.close()
