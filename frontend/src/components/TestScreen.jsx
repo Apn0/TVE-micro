@@ -125,12 +125,14 @@ function TestScreen({ data, sendCmd }) {
   );
 
   const quickButton = (label, onClick, tone = "primary") => {
+    let baseStyle = styles.button;
+    if (tone === "secondary") baseStyle = styles.buttonSecondary;
+    if (tone === "danger") baseStyle = styles.buttonDanger;
+
     return (
       <button
         style={{
-          ...styles.button,
-          ...(tone === "secondary" ? styles.buttonSecondary : {}),
-          ...(tone === "danger" ? styles.buttonDanger : {}),
+          ...baseStyle,
           marginRight: 0,
           width: "100%",
         }}

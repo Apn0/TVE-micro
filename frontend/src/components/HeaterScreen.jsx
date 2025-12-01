@@ -787,13 +787,8 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           <button
             onClick={handleModeToggle}
             style={{
-              padding: "10px 20px",
+              ...styles.button,
               background: data.state?.mode === "AUTO" ? "#2ecc71" : "#e67e22",
-              border: "none",
-              borderRadius: "4px",
-              color: "#fff",
-              fontWeight: "bold",
-              cursor: "pointer",
             }}
           >
             Mode: {data.state?.mode}
