@@ -19,3 +19,4 @@ backend/alarms.tmp
 # Misc
 *.txt
 !backend/performance/requirements.txt
+verification_env/
