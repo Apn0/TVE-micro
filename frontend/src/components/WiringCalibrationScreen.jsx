@@ -150,9 +150,8 @@ function WiringCalibrationScreen() {
             <div
               key={wire.id}
               style={{
-                ...styles.panel,
-                border: "1px solid #2c3e50",
-                background: "#1a222c",
+                ...styles.metricCard,
+                minHeight: 'auto',
                 display: "flex",
                 flexDirection: "column",
                 gap: 8,

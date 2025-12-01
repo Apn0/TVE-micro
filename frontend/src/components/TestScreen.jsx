@@ -114,14 +114,8 @@ function TestScreen({ data, sendCmd }) {
   const ioCard = (title, body, footer) => (
     <div
       style={{
-        background: "#111823",
-        border: "1px solid #223243",
-        borderRadius: "10px",
-        padding: "14px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-        minHeight: "120px",
+        ...styles.metricCard,
+        minHeight: '120px',
       }}
     >
       <div style={{ color: "#d7e0ea", fontWeight: "bold" }}>{title}</div>
@@ -324,13 +318,8 @@ function TestScreen({ data, sendCmd }) {
               <div
                 key={name}
                 style={{
-                  background: "#111823",
-                  border: "1px solid #223243",
-                  borderRadius: "10px",
-                  padding: "14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
+                  ...styles.metricCard,
+                  minHeight: 'auto',
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", color: "#d7e0ea", fontWeight: "bold" }}>
@@ -373,9 +362,8 @@ function TestScreen({ data, sendCmd }) {
               <div
                 key={entry}
                 style={{
-                  background: "#111823",
-                  border: "1px solid #223243",
-                  borderRadius: "8px",
+                  ...styles.metricCard,
+                  minHeight: 'auto',
                   padding: "10px",
                   color: "#d7e0ea",
                 }}
