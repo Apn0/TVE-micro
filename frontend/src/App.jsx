@@ -265,7 +265,7 @@ function App() {
               keypad={keypad}
             />
           )}
-          {view === "HISTORY" && <HistoryScreen history={history} />}
+          {view === "HISTORY" && <HistoryScreen history={history} config={data?.config} />}
           {view === "I/O TEST" && <TestScreen data={data} sendCmd={sendCmd} />}
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
           {view === "GPIO" && <GPIOControlScreen />}

@@ -239,6 +239,26 @@ SYSTEM_DEFAULTS = {
         "max_accel": 0.0,
         "max_jerk": 0.0,
     },
+    "history": {
+        "y_left_min": None,
+        "y_left_max": None,
+        "y_right_min": None,
+        "y_right_max": None,
+        "series_axis": {
+            "t1": "right",
+            "t2": "right",
+            "t3": "right",
+            "motor_temp": "right",
+            "target_z1": "right",
+            "target_z2": "right",
+            "main_rpm": "right",
+            "feed_rpm": "right",
+            "fan_rpm": "right",
+            "pump_state": "left",
+            "heater_z1_duty": "left",
+            "heater_z2_duty": "left",
+        }
+    },
 }
 
 # --- Helper: linear calibration -----------------------------------------------
