@@ -4,37 +4,26 @@ This document consolidates pending tasks and technical debt identified from code
 
 ## High Priority (Stability & Safety)
 
-### Backend Logic
-- [x] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
-- [x] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
-- [x] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
-- [x] **Guard Motor Safety**: Enhance `SET_MOTOR` safety checks to include guards for repeated toggles and invalid GPIO writes, in addition to existing temperature checks.
-- [ ] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
-- [ ] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
-- [ ] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
-- [ ] **Guard Motor Safety**: Enhance `SET_MOTOR` safety checks to include guards for repeated toggles and invalid GPIO writes, in addition to existing temperature checks.
-- [x] **Fix Data Logger Reliability**: Implement error hooks, retries, and buffer backpressure in `DataLogger` (`backend/logger.py`) to handle disk-full scenarios and writer errors.
-- [ ] **Validate Logged Values**: Ensure deviation-based flushing explicitly handles non-numeric values to prevent `NAN` entries and detection failures.
-- [ ] **Sanitize PID Inputs**: Add sensor freshness checks and anti-windup/plausibility filters in the PID loop to handle stale or noisy readings safely.
-- [ ] **Verify Alarm Recovery**: Ensure that clearing alarms does not immediately re-arm `running_event` if safety conditions (like E-STOP) persist.
-- [x] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
-- [x] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
-- [x] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
-- [x] **Guard Motor Safety**: Enhance `SET_MOTOR` safety checks to include guards for repeated toggles and invalid GPIO writes, in addition to existing temperature checks.
-- [x] **Fix Data Logger Reliability**: Implement error hooks, retries, and buffer backpressure in `DataLogger` (`backend/logger.py`) to handle disk-full scenarios and writer errors.
-- [x] **Validate Logged Values**: Ensure deviation-based flushing explicitly handles non-numeric values to prevent `NAN` entries and detection failures.
-- [x] **Sanitize PID Inputs**: Add sensor freshness checks and anti-windup/plausibility filters in the PID loop to handle stale or noisy readings safely.
-- [x] **Verify Alarm Recovery**: Ensure that clearing alarms does not immediately re-arm `running_event` if safety conditions (like E-STOP) persist.
-
 ### Reliability
 - [ ] **Race Condition Analysis**: Exercise race conditions around `state_lock`, `_control_stop`, and `running_event` in `control_loop` to ensure robust status recovery.
-- [x] **ADS1115 Failure Handling**: Audit downstream usage of `ADS1115Driver.read_voltage` to ensure `None` returns are handled safely (triggering safe outputs) rather than propagating errors.
+
+### Security (Next Steps)
+- [ ] **DAST Scanning**: Run DAST against a deployed staging environment.
+- [ ] **Auth & HTTPS**: Add authentication/authorization to control endpoints and enforce HTTPS in deployment configs.
+- [ ] **Dependency Monitoring**: Monitor dependency updates via scheduled `pip-audit`/`npm audit` in CI.
 
 ## Medium Priority (UX & Features)
 
-### Frontend
-- [x] **Persist Alarms Tab View**: Update `AlarmsScreen.jsx` to persist the "Active vs History" toggle state (e.g., in parent component or local storage) so the user's preference is remembered.
-- [x] **History Empty State**: Add a visual cue for empty alarm history beyond the text message.
+### Frontend Polish
+- [ ] **Standardize Button Styles**: Ensure all buttons use `styles.button` or `styles.buttonSecondary` across the app.
+- [ ] **Unified Error Handling**: Create a standard error boundary or hook for displaying API errors in the frontend.
+
+### Future Components
+To maintain consistency, we should eventually create reusable React components:
+- [ ] **ConfigSection**: `<ConfigSection title="" description="">`
+- [ ] **SettingRow**: `<SettingRow label="" unit="">`
+- [ ] **ActionRow**: `<ActionRow>`
 
 ## Low Priority (Cleanup)
-- [x] **Remove Dead Code**: Prune unreachable code in `load_config` after fixing the validation logic.
+
+*(No items currently)*

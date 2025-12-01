@@ -29,6 +29,9 @@ if REPO_ROOT not in sys.path:
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from flask_httpauth import HTTPBasicAuth
+from werkzeug.security import check_password_hash
+from functools import wraps
 
 from backend.hardware import HardwareInterface, SYSTEM_DEFAULTS
 from backend.safety import SafetyMonitor
@@ -59,6 +62,9 @@ MAX_MOTOR_RPM = 5000.0
 
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
+
+# Initialize Auth
+auth = HTTPBasicAuth()
 
 
 def _coerce_finite(value: object) -> float | None:
@@ -100,6 +106,10 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
     """
     Validate PID configuration section.
     """
+    if not isinstance(section, dict):
+        errors.append(f"Invalid {name} section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS[name])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS[name])
     for param in ("kp", "ki", "kd"):
         if param in section:
@@ -119,6 +129,10 @@ def _validate_dm556(section: dict, errors: list[str]):
     """
     Validate DM556 motor driver configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid dm556 section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
     if "microsteps" in section:
         try:
@@ -147,6 +161,10 @@ def _validate_pins(section: dict, errors: list[str]):
     """
     Validate GPIO pin configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid pins section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["pins"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
@@ -172,6 +190,10 @@ def _validate_pwm(section: dict, errors: list[str]):
     """
     Validate PWM configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid pwm section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
     if "enabled" in section:
         result["enabled"] = bool(section.get("enabled", result["enabled"]))
@@ -295,6 +317,10 @@ def _validate_temp_settings(section: dict, errors: list[str]):
     """
     Validate temperature monitoring settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid temp_settings section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
 
     if "poll_interval" in section:
@@ -337,6 +363,10 @@ def _validate_logging(section: dict, errors: list[str]):
     """
     Validate data logging settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid logging section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["logging"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
 
     if "interval" in section:
@@ -366,6 +396,10 @@ def _validate_motion(section: dict, errors: list[str]):
     """
     Validate motion configuration settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid motion section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["motion"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["motion"])
     for key in ("ramp_up", "ramp_down", "max_accel", "max_jerk"):
         if key in section:
@@ -480,6 +514,10 @@ def _validate_extruder_sequence(section: dict, errors: list[str]):
     """
     Validate the extruder startup/shutdown sequence.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid extruder_sequence section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
 
     if "check_temp_before_start" in section:
@@ -543,7 +581,20 @@ def validate_config(raw_cfg: dict):
         dict: A validated configuration dictionary with defaults applied where necessary.
     """
     errors: list[str] = []
+    if not isinstance(raw_cfg, dict):
+        errors.append("Config root must be a dictionary")
+        # Use an empty dict to allow validation of individual sections to proceed
+        # (they will all receive defaults due to get(..., {}) defaulting to empty dict
+        # or due to the keys missing in the empty dict)
+        raw_cfg = {}
+
     cfg = copy.deepcopy(SYSTEM_DEFAULTS)
+
+    # Use .get() with default None first to let the validator see if it's missing ({} default there)
+    # or explicitly None.
+    # Actually, we pass {} as default to get(), so if key is missing, it passes {}.
+    # If key is present but value is None (from JSON null), get returns None.
+    # The validators now handle None via isinstance(section, dict).
 
     cfg["z1"] = _validate_pid_section(raw_cfg.get("z1", {}), "z1", errors)
     cfg["z2"] = _validate_pid_section(raw_cfg.get("z2", {}), "z2", errors)
@@ -552,24 +603,29 @@ def validate_config(raw_cfg: dict):
     cfg["pwm"] = _validate_pwm(raw_cfg.get("pwm", {}), errors)
     cfg["sensors"] = _validate_sensors(raw_cfg.get("sensors", {}), errors)
     cfg["adc"] = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
+
     if "adc" in raw_cfg:
-        try:
-            result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
-            if "enabled" in raw_cfg["adc"]:
-                result["enabled"] = bool(raw_cfg["adc"].get("enabled", result["enabled"]))
-            if "bus" in raw_cfg["adc"]:
-                result["bus"] = int(raw_cfg["adc"]["bus"])
-            if "address" in raw_cfg["adc"]:
-                result["address"] = int(raw_cfg["adc"]["address"])
-            if "fsr" in raw_cfg["adc"]:
-                fsr = float(raw_cfg["adc"]["fsr"])
-                if fsr > 0:
-                    result["fsr"] = fsr
-                else:
-                    raise ValueError
-            cfg["adc"] = result
-        except (TypeError, ValueError):
-            errors.append("Invalid adc configuration, using defaults")
+        adc_section = raw_cfg["adc"]
+        if isinstance(adc_section, dict):
+            try:
+                result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
+                if "enabled" in adc_section:
+                    result["enabled"] = bool(adc_section.get("enabled", result["enabled"]))
+                if "bus" in adc_section:
+                    result["bus"] = int(adc_section["bus"])
+                if "address" in adc_section:
+                    result["address"] = int(adc_section["address"])
+                if "fsr" in adc_section:
+                    fsr = float(adc_section["fsr"])
+                    if fsr > 0:
+                        result["fsr"] = fsr
+                    else:
+                        raise ValueError
+                cfg["adc"] = result
+            except (TypeError, ValueError):
+                errors.append("Invalid adc configuration, using defaults")
+        else:
+            errors.append("Invalid adc section (expected dict), using defaults")
 
     cfg["temp_settings"] = _validate_temp_settings(raw_cfg.get("temp_settings", {}), errors)
     cfg["logging"] = _validate_logging(raw_cfg.get("logging", {}), errors)
@@ -578,6 +634,14 @@ def validate_config(raw_cfg: dict):
         raw_cfg.get("extruder_sequence", {}), errors
     )
     cfg["history"] = _validate_history_settings(raw_cfg.get("history", {}), errors)
+
+    # Security Configuration
+    cfg["security"] = {"enabled": False, "users": {}}
+    if "security" in raw_cfg and isinstance(raw_cfg["security"], dict):
+        sec = raw_cfg["security"]
+        cfg["security"]["enabled"] = bool(sec.get("enabled", False))
+        if isinstance(sec.get("users"), dict):
+            cfg["security"]["users"] = sec["users"]
 
     if errors:
         for err in errors:
@@ -621,6 +685,7 @@ def load_config():
             return validate_config({})
 
         except Exception as e:
+            # Catch-all for unexpected errors (should be rare with hardened validation)
             ts = datetime.now().strftime("%Y%m%d%H%M%S")
             backup_path = f"{CONFIG_FILE}.bak.{ts}"
             app_logger.error(f"Failed to load config.json: {e}")
@@ -730,6 +795,42 @@ def _validate_payload(payload: dict, schema: dict) -> tuple[dict, list[str]]:
 
 sys_config = load_config()
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
+
+# --- Auth Verification Logic ---
+@auth.verify_password
+def verify_password(username, password):
+    security_cfg = sys_config.get("security", {})
+    if not security_cfg.get("enabled", False):
+        return True # Should not happen if decorator is used correctly, but failsafe
+
+    users = security_cfg.get("users", {})
+    if username in users:
+        stored = users[username]
+        # Support hashed passwords or plain text (transitional)
+        # Assuming hashed if it looks like a hash, but simpler to try both or rely on format.
+        # We try check_password_hash, if it raises or fails, we check equality (for simple plain text).
+        try:
+            if check_password_hash(stored, password):
+                return username
+        except ValueError:
+            pass # Stored password is not a valid hash format
+
+        if stored == password:
+             return username
+    return None
+
+def maybe_auth(f):
+    """
+    Decorator that enforces authentication only if enabled in config.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        security_cfg = sys_config.get("security", {})
+        if security_cfg.get("enabled", False):
+            return auth.login_required(f)(*args, **kwargs)
+        return f(*args, **kwargs)
+    return decorated
+
 
 running_event = threading.Event()
 running_event.set()
@@ -914,7 +1015,7 @@ def _set_status(new_status: str):
     try:
         SYSTEM_STATE.state(new_status)
     except Exception:
-        pass
+        app_logger.warning("Failed to update prometheus metric for system state", exc_info=True)
 
 
 def _latch_alarm(reason: str):
@@ -1451,12 +1552,14 @@ def api_data():
     })
 
 @app.route("/api/log/start", methods=["POST"])
+@maybe_auth
 def log_start():
     """Start the data logger."""
     logger.start()
     return jsonify({"success": True})
 
 @app.route("/api/log/stop", methods=["POST"])
+@maybe_auth
 def log_stop():
     """Stop the data logger."""
     logger.stop()
@@ -1580,6 +1683,7 @@ def history_sensors():
     return jsonify(sorted_data[-1000:])
 
 @app.route("/api/gpio", methods=["GET", "POST"])
+@maybe_auth
 def gpio_control():
     """
     Get GPIO status or control GPIO pins directly.
@@ -1625,6 +1729,7 @@ def gpio_control():
     return jsonify({"success": True})
 
 @app.route("/api/control", methods=["POST"])
+@maybe_auth
 def control():
     """
     Main control endpoint for sending commands to the system.
@@ -2223,6 +2328,7 @@ def control():
     return jsonify({"success": True})
 
 @app.route("/api/tune/start", methods=["POST"])
+@maybe_auth
 def tune_start():
     req = request.get_json(force=True) or {}
     zone = req.get("zone")
@@ -2239,6 +2345,7 @@ def tune_start():
     return jsonify({"success": True})
 
 @app.route("/api/tune/stop", methods=["POST"])
+@maybe_auth
 def tune_stop():
     auto_tuner.stop()
     with state_lock:
@@ -2246,6 +2353,7 @@ def tune_stop():
     return jsonify({"success": True})
 
 @app.route("/api/tune/apply", methods=["POST"])
+@maybe_auth
 def tune_apply():
     """Apply the calculated PID values to the config."""
     with state_lock:

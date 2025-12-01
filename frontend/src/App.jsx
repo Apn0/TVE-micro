@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import io from "socket.io-client";
 
 import useKeypad from "./hooks/useKeypad";
+import { useError } from "./hooks/useError";
 import KeypadOverlay from "./components/KeypadOverlay";
 import { styles } from "./styles";
 
@@ -21,7 +22,7 @@ import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 import AlarmsScreen from "./components/AlarmsScreen";
 
 // 1. Create this hook function OUTSIDE of your App component (or inside, but above return)
-function useHybridData(mode) {
+function useHybridData(mode, showError) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const socketRef = useRef(null);
@@ -39,14 +40,17 @@ function useHybridData(mode) {
         const json = await res.json();
         if (!stop) setData(json);
       } catch (e) {
-        if (!stop) setError("Poll error: " + e.message);
+        if (!stop) {
+            setError("Poll error: " + e.message);
+            showError("Poll error: " + e.message);
+        }
       } finally {
         if (!stop) setTimeout(poll, 1000);
       }
     };
     poll();
     return () => { stop = true; };
-  }, [mode]);
+  }, [mode, showError]);
 
   // Socket Mode Effect
   useEffect(() => {
@@ -54,7 +58,13 @@ function useHybridData(mode) {
     console.log("Switched to SOCKET mode");
 
     // 1. Fetch full state ONCE to initialize
-    fetch("/api/status").then(r => r.json()).then(setData).catch(e => setError(e.message));
+    fetch("/api/status")
+        .then(r => r.json())
+        .then(setData)
+        .catch(e => {
+            setError(e.message);
+            showError(e.message);
+        });
 
     // 2. Open Socket
     // We assume the socket server is on the same host/port as the API if proxied,
@@ -112,10 +122,14 @@ function useHybridData(mode) {
       });
     });
 
-    socket.on("disconnect", () => setError("WS Disconnected"));
+    socket.on("disconnect", () => {
+        const msg = "WS Disconnected";
+        setError(msg);
+        showError(msg);
+    });
 
     return () => socket.disconnect();
-  }, [mode]);
+  }, [mode, showError]);
 
   return { data, error };
 }
@@ -131,9 +145,10 @@ function App() {
   const [view, setView] = useState("HOME");
   // NEW: State for the toggle
   const [commMode, setCommMode] = useState("SOCKET");
+  const { showError } = useError();
 
   // NEW: Use the hook instead of the old useEffect
-  const { data, error: pollError } = useHybridData(commMode);
+  const { data, error: pollError } = useHybridData(commMode, showError);
 
   const [message, setMessage] = useState("");
   // We can merge pollError into a general error display or keep them separate.
@@ -219,6 +234,7 @@ function App() {
       return json;
     } catch (e) {
       setCmdError("Cmd error: " + e.message);
+      showError("Cmd error: " + e.message);
       throw e;
     }
   };
@@ -319,15 +335,11 @@ function App() {
             <button
                 onClick={() => setCommMode(prev => prev === 'POLLING' ? 'SOCKET' : 'POLLING')}
                 style={{
-                padding: "2px 8px",
-                background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
-                color: "white",
-                border: "1px solid #444",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "0.8em",
-                borderRadius: "4px",
-                marginLeft: "10px"
+                  ...styles.buttonSecondary,
+                  padding: "4px 10px",
+                  fontSize: "0.8em",
+                  background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
+                  marginLeft: "10px"
                 }}
             >
                 {commMode === 'SOCKET' ? '⚡ REAL-TIME' : '🐢 POLLING 1s'}

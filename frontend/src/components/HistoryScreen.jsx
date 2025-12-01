@@ -758,13 +758,9 @@ function HistoryScreen({ history, config }) {
             <button
               onClick={exportHistory}
               style={{
-                padding: "8px 12px",
-                borderRadius: 6,
-                border: "1px solid #2c2c2c",
+                ...styles.buttonSecondary,
                 background: "#0c0c0c",
-                color: "#e0e0e0",
-                cursor: "pointer",
-                fontWeight: 600,
+                border: "1px solid #2c2c2c",
               }}
             >
               Save CSV
@@ -793,13 +789,10 @@ function ControlButton({ active, onClick, children }) {
     <button
       onClick={onClick}
       style={{
-        padding: "8px 12px",
-        borderRadius: 6,
-        border: active ? "1px solid #3498db" : "1px solid #2c2c2c",
+        ...styles.buttonSecondary,
         background: active ? "#0f1b26" : "#0b0b0b",
+        border: active ? "1px solid #3498db" : "1px solid #2c2c2c",
         color: "#e0e0e0",
-        cursor: "pointer",
-        fontWeight: 600,
       }}
     >
       {children}

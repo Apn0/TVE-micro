@@ -1,7 +1,7 @@
 # Dependencies
 /node_modules
 /frontend/node_modules
-backend/__pycache__/
+__pycache__/
 
 # Build artifacts
 /dist
@@ -15,6 +15,7 @@ yarn-error.log*
 /npm_output.log
 backend/alarms.json
 backend/alarms.tmp
+backend/logs/
 
 # Misc
 *.txt
