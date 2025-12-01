@@ -148,10 +148,19 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
         {/* Title Section */}
         <div style={{
           padding: "6px 10px",
-          borderBottom: "1px solid #333",
-          background: "rgba(255, 255, 255, 0.05)"
+          borderBottom: "1px solid #000",
+          background: "#fff"
         }}>
-          <div style={{ ...styles.metricLabel, textTransform: "none", fontSize: "0.8em" }}>{label}</div>
+          <div style={{
+            ...styles.metricLabel,
+            textTransform: "none",
+            fontSize: "0.8em",
+            margin: 0,
+            borderBottom: "none",
+            padding: 0,
+            textAlign: "left",
+            background: "transparent"
+          }}>{label}</div>
         </div>
 
         {/* Value Section */}
@@ -160,25 +169,30 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: "8px",
-          borderBottom: hasSetpoint ? "1px solid #333" : "none"
+          padding: "8px"
         }}>
-          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#ecf0f1" }}>
+          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#000" }}>
             {value}
           </div>
         </div>
 
-        {/* Setpoint Section (Conditional) */}
+        {/* Setpoint Footer (Standardized) */}
         {hasSetpoint && (
-          <div style={{
-            padding: "6px 10px",
-            background: "rgba(0, 0, 0, 0.2)",
-            textAlign: "center"
-          }}>
-            <div style={{ color: "#7f8c8d", fontSize: "1.0em", fontWeight: "bold" }}>
-              {setpoint}
+            <div style={{
+                ...styles.metricFooter,
+                margin: 0,
+                padding: "6px 10px",
+                fontSize: "0.85em",
+                borderTop: "1px solid #000",
+                background: "#fff"
+            }}>
+                <span style={{...styles.setpointBadge, fontSize: "1.0em"}}>
+                    {setpoint.replace ? setpoint.replace(/[^0-9.]/g, '') : setpoint}
+                </span>
+                <span style={{color: "#555"}}>
+                    {setpoint.replace ? setpoint.replace(/[0-9.]/g, '') : ""}
+                </span>
             </div>
-          </div>
         )}
       </div>
     );

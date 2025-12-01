@@ -170,8 +170,8 @@ function SensorsScreen({ data, sendCmd }) {
             return (
               <div key={card.key} style={styles.metricCard}>
                 <div style={styles.metricLabel}>{card.label}</div>
-                <div style={{ color: "#b0c4de", fontSize: "0.95em" }}>{card.detail}</div>
-                <div style={styles.metricValue}>
+                <div style={{ color: "#7f8c8d", fontSize: "0.95em" }}>{card.detail}</div>
+                <div style={styles.metricValueReadOnly}>
                   {formatTemp(card.value, 2)}
                   <span style={{ fontSize: "0.7em", marginLeft: 6, color: "#8c9fb1" }}>
                     °C
@@ -198,22 +198,22 @@ function SensorsScreen({ data, sendCmd }) {
           }}
         >
           <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
-            <div style={styles.label}>ADC enabled</div>
-            <div style={styles.metricBig}>{adc.enabled ? "Yes" : "No"}</div>
+            <div style={styles.metricLabel}>ADC enabled</div>
+            <div style={styles.metricValueReadOnly}>{adc.enabled ? "Yes" : "No"}</div>
           </div>
           <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
-            <div style={styles.label}>Bus</div>
-            <div style={styles.metricBig}>{adc.bus ?? "-"}</div>
+            <div style={styles.metricLabel}>Bus</div>
+            <div style={styles.metricValueReadOnly}>{adc.bus ?? "-"}</div>
           </div>
           <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
-            <div style={styles.label}>Address</div>
-            <div style={styles.metricBig}>
+            <div style={styles.metricLabel}>Address</div>
+            <div style={styles.metricValueReadOnly}>
               {adc.address !== undefined ? `0x${adc.address.toString(16)}` : "-"}
             </div>
           </div>
           <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
-            <div style={styles.label}>FSR (read-only)</div>
-            <div style={styles.metricBig}>{adc.fsr ?? "-"} V</div>
+            <div style={styles.metricLabel}>FSR (read-only)</div>
+            <div style={styles.metricValueReadOnly}>{adc.fsr ?? "-"} V</div>
           </div>
         </div>
 
