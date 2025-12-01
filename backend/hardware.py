@@ -863,22 +863,34 @@ class HardwareInterface:
         heat_z1 = 0.1 if self.heaters["z1"] > 0 else -0.05
         heat_z2 = 0.1 if self.heaters["z2"] > 0 else -0.05
 
+        # Helper to treat None as ambient
+        def safe_t(val):
+            return 25.0 if val is None else val
+
+        t1 = safe_t(self.temps["t1"])
+        t2 = safe_t(self.temps["t2"])
+        t3 = safe_t(self.temps["t3"])
+        tm = safe_t(self.temps["motor"])
+
         # Peltier cooling effect on t1 (throat)
         peltier_cooling = 0.2 * (self.peltier_duty / 100.0)
 
-        self.temps["t2"] += heat_z1 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
-        self.temps["t3"] += heat_z2 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
-        self.temps["t1"] += (self.temps["t2"] - self.temps["t1"]) * 0.005 - peltier_cooling
+        t2 += heat_z1 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
+        t3 += heat_z2 + random.uniform(-0.01, 0.01)  # nosec B311 - simulation noise only
+        t1 += (t2 - t1) * 0.005 - peltier_cooling
 
         if self.motors["main"] > 0:
             fan_level = self.pwm_outputs.get("fan", 100.0 if self.relays["fan"] else 0.0)
             cooling = 0.1 * (fan_level / 100.0)
-            self.temps["motor"] += (self.motors["main"] / 1000.0) - cooling
+            tm += (self.motors["main"] / 1000.0) - cooling
         else:
-            self.temps["motor"] -= 0.05
+            tm -= 0.05
 
-        for k in self.temps:
-            self.temps[k] = max(20, self.temps[k])
+        # Update state
+        self.temps["t1"] = max(20, t1)
+        self.temps["t2"] = max(20, t2)
+        self.temps["t3"] = max(20, t3)
+        self.temps["motor"] = max(20, tm)
 
     def _run_real_hardware(self):
         """Update actual GPIO outputs based on internal state."""
@@ -929,7 +941,8 @@ class HardwareInterface:
                 abs(self.motors.get(motor_name, 0.0)) > 1e-3
                 or self.manual_steps_pending.get(motor_name, 0) != 0
             )
-            GPIO.output(int(en_pin), GPIO.HIGH if active else GPIO.LOW)
+            # Active Low Enable: LOW = Enabled, HIGH = Disabled
+            GPIO.output(int(en_pin), GPIO.LOW if active else GPIO.HIGH)
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
@@ -942,6 +955,16 @@ class HardwareInterface:
             now = time.time()
 
             if self._ads is None or not self._ads.available:
+                # If ADC was supposed to be enabled but failed/missing on Pi, DO NOT simulate.
+                # Returning None/stale data will trigger TEMP_DATA_STALE alarm in app.py.
+                if self.platform == "PI" and self.adc_cfg.get("enabled", True):
+                    with self._temp_lock:
+                        for logical in LOGICAL_SENSORS:
+                            self.temps[logical] = None
+                            self._temp_timestamps[logical] = 0.0
+                    time.sleep(self.temp_poll_interval)
+                    continue
+
                 with self._temp_lock:
                     self._simulate_temp_loop(now, locked=True)
 
