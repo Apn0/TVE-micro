@@ -5,6 +5,14 @@ This document consolidates pending tasks and technical debt identified from code
 ## High Priority (Stability & Safety)
 
 ### Backend Logic
+- [ ] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
+- [ ] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
+- [ ] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.
+- [ ] **Guard Motor Safety**: Enhance `SET_MOTOR` safety checks to include guards for repeated toggles and invalid GPIO writes, in addition to existing temperature checks.
+- [x] **Fix Data Logger Reliability**: Implement error hooks, retries, and buffer backpressure in `DataLogger` (`backend/logger.py`) to handle disk-full scenarios and writer errors.
+- [ ] **Validate Logged Values**: Ensure deviation-based flushing explicitly handles non-numeric values to prevent `NAN` entries and detection failures.
+- [ ] **Sanitize PID Inputs**: Add sensor freshness checks and anti-windup/plausibility filters in the PID loop to handle stale or noisy readings safely.
+- [ ] **Verify Alarm Recovery**: Ensure that clearing alarms does not immediately re-arm `running_event` if safety conditions (like E-STOP) persist.
 - [x] **Harden Config Loading**: Add schema validation and type guards in `load_config` (`backend/app.py`) to prevent malformed JSON from causing runtime issues or silent default fallbacks.
 - [x] **Consolidate REST Validation**: Refactor `UPDATE_PID`, `SET_TEMP_SETTINGS`, and `SET_LOGGING_SETTINGS` in `backend/app.py` to use a single validation path, removing duplicate legacy checks.
 - [x] **Validate REST Payloads**: Add range enforcement for RPM, duty cycle, and PID inputs in `api/control` to prevent invalid values from reaching hardware.

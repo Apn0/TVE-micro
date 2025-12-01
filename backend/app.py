@@ -1466,11 +1466,20 @@ def log_stop():
 def history_sensors():
     """
     Retrieve sensor history from the log file.
-    Returns the last 1000 records.
+    Returns the last 1000 records from the current or most recent log file.
     """
-    # Read the logging.csv file and return data
-    log_file = "logging.csv"
-    if not os.path.exists(log_file):
+    # Determine which file to read
+    log_file = logger.current_file
+
+    if not log_file:
+        # If not currently recording, find the most recent log in logs/
+        log_dir = logger.log_dir
+        if os.path.exists(log_dir):
+            files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".csv")]
+            if files:
+                log_file = max(files, key=os.path.getctime)
+
+    if not log_file or not os.path.exists(log_file):
         return jsonify([])
 
     try:
