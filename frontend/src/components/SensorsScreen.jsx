@@ -170,7 +170,7 @@ function SensorsScreen({ data, sendCmd }) {
             return (
               <div key={card.key} style={styles.metricCard}>
                 <div style={styles.metricLabel}>{card.label}</div>
-                <div style={{ color: "#b0c4de", fontSize: "0.95em" }}>{card.detail}</div>
+                <div style={{ color: "#7f8c8d", fontSize: "0.95em" }}>{card.detail}</div>
                 <div style={styles.metricValue}>
                   {formatTemp(card.value, 2)}
                   <span style={{ fontSize: "0.7em", marginLeft: 6, color: "#8c9fb1" }}>

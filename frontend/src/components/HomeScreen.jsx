@@ -148,10 +148,19 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
         {/* Title Section */}
         <div style={{
           padding: "6px 10px",
-          borderBottom: "1px solid #333",
-          background: "rgba(255, 255, 255, 0.05)"
+          borderBottom: "1px solid #000",
+          background: "#fff"
         }}>
-          <div style={{ ...styles.metricLabel, textTransform: "none", fontSize: "0.8em" }}>{label}</div>
+          <div style={{
+            ...styles.metricLabel,
+            textTransform: "none",
+            fontSize: "0.8em",
+            margin: 0,
+            borderBottom: "none",
+            padding: 0,
+            textAlign: "left",
+            background: "transparent"
+          }}>{label}</div>
         </div>
 
         {/* Value Section */}
@@ -161,9 +170,9 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
           alignItems: "center",
           justifyContent: "center",
           padding: "8px",
-          borderBottom: hasSetpoint ? "1px solid #333" : "none"
+          borderBottom: hasSetpoint ? "1px solid #000" : "none"
         }}>
-          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#ecf0f1" }}>
+          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#000" }}>
             {value}
           </div>
         </div>
