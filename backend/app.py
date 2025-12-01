@@ -994,25 +994,38 @@ def control_loop():
         alarm_req = "EMERGENCY_STOP_BTN" if btn_em else None
 
         if alarm_clear_pending:
+            # 1. Check Hard E-Stop
             if btn_em:
                 _latch_alarm("EMERGENCY_STOP_BTN")
                 alarm_clear_pending = False
                 time.sleep(0.05)
                 continue
+
+            # 2. Poll sensors immediately to ensure fresh data for safety check
+            # (since we might have been in ALARM state without polling)
+            temps = hal.get_temps()
+            with state_lock:
+                state["temps"] = temps
+                state["temps_timestamp"] = hal.get_last_temp_timestamp() or now
+
+            # 3. Check General Safety (Temp limits, etc.)
+            # If this fails, we do NOT transition to READY.
+            # We re-latch the specific alarm reason.
+            is_safe, reason = safety.check(state, hal)
+            if not is_safe:
+                _latch_alarm(reason)
+                alarm_clear_pending = False
+                time.sleep(0.05)
+                continue
+
+            # 4. If Safe: Transition to READY
             running_event.set()
             safety.reset()
 
-            # Mark all active alarms as cleared if they are resolvable
-            # Note: Persistent conditions (like e-stop button held down) will re-trigger
-            # almost immediately in the next loop, which is correct.
             with state_lock:
-                # Move active alarms to history only?
-                # Actually, we keep them in history, but remove from active list if they are cleared.
-                # However, logic below re-latches if condition persists.
-                # So we just empty the active list for a "try clear" attempt.
+                # Mark existing alarms as cleared
                 for alarm in state["active_alarms"]:
                     alarm["cleared"] = True
-                    # Update the record in history too
                     for h in state["alarm_history"]:
                         if h["id"] == alarm["id"]:
                             h["cleared"] = True
