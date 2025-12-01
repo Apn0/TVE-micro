@@ -440,6 +440,42 @@ def _merge_seq_steps(base: list[dict], incoming: list[dict]):
     return list(merged.values())
 
 
+def _validate_history_settings(section: dict, errors: list[str]):
+    """
+    Validate history tab configuration.
+    """
+    result = copy.deepcopy(SYSTEM_DEFAULTS["history"])
+
+    # Validate Y-Axis Min/Max
+    for key in ("y_left_min", "y_left_max", "y_right_min", "y_right_max"):
+        if key in section:
+            val = section[key]
+            # Allow None or finite float
+            if val is None or val == "":
+                result[key] = None
+            else:
+                coerced = _coerce_finite(val)
+                if coerced is not None:
+                    result[key] = coerced
+                else:
+                    errors.append(f"Invalid history.{key}, using default")
+
+    # Validate Series Allocation
+    if "series_axis" in section:
+        if isinstance(section["series_axis"], dict):
+            valid_keys = SYSTEM_DEFAULTS["history"]["series_axis"].keys()
+            for s_key, s_val in section["series_axis"].items():
+                if s_key in valid_keys:
+                    if s_val in ("left", "right"):
+                        result["series_axis"][s_key] = s_val
+                    else:
+                        errors.append(f"Invalid axis '{s_val}' for history series '{s_key}'")
+        else:
+             errors.append("Invalid history.series_axis, expected object")
+
+    return result
+
+
 def _validate_extruder_sequence(section: dict, errors: list[str]):
     """
     Validate the extruder startup/shutdown sequence.
@@ -541,6 +577,7 @@ def validate_config(raw_cfg: dict):
     cfg["extruder_sequence"] = _validate_extruder_sequence(
         raw_cfg.get("extruder_sequence", {}), errors
     )
+    cfg["history"] = _validate_history_settings(raw_cfg.get("history", {}), errors)
 
     if errors:
         for err in errors:
@@ -703,6 +740,7 @@ hal: HardwareInterface | None = None
 safety = SafetyMonitor()
 logger = DataLogger()
 logger.configure(sys_config.get("logging", {}))
+
 
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
 pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
@@ -888,7 +926,10 @@ def _latch_alarm(reason: str):
 
     # Determine severity
     severity = "WARNING"
-    if "EMERGENCY" in reason or "CRITICAL" in reason:
+    # LOGGING_DISK_FULL should also be CRITICAL or just WARNING?
+    # Usually disk full is critical for data integrity but maybe not safety.
+    # However, if we can't log, we shouldn't run blind.
+    if "EMERGENCY" in reason or "CRITICAL" in reason or "DISK_FULL" in reason:
         severity = "CRITICAL"
 
     running_event.clear()
@@ -911,6 +952,17 @@ def _latch_alarm(reason: str):
             save_alarms_to_disk(state["alarm_history"])
 
         state["status"] = "ALARM"
+
+def _handle_logger_error(payload: dict):
+    """
+    Callback for DataLogger errors.
+    """
+    event = payload.get("event")
+    if event == "disk_full":
+        app_logger.critical("Disk full detected by logger. Latching alarm.")
+        _latch_alarm("LOGGING_DISK_FULL")
+
+logger.set_error_handler(_handle_logger_error)
 
 startup_lock = threading.Lock()
 
@@ -1115,10 +1167,6 @@ def control_loop():
 
         if stop_requested:
             _set_status("STOPPING")
-        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
-             # Fallback for invalid state
-             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
-             _set_status("READY")
         elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
              # Fallback for invalid state
              app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
@@ -1418,11 +1466,20 @@ def log_stop():
 def history_sensors():
     """
     Retrieve sensor history from the log file.
-    Returns the last 1000 records.
+    Returns the last 1000 records from the current or most recent log file.
     """
-    # Read the logging.csv file and return data
-    log_file = "logging.csv"
-    if not os.path.exists(log_file):
+    # Determine which file to read
+    log_file = logger.current_file
+
+    if not log_file:
+        # If not currently recording, find the most recent log in logs/
+        log_dir = logger.log_dir
+        if os.path.exists(log_dir):
+            files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".csv")]
+            if files:
+                log_file = max(files, key=os.path.getctime)
+
+    if not log_file or not os.path.exists(log_file):
         return jsonify([])
 
     try:
@@ -1597,6 +1654,7 @@ def control():
         "SET_TEMP_SETTINGS",
         "SET_LOGGING_SETTINGS",
         "UPDATE_MOTION_CONFIG",
+        "SET_HISTORY_SETTINGS",
         "SET_SENSOR_CALIBRATION",
         "SAVE_CONFIG",
         "GPIO_CONFIG",
@@ -2006,6 +2064,22 @@ def control():
             )
 
         sys_config["motion"] = validated
+
+    elif cmd == "SET_HISTORY_SETTINGS":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_HISTORY_PARAMS"}), 400
+
+        validation_errors: list[str] = []
+        current = sys_config.get("history", SYSTEM_DEFAULTS["history"])
+        validated = _validate_history_settings({**current, **params}, validation_errors)
+
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        sys_config["history"] = validated
 
     elif cmd == "SET_SENSOR_CALIBRATION":
         params = req.get("params", {})

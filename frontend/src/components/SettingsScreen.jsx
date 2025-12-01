@@ -51,6 +51,16 @@ function SettingsScreen({ data, sendCmd, setView }) {
     ...(data.config?.pins || {}),
   });
 
+  const [historySettings, setHistorySettings] = useState({
+    y_left_min: "",
+    y_left_max: "",
+    y_right_min: "",
+    y_right_max: "",
+    series_axis: {},
+    ...(data.config?.history || {}),
+  });
+  const [historyDirty, setHistoryDirty] = useState(false);
+
   const shallowEqual = (a, b) => {
     const keysA = Object.keys(a);
     const keysB = Object.keys(b);
@@ -73,7 +83,22 @@ function SettingsScreen({ data, sendCmd, setView }) {
         return shallowEqual(prev, incoming) ? prev : incoming;
       });
     }
-  }, [data.config, tempDirty, logDirty]);
+    if (data.config?.history && !historyDirty) {
+      const incoming = {
+        y_left_min: "",
+        y_left_max: "",
+        y_right_min: "",
+        y_right_max: "",
+        series_axis: {},
+        ...data.config.history
+      };
+      // Normalize nulls to empty strings for inputs
+      ['y_left_min', 'y_left_max', 'y_right_min', 'y_right_max'].forEach(k => {
+        if (incoming[k] === null) incoming[k] = "";
+      });
+      setHistorySettings((prev) => (shallowEqual(prev, incoming) ? prev : incoming));
+    }
+  }, [data.config, tempDirty, logDirty, historyDirty]);
 
   const getSwitchState = () => {
     const swCurr = DM556_TABLE.current[dm.current_peak] || [false, false, false];
@@ -98,6 +123,16 @@ function SettingsScreen({ data, sendCmd, setView }) {
     setShowSequencing(false);
   };
   const handlePinsApply = () => sendCmd("UPDATE_PINS", { pins });
+  const handleHistoryApply = async () => {
+    const payload = { ...historySettings };
+    // Convert empty strings back to null
+    ['y_left_min', 'y_left_max', 'y_right_min', 'y_right_max'].forEach(k => {
+      if (payload[k] === "") payload[k] = null;
+      else payload[k] = parseFloat(payload[k]);
+    });
+    await sendCmd("SET_HISTORY_SETTINGS", { params: payload });
+    setHistoryDirty(false);
+  };
 
   const { swCurr, swSteps } = getSwitchState();
   const adc = data.config?.adc || {};
@@ -204,6 +239,103 @@ function SettingsScreen({ data, sendCmd, setView }) {
             Sequencing Config
           </button>
         </div>
+      </div>
+
+      <div style={styles.panel}>
+        <h2>History Tab Settings</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+          <div>
+            <h3 style={{ marginTop: 0 }}>Y-Axes Limits</h3>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.label}>Left Axis Min</div>
+                <input
+                  type="number"
+                  placeholder="Auto"
+                  style={styles.input}
+                  value={historySettings.y_left_min ?? ""}
+                  onChange={(e) => {
+                    setHistoryDirty(true);
+                    setHistorySettings({ ...historySettings, y_left_min: e.target.value });
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={styles.label}>Left Axis Max</div>
+                <input
+                  type="number"
+                  placeholder="Auto"
+                  style={styles.input}
+                  value={historySettings.y_left_max ?? ""}
+                  onChange={(e) => {
+                    setHistoryDirty(true);
+                    setHistorySettings({ ...historySettings, y_left_max: e.target.value });
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "10px" }}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.label}>Right Axis Min</div>
+                <input
+                  type="number"
+                  placeholder="Auto"
+                  style={styles.input}
+                  value={historySettings.y_right_min ?? ""}
+                  onChange={(e) => {
+                    setHistoryDirty(true);
+                    setHistorySettings({ ...historySettings, y_right_min: e.target.value });
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={styles.label}>Right Axis Max</div>
+                <input
+                  type="number"
+                  placeholder="Auto"
+                  style={styles.input}
+                  value={historySettings.y_right_max ?? ""}
+                  onChange={(e) => {
+                    setHistoryDirty(true);
+                    setHistorySettings({ ...historySettings, y_right_max: e.target.value });
+                  }}
+                />
+              </div>
+            </div>
+             <div style={{ fontSize: "0.8em", color: "#aaa", marginTop: "5px" }}>
+              Leave blank for auto-scaling.
+            </div>
+          </div>
+
+          <div>
+             <h3 style={{ marginTop: 0 }}>Series Allocation</h3>
+             <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #333", padding: "5px", borderRadius: "4px" }}>
+              {Object.keys(historySettings.series_axis || {}).length === 0 && <div style={{color: "#777"}}>Using defaults</div>}
+              {Object.entries(historySettings.series_axis || {}).map(([seriesKey, axis]) => (
+                <div key={seriesKey} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "0.9em", color: "#ccc" }}>{seriesKey}</span>
+                  <select
+                    style={{ ...styles.input, width: "80px", padding: "2px" }}
+                    value={axis}
+                    onChange={(e) => {
+                       setHistoryDirty(true);
+                       setHistorySettings({
+                         ...historySettings,
+                         series_axis: { ...historySettings.series_axis, [seriesKey]: e.target.value }
+                       });
+                    }}
+                  >
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
+              ))}
+             </div>
+          </div>
+        </div>
+        <button style={{ ...styles.button, marginTop: "15px" }} onClick={handleHistoryApply}>
+            Apply History Config
+        </button>
       </div>
 
       <div style={styles.panel}>
@@ -334,18 +466,20 @@ function SettingsScreen({ data, sendCmd, setView }) {
           background: "#1e1e1e",
         }}
       >
-        <div>
-          <h3 style={{ margin: 0 }}>Wiring calibration</h3>
-          <div style={{ color: "#ccc" }}>
-            Run the wiring calibration check after hardware changes.
-          </div>
+        <div style={{ display: "flex", gap: "20px" }}>
+            <button
+                style={{ ...styles.button, background: "#9b59b6" }}
+                onClick={() => setView && setView("WIRING CALIBRATION")}
+            >
+                Wiring calibration check
+            </button>
+            <button
+                style={{ ...styles.button, background: "#34495e" }}
+                onClick={() => setView && setView("ENGINEERING")}
+            >
+                Advanced Engineering Settings
+            </button>
         </div>
-        <button
-          style={{ ...styles.button, background: "#9b59b6" }}
-          onClick={() => setView && setView("WIRING CALIBRATION")}
-        >
-          Wiring calibration check
-        </button>
       </div>
       {showSequencing && (
         <SequencingConfig

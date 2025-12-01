@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { styles } from "../styles";
 import { validateSetpoint } from "../utils/validation";
+import HeaterSettingsScreen from "./HeaterSettingsScreen";
 
 /**
  * HeaterScreen Component.
@@ -31,9 +32,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const [targetZ2, setTargetZ2] = useState(validateSetpoint(data.state?.target_z2));
   const [expandedZone, setExpandedZone] = useState(null);
   const [tuneZone, setTuneZone] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const setpointRef = useRef(null);
-  const dutyRef = useRef(null);
   const peltierDutyRef = useRef(null);
 
   // Extract Autotune state
@@ -390,10 +391,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
 
     const handleClick = (event) => {
       const insideSetpoint = setpointRef.current && setpointRef.current.contains(event.target);
-      const insideDuty = dutyRef.current && dutyRef.current.contains(event.target);
       const insidePeltier = peltierDutyRef.current && peltierDutyRef.current.contains(event.target);
 
-      if (!insideSetpoint && !insideDuty && !insidePeltier) {
+      if (!insideSetpoint && !insidePeltier) {
         setExpandedZone(null);
         keypad?.closeKeypad?.();
       }
@@ -423,22 +423,6 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
       if (zoneKey === "z1") setTargetZ1(validated);
       if (zoneKey === "z2") setTargetZ2(validated);
       sendCmd("SET_TARGET", { z1: zoneKey === "z1" ? validated : targetZ1, z2: zoneKey === "z2" ? validated : targetZ2 });
-      setExpandedZone(null);
-      keypad?.closeKeypad?.();
-    });
-  };
-
-  const handleDutyClick = (zoneKey, currentDuty, event) => {
-    event.stopPropagation();
-    if (data.state?.mode !== "MANUAL") return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const initial = Number.isFinite(currentDuty) ? String(currentDuty) : "";
-
-    keypad?.openKeypad?.(initial, rect, (val) => {
-      const num = parseFloat(val);
-      if (!Number.isNaN(num) && num >= 0 && num <= 100) {
-        sendCmd("SET_HEATER", { zone: zoneKey, duty: num });
-      }
       setExpandedZone(null);
       keypad?.closeKeypad?.();
     });
@@ -779,6 +763,17 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     );
   };
 
+  if (showSettings) {
+    return (
+        <HeaterSettingsScreen
+            data={data}
+            sendCmd={sendCmd}
+            onBack={() => setShowSettings(false)}
+            keypad={keypad}
+        />
+    );
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.panel}>
@@ -786,7 +781,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           <div>
             <h2>Mica heater zones</h2>
             <p style={{ fontSize: "0.9em", color: "#aaa" }}>
-              Set temperature targets for each zone. Toggle mode to control duty cycle manually.
+              Set temperature targets for each zone. Use Advanced Settings for PID and Manual Duty Cycle.
             </p>
           </div>
           <button
