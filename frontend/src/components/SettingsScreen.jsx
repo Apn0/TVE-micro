@@ -334,18 +334,20 @@ function SettingsScreen({ data, sendCmd, setView }) {
           background: "#1e1e1e",
         }}
       >
-        <div>
-          <h3 style={{ margin: 0 }}>Wiring calibration</h3>
-          <div style={{ color: "#ccc" }}>
-            Run the wiring calibration check after hardware changes.
-          </div>
+        <div style={{ display: "flex", gap: "20px" }}>
+            <button
+                style={{ ...styles.button, background: "#9b59b6" }}
+                onClick={() => setView && setView("WIRING CALIBRATION")}
+            >
+                Wiring calibration check
+            </button>
+            <button
+                style={{ ...styles.button, background: "#34495e" }}
+                onClick={() => setView && setView("ENGINEERING")}
+            >
+                Advanced Engineering Settings
+            </button>
         </div>
-        <button
-          style={{ ...styles.button, background: "#9b59b6" }}
-          onClick={() => setView && setView("WIRING CALIBRATION")}
-        >
-          Wiring calibration check
-        </button>
       </div>
       {showSequencing && (
         <SequencingConfig
