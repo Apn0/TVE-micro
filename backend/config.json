@@ -34,7 +34,7 @@
         "led_yellow": null
     },
     "pwm": {
-        "enabled": false,
+        "enabled": true,
         "bus": 1,
         "address": 64,
         "frequency": 60,
@@ -42,7 +42,7 @@
             "fan": 0,
             "fan_nozzle": 1,
             "pump": 2,
-            "led_status": 3
+            "led_status": 4
         }
     },
     "extruder_sequence": {

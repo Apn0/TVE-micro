@@ -16,6 +16,8 @@ import copy
 import math
 import logging
 import atexit
+import shutil
+from datetime import datetime
 
 # Ensure the repository root is on the import path when the file is executed
 # directly (e.g., `python app.py` from the backend directory).
@@ -45,6 +47,9 @@ from backend.metrics import (
 from prometheus_client import make_wsgi_app
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
+# JSONDecodeError available in json module
+from json import JSONDecodeError
+
 CONFIG_FILE = os.path.join(CURRENT_DIR, "config.json")
 
 MAX_HEATER_DUTY = 100.0
@@ -54,6 +59,42 @@ MAX_MOTOR_RPM = 5000.0
 
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
+
+
+def _coerce_finite(value: object) -> float | None:
+    """
+    Safely convert object to finite float or None.
+    Unified helper for config loading and API validation.
+    """
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(num):
+        return None
+    return num
+
+
+def _parse_float_with_suffix(value: object) -> float | None:
+    """Coerce a value to float, allowing engineering suffixes like 'k' or 'M'."""
+
+    multiplier = 1.0
+
+    if isinstance(value, str):
+        trimmed = value.strip().lower()
+        if trimmed.endswith("k"):
+            multiplier = 1e3
+            trimmed = trimmed[:-1]
+        elif trimmed.endswith("m"):
+            multiplier = 1e6
+            trimmed = trimmed[:-1]
+        value = trimmed
+
+    coerced = _coerce_finite(value)
+    if coerced is None:
+        return None
+    return coerced * multiplier
+
 
 def _validate_pid_section(section: dict, name: str, errors: list[str]):
     """
@@ -399,6 +440,42 @@ def _merge_seq_steps(base: list[dict], incoming: list[dict]):
     return list(merged.values())
 
 
+def _validate_history_settings(section: dict, errors: list[str]):
+    """
+    Validate history tab configuration.
+    """
+    result = copy.deepcopy(SYSTEM_DEFAULTS["history"])
+
+    # Validate Y-Axis Min/Max
+    for key in ("y_left_min", "y_left_max", "y_right_min", "y_right_max"):
+        if key in section:
+            val = section[key]
+            # Allow None or finite float
+            if val is None or val == "":
+                result[key] = None
+            else:
+                coerced = _coerce_finite(val)
+                if coerced is not None:
+                    result[key] = coerced
+                else:
+                    errors.append(f"Invalid history.{key}, using default")
+
+    # Validate Series Allocation
+    if "series_axis" in section:
+        if isinstance(section["series_axis"], dict):
+            valid_keys = SYSTEM_DEFAULTS["history"]["series_axis"].keys()
+            for s_key, s_val in section["series_axis"].items():
+                if s_key in valid_keys:
+                    if s_val in ("left", "right"):
+                        result["series_axis"][s_key] = s_val
+                    else:
+                        errors.append(f"Invalid axis '{s_val}' for history series '{s_key}'")
+        else:
+             errors.append("Invalid history.series_axis, expected object")
+
+    return result
+
+
 def _validate_extruder_sequence(section: dict, errors: list[str]):
     """
     Validate the extruder startup/shutdown sequence.
@@ -500,6 +577,7 @@ def validate_config(raw_cfg: dict):
     cfg["extruder_sequence"] = _validate_extruder_sequence(
         raw_cfg.get("extruder_sequence", {}), errors
     )
+    cfg["history"] = _validate_history_settings(raw_cfg.get("history", {}), errors)
 
     if errors:
         for err in errors:
@@ -511,7 +589,8 @@ def validate_config(raw_cfg: dict):
 def load_config():
     """
     Load and validate configuration from config.json.
-    Falls back to user prompt or defaults if file is missing.
+    Falls back to defaults if file is missing (non-interactive) or corrupt.
+    Backs up corrupt files.
     """
     if os.path.exists(CONFIG_FILE):
         try:
@@ -525,49 +604,129 @@ def load_config():
         except Exception:
             app_logger.exception("config_load_failed")
             print("Falling back to system defaults due to config error.")
+          
+        except JSONDecodeError:
+            app_logger.error(f"Malformed JSON in {CONFIG_FILE}")
+
+            # Backup malformed file
+            ts = datetime.now().strftime("%Y%m%d%H%M%S")
+            backup_path = f"{CONFIG_FILE}.bak.{ts}"
+            app_logger.warning(f"Backing up malformed config to {backup_path}")
+            try:
+                shutil.copy(CONFIG_FILE, backup_path)
+            except Exception as copy_err:
+                app_logger.error(f"Failed to backup corrupt config: {copy_err}")
+
+            print(f"Error: {CONFIG_FILE} contains invalid JSON. Using defaults.")
             return validate_config({})
+
+        except Exception as e:
+            ts = datetime.now().strftime("%Y%m%d%H%M%S")
+            backup_path = f"{CONFIG_FILE}.bak.{ts}"
+            app_logger.error(f"Failed to load config.json: {e}")
+            app_logger.warning(f"Backing up corrupt config to {backup_path} and loading defaults.")
+            try:
+                shutil.copy(CONFIG_FILE, backup_path)
+            except Exception as copy_err:
+                app_logger.error(f"Failed to backup corrupt config: {copy_err}")
+
+            return validate_config({})
+
     else:
         print(f"Configuration file {CONFIG_FILE} not found.")
-        try:
-            resp = input("Use default configuration from hardware.py? [y/N] ")
-            if resp.lower().startswith("y"):
-                return validate_config({})
-        except (EOFError, OSError):
-            print("Non-interactive mode detected; using default configuration.")
+        # Check if running interactively
+        if sys.stdin.isatty():
+            try:
+                resp = input("Use default configuration from hardware.py? [y/N] ")
+                if resp.lower().startswith("y"):
+                    return validate_config({})
+            except (EOFError, OSError):
+                pass
+            print("Startup aborted: No configuration file.")
+            sys.exit(1)
+        else:
+            print("Non-interactive mode detected. Using default configuration.")
             return validate_config({})
 
-        print("Startup aborted: No configuration file.")
-        sys.exit(1)
 
+def _validate_payload(payload: dict, schema: dict) -> tuple[dict, list[str]]:
+    """
+    Validate and clean a payload against a schema.
+    Returns (cleaned_data, errors).
 
-def _coerce_finite(value):
-    """Convert value to float if finite, else None."""
-    try:
-        coerced = float(value)
-    except (TypeError, ValueError):
-        return None
-    return coerced if math.isfinite(coerced) else None
+    Schema format:
+    {
+        "field_name": {
+            "type": type (int, float, str, bool),
+            "required": bool,
+            "min": number,
+            "max": number,
+            "allowed": list,
+        }
+    }
+    """
+    cleaned = {}
+    errors = []
 
+    for field, rules in schema.items():
+        val = payload.get(field)
 
-def _parse_float_with_suffix(value: object) -> float | None:
-    """Coerce a value to float, allowing engineering suffixes like 'k' or 'M'."""
+        # Check required
+        if rules.get("required", False) and val is None:
+            errors.append(f"Missing required field: {field}")
+            continue
 
-    multiplier = 1.0
+        if val is None:
+            continue
 
-    if isinstance(value, str):
-        trimmed = value.strip().lower()
-        if trimmed.endswith("k"):
-            multiplier = 1e3
-            trimmed = trimmed[:-1]
-        elif trimmed.endswith("m"):
-            multiplier = 1e6
-            trimmed = trimmed[:-1]
-        value = trimmed
+        target_type = rules.get("type")
 
-    coerced = _coerce_finite(value)
-    if coerced is None:
-        return None
-    return coerced * multiplier
+        # Type Coercion & Check
+        if target_type == float:
+            val = _coerce_finite(val)
+            if val is None:
+                errors.append(f"{field} must be a number")
+                continue
+        elif target_type == int:
+            try:
+                val = int(val)
+            except (ValueError, TypeError):
+                errors.append(f"{field} must be an integer")
+                continue
+        elif target_type == bool:
+            if not isinstance(val, bool):
+                # Try to coerce mildy? Or strict?
+                # Strict: must be bool. Loose: Allow 0/1.
+                # Let's be strict for API unless it's query param.
+                # But existing code does bool(req.get(...)).
+                if val in (1, 0): val = bool(val)
+                elif isinstance(val, str) and val.lower() in ("true", "false"):
+                    val = val.lower() == "true"
+                elif not isinstance(val, bool):
+                     errors.append(f"{field} must be a boolean")
+                     continue
+        elif target_type == str:
+            if not isinstance(val, str):
+                errors.append(f"{field} must be a string")
+                continue
+
+        # Range Check
+        if "min" in rules and val < rules["min"]:
+            errors.append(f"{field} must be >= {rules['min']}")
+            continue
+        if "max" in rules and val > rules["max"]:
+            errors.append(f"{field} must be <= {rules['max']}")
+            continue
+
+        # Allowed Values
+        if "allowed" in rules and val not in rules["allowed"]:
+            errors.append(f"{field} must be one of {rules['allowed']}")
+            continue
+
+        cleaned[field] = val
+
+    return cleaned, errors
+
 
 sys_config = load_config()
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
@@ -628,20 +787,7 @@ app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
 })
 
 
-def _safe_float(val: object) -> float | None:
-    """Safely convert object to finite float or None."""
-    try:
-        num = float(val)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(num):
-        return None
-    return num
-
-
-def _clamp(value: float, min_value: float, max_value: float) -> float:
-    """Clamp a float between min and max."""
-    return max(min_value, min(max_value, value))
+# _safe_float removed in favor of unified _coerce_finite
 
 
 def _temps_fresh(now: float) -> tuple[bool, str | None]:
@@ -1006,6 +1152,14 @@ def control_loop():
 
         if stop_requested:
             _set_status("STOPPING")
+        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
+             # Fallback for invalid state
+             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
+             _set_status("READY")
+        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
+             # Fallback for invalid state
+             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
+             _set_status("READY")
 
         if alarm_req:
             _latch_alarm(alarm_req)
@@ -1480,6 +1634,7 @@ def control():
         "SET_TEMP_SETTINGS",
         "SET_LOGGING_SETTINGS",
         "UPDATE_MOTION_CONFIG",
+        "SET_HISTORY_SETTINGS",
         "SET_SENSOR_CALIBRATION",
         "SAVE_CONFIG",
         "GPIO_CONFIG",
@@ -1509,20 +1664,20 @@ def control():
         target_z1 = state.get("target_z1")
         target_z2 = state.get("target_z2")
 
-        if "z1" in req:
-            t = _coerce_finite(req.get("z1"))
-            if t is None:
-                API_VALIDATION_ERRORS_TOTAL.inc()
-                app_logger.warning("api_validation_failed: INVALID_TARGET (z1)")
-                return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
-            target_z1 = t
-        if "z2" in req:
-            t = _coerce_finite(req.get("z2"))
-            if t is None:
-                API_VALIDATION_ERRORS_TOTAL.inc()
-                app_logger.warning("api_validation_failed: INVALID_TARGET (z2)")
-                return jsonify({"success": False, "msg": "INVALID_TARGET"}), 400
-            target_z2 = t
+        schema = {
+            "z1": {"type": float, "min": 0.0, "max": 450.0},
+            "z2": {"type": float, "min": 0.0, "max": 450.0},
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+            API_VALIDATION_ERRORS_TOTAL.inc()
+            app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+            return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        if "z1" in cleaned:
+            target_z1 = cleaned["z1"]
+        if "z2" in cleaned:
+            target_z2 = cleaned["z2"]
 
         with state_lock:
             if target_z1 is not None:
@@ -1531,16 +1686,19 @@ def control():
                 state["target_z2"] = target_z2
 
     elif cmd == "SET_HEATER":
-        zone = req.get("zone")
-        duty = _coerce_finite(req.get("duty", 0))
-        if zone not in ("z1", "z2"):
-            API_VALIDATION_ERRORS_TOTAL.inc()
-            app_logger.warning("api_validation_failed: INVALID_ZONE")
-            return jsonify({"success": False, "msg": "INVALID_ZONE"})
-        if duty is None or duty < MIN_HEATER_DUTY or duty > MAX_HEATER_DUTY:
-            API_VALIDATION_ERRORS_TOTAL.inc()
-            app_logger.warning("api_validation_failed: INVALID_DUTY")
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        schema = {
+            "zone": {"type": str, "allowed": ["z1", "z2"], "required": True},
+            "duty": {"type": float, "min": MIN_HEATER_DUTY, "max": MAX_HEATER_DUTY, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        zone = cleaned["zone"]
+        duty = cleaned["duty"]
+
         hal.set_heater_duty(zone, duty)
         with state_lock:
             if zone == "z1":
@@ -1551,20 +1709,18 @@ def control():
                 state["heater_duty_z2"] = duty
 
     elif cmd == "SET_MOTOR":
-        motor = req.get("motor")
-        rpm = _coerce_finite(req.get("rpm", 0))
-        if rpm is None:
+        schema = {
+            "motor": {"type": str, "allowed": ["main", "feed"], "required": True},
+            "rpm": {"type": float, "min": -MAX_MOTOR_RPM, "max": MAX_MOTOR_RPM, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
             API_VALIDATION_ERRORS_TOTAL.inc()
-            app_logger.warning("api_validation_failed: INVALID_RPM (None)")
-            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
-        if motor not in ("main", "feed"):
-            API_VALIDATION_ERRORS_TOTAL.inc()
-            app_logger.warning("api_validation_failed: INVALID_MOTOR")
-            return jsonify({"success": False, "msg": "INVALID_MOTOR"})
-        if abs(rpm) > MAX_MOTOR_RPM:
-            API_VALIDATION_ERRORS_TOTAL.inc()
-            app_logger.warning(f"api_validation_failed: INVALID_RPM ({rpm})")
-            return jsonify({"success": False, "msg": "INVALID_RPM"}), 400
+            app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+            return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        motor = cleaned["motor"]
+        rpm = cleaned["rpm"]
 
         # Debounce to prevent motor toggle spam
         motor_key = f"motor_{motor}"
@@ -1626,20 +1782,34 @@ def control():
             state["relays"][relay] = st
 
     elif cmd == "SET_PELTIER":
-        duty = _coerce_finite(req.get("duty", 0))
-        if duty is None or duty < 0.0 or duty > 100.0:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        schema = {
+            "duty": {"type": float, "min": 0.0, "max": 100.0, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        duty = cleaned["duty"]
         hal.set_peltier_duty(duty)
         with state_lock:
             state["peltier_duty"] = duty
 
     elif cmd == "SET_PWM_OUTPUT":
-        name = req.get("name")
-        duty = _coerce_finite(req.get("duty", 0))
-        if duty is None:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
-        if duty < 0.0 or duty > MAX_PWM_DUTY:
-            return jsonify({"success": False, "msg": "INVALID_DUTY"}), 400
+        schema = {
+            "name": {"type": str, "required": True},
+            "duty": {"type": float, "min": 0.0, "max": MAX_PWM_DUTY, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        name = cleaned["name"]
+        duty = cleaned["duty"]
+
         if name not in getattr(hal, "pwm_channels", {}):
             return jsonify({"success": False, "msg": "INVALID_PWM_CHANNEL"})
         fresh, reason = _temps_fresh(request_time)
@@ -1647,7 +1817,7 @@ def control():
             return jsonify({"success": False, "msg": reason}), 400
         hal.set_pwm_output(name, duty)
         with state_lock:
-            state.setdefault("pwm", {})[name] = max(0.0, min(100.0, float(duty)))
+            state.setdefault("pwm", {})[name] = duty
 
     elif cmd == "MOVE_MOTOR_STEPS":
         motor = req.get("motor")
@@ -1656,7 +1826,10 @@ def control():
             speed = int(req.get("speed", 1000))
         except (TypeError, ValueError):
             return jsonify({"success": False, "msg": "INVALID_MOVE_PARAMS"}), 400
-        speed = max(1, min(20000, speed))
+
+        if not (1 <= speed <= 20000):
+            return jsonify({"success": False, "msg": "INVALID_SPEED"}), 400
+
         if motor not in ("main", "feed"):
             return jsonify({"success": False, "msg": "INVALID_MOTOR"})
         hal.move_motor_steps(motor, steps, speed=speed)
@@ -1872,6 +2045,22 @@ def control():
 
         sys_config["motion"] = validated
 
+    elif cmd == "SET_HISTORY_SETTINGS":
+        params = req.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"success": False, "msg": "INVALID_HISTORY_PARAMS"}), 400
+
+        validation_errors: list[str] = []
+        current = sys_config.get("history", SYSTEM_DEFAULTS["history"])
+        validated = _validate_history_settings({**current, **params}, validation_errors)
+
+        if validation_errors:
+            return (
+                jsonify({"success": False, "msg": "; ".join(validation_errors)}),
+                400,
+            )
+        sys_config["history"] = validated
+
     elif cmd == "SET_SENSOR_CALIBRATION":
         params = req.get("params", {})
         if not isinstance(params, dict):
@@ -1989,7 +2178,7 @@ def control():
 def tune_start():
     req = request.get_json(force=True) or {}
     zone = req.get("zone")
-    setpoint = _safe_float(req.get("setpoint", 100.0))
+    setpoint = _coerce_finite(req.get("setpoint", 100.0))
 
     if zone not in ("z1", "z2"):
         return jsonify({"success": False, "msg": "INVALID_ZONE"}), 400
