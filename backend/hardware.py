@@ -939,7 +939,8 @@ class HardwareInterface:
                 abs(self.motors.get(motor_name, 0.0)) > 1e-3
                 or self.manual_steps_pending.get(motor_name, 0) != 0
             )
-            GPIO.output(int(en_pin), GPIO.HIGH if active else GPIO.LOW)
+            # Active Low Enable: LOW = Enabled, HIGH = Disabled
+            GPIO.output(int(en_pin), GPIO.LOW if active else GPIO.HIGH)
 
     # --- Temperature loop (ADS1115 or simulation) ------------------------
 
@@ -952,6 +953,16 @@ class HardwareInterface:
             now = time.time()
 
             if self._ads is None or not self._ads.available:
+                # If ADC was supposed to be enabled but failed/missing on Pi, DO NOT simulate.
+                # Returning None/stale data will trigger TEMP_DATA_STALE alarm in app.py.
+                if self.platform == "PI" and self.adc_cfg.get("enabled", True):
+                    with self._temp_lock:
+                        for logical in LOGICAL_SENSORS:
+                            self.temps[logical] = None
+                            self._temp_timestamps[logical] = 0.0
+                    time.sleep(self.temp_poll_interval)
+                    continue
+
                 with self._temp_lock:
                     self._simulate_temp_loop(now, locked=True)
 

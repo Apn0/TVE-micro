@@ -52,6 +52,7 @@ class TestStateFix(unittest.TestCase):
         # New value - Emit
         app_module.emit_change("status", "current", "RUNNING", self.state)
         app_module.socketio.emit.assert_called_once()
+        
 import time
 from unittest.mock import MagicMock, patch
 
