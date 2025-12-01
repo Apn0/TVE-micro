@@ -134,17 +134,17 @@ DEFAULT_ADC_CONFIG: Dict[str, Any] = {
 # --- Default PWM configuration -----------------------------------------------
 
 DEFAULT_PWM_CONFIG: Dict[str, Any] = {
-    "enabled": False,
+    "enabled": True,
     "bus": 1,
     "address": 0x40,
     "frequency": 1000,
     "channels": {
-        "z1": 0,
-        "z2": 1,
-        "fan": 2,
+        "z1": 8,
+        "z2": 9,
+        "fan": 0,
         "fan_nozzle": 3,
-        "pump": 4,
-        "led_status": 5,
+        "pump": 2,
+        "led_status": 4,
         "peltier": 6,
     },
 }
@@ -185,12 +185,12 @@ SYSTEM_DEFAULTS = {
         "address": 0x40,
         "frequency": 1000,
         "channels": {
-            "z1": 0,
-            "z2": 1,
-            "fan": 2,
+            "z1": 8,
+            "z2": 9,
+            "fan": 0,
             "fan_nozzle": 3,
-            "pump": 4,
-            "led_status": 5,
+            "pump": 2,
+            "led_status": 4,
             "peltier": 6,
         },
     },
@@ -293,6 +293,7 @@ class ADS1115Driver:
         self.fsr = fsr
         self.bus = None
         self._error_count = 0
+        self._last_log_time = 0.0
 
         if self.available:
             try:
@@ -346,8 +347,14 @@ class ADS1115Driver:
                 return volts
             except Exception as e:
                 if attempt == attempts - 1:
-                    hardware_logger.warning(f"[ADS1115] read failed ch{channel}: {e}")
                     self._error_count += 1
+                    # Log only if this is the first error in a sequence or after a long time?
+                    # Ticket says "Log only first failure".
+                    # This implies stateful logging.
+                    # We can use _error_count. If == 1, log. If > 1, suppress.
+                    if self._error_count == 1:
+                        hardware_logger.warning(f"[ADS1115] read failed ch{channel}: {e}")
+
                     if self._error_count >= 5:
                         hardware_logger.warning("[ADS1115] disabling ADC after repeated I2C errors")
                         self.available = False
@@ -647,6 +654,9 @@ class HardwareInterface:
 
         self._temp_thread = threading.Thread(target=self._temp_loop, daemon=True)
         self._temp_thread.start()
+
+        # Motor safety state
+        self._motor_last_change = {"main": 0.0, "feed": 0.0}
 
         for motor_name in ("main", "feed"):
             self._stepper_events[motor_name] = threading.Event()
@@ -1126,8 +1136,26 @@ class HardwareInterface:
             rpm (float): Target RPM.
         """
         if motor in self.motors:
-            self.motors[motor] = float(rpm)
-            if float(rpm) != 0:
+            target_rpm = float(rpm)
+            current_rpm = self.motors[motor]
+
+            # Idempotency check: if state is effectively unchanged, do nothing
+            # Treat 0 as OFF, anything else as ON. Or strictly RPM value?
+            # Ticket says "Repeated ON idempotent".
+            if target_rpm == current_rpm:
+                return
+
+            now = time.time()
+            last_change = self._motor_last_change.get(motor, 0.0)
+            # Allow immediate turn-off for safety, enforce dwell only for turning ON or changing speed
+            if target_rpm != 0 and now - last_change < 0.5:
+                hardware_logger.warning(f"Motor {motor} toggle rate limited (dwell time enforcement)")
+                return
+
+            self.motors[motor] = target_rpm
+            self._motor_last_change[motor] = now
+
+            if target_rpm != 0:
                 self._set_motor_enable(motor, True)
 
     def _set_motor_enable(self, motor: str, enable: bool):

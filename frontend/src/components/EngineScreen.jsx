@@ -41,7 +41,7 @@ function EngineScreen({ data, sendCmd }) {
           frequency and microstep config.
         </p>
         <div style={styles.grid2}>
-          <div>
+          <div style={styles.metricCard}>
             <div style={styles.label}>Main screw target RPM</div>
             <input
               type="range"
@@ -54,7 +54,7 @@ function EngineScreen({ data, sendCmd }) {
             />
             <div style={styles.metricBig}>{mainRpm.toFixed(0)} RPM</div>
           </div>
-          <div>
+          <div style={styles.metricCard}>
             <div style={styles.label}>Feeder target RPM</div>
             <input
               type="range"
