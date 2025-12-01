@@ -20,5 +20,4 @@ backend/logs/
 # Misc
 *.txt
 !backend/performance/requirements.txt
-!backend/requirements.txt
-!project_scope.txt
+verification_env/

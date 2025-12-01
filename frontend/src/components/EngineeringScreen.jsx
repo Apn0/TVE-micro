@@ -1,9 +1,9 @@
 // file: frontend/src/components/EngineeringScreen.jsx
 import React, { useState, useEffect } from "react";
 import { styles } from "../styles";
-import ConfigSection from "./ConfigSection";
-import SettingRow from "./SettingRow";
-import ActionRow from "./ActionRow";
+import { ConfigSection } from "./common/ConfigSection";
+import { SettingRow } from "./common/SettingRow";
+import { ActionRow } from "./common/ActionRow";
 
 /**
  * EngineeringScreen Component.
@@ -90,7 +90,7 @@ function EngineeringScreen({ data, sendCmd, setView }) {
             onChange={(e) => setLogging({ ...logging, flush_interval: parseFloat(e.target.value) })}
           />
         </SettingRow>
-        <ActionRow>
+        <ActionRow style={{ justifyContent: "flex-start" }}>
           <button style={styles.button} onClick={handleSaveSystem}>Apply System Settings</button>
           <button style={{ ...styles.button, background: "#c0392b" }}>Restart Backend Service</button>
         </ActionRow>
@@ -183,7 +183,7 @@ function EngineeringScreen({ data, sendCmd, setView }) {
 
       {/* --- SECTION 6: BACKEND / IO MAPPING --- */}
       <ConfigSection title="Hardware I/O Mapping">
-        <p style={{ color: "#e74c3c", fontSize: "0.9em", margin: "-10px 0 15px 0" }}>
+        <p style={{ color: "#e74c3c", fontSize: "0.9em" }}>
             Warning: Changing pin assignments requires a full system restart.
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "10px" }}>

@@ -34,3 +34,4 @@
 - **Secrets:** None present; rely on environment variables/secret stores for future credentials.
 - **TLS:** Required at the ingress proxy; add HTTPS listeners to `nginx_intarema.conf` for production.
 - **PII Handling:** No PII collected; maintain this boundary and scrub future additions from logs and exports.
+
