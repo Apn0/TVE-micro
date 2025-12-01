@@ -319,15 +319,11 @@ function App() {
             <button
                 onClick={() => setCommMode(prev => prev === 'POLLING' ? 'SOCKET' : 'POLLING')}
                 style={{
-                padding: "2px 8px",
-                background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
-                color: "white",
-                border: "1px solid #444",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "0.8em",
-                borderRadius: "4px",
-                marginLeft: "10px"
+                  ...styles.buttonSecondary,
+                  padding: "4px 10px",
+                  fontSize: "0.8em",
+                  background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
+                  marginLeft: "10px"
                 }}
             >
                 {commMode === 'SOCKET' ? '⚡ REAL-TIME' : '🐢 POLLING 1s'}

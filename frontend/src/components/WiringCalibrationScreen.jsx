@@ -128,7 +128,7 @@ function WiringCalibrationScreen() {
           {reviewActive ? "Reviewing in progress" : "Start review session"}
         </button>
         <button
-          style={{ ...styles.button, background: "#7f8c8d" }}
+          style={styles.buttonSecondary}
           onClick={resetChecklist}
         >
           Reset checklist
@@ -203,6 +203,8 @@ function WiringCalibrationScreen() {
                   style={{
                     ...styles.button,
                     background: canComplete ? "#2ecc71" : "#7f8c8d",
+                    cursor: canComplete ? "pointer" : "not-allowed",
+                    opacity: canComplete ? 1 : 0.6,
                   }}
                   disabled={!canComplete}
                   onClick={() => toggleComplete(wire.id)}
@@ -233,6 +235,8 @@ function WiringCalibrationScreen() {
             ...styles.button,
             background: allCriteriaMet ? "#27ae60" : "#7f8c8d",
             padding: "12px 18px",
+            cursor: allCriteriaMet ? "pointer" : "not-allowed",
+            opacity: allCriteriaMet ? 1 : 0.6,
           }}
           disabled={!allCriteriaMet}
         >

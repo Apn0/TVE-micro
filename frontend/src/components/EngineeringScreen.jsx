@@ -112,7 +112,7 @@ function EngineeringScreen({ data, sendCmd, setView }) {
         </SettingRow>
         <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
           <button style={styles.button} onClick={handleSaveSystem}>Apply System Settings</button>
-          <button style={{ ...styles.button, background: "#c0392b" }}>Restart Backend Service</button>
+          <button style={{ ...styles.buttonDanger }}>Restart Backend Service</button>
         </div>
       </div>
 
