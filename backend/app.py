@@ -100,6 +100,10 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
     """
     Validate PID configuration section.
     """
+    if not isinstance(section, dict):
+        errors.append(f"Invalid {name} section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS[name])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS[name])
     for param in ("kp", "ki", "kd"):
         if param in section:
@@ -119,6 +123,10 @@ def _validate_dm556(section: dict, errors: list[str]):
     """
     Validate DM556 motor driver configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid dm556 section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["dm556"])
     if "microsteps" in section:
         try:
@@ -147,6 +155,10 @@ def _validate_pins(section: dict, errors: list[str]):
     """
     Validate GPIO pin configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid pins section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["pins"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["pins"])
     for name, default_pin in result.items():
         if name in section:
@@ -172,6 +184,10 @@ def _validate_pwm(section: dict, errors: list[str]):
     """
     Validate PWM configuration.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid pwm section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["pwm"])
     if "enabled" in section:
         result["enabled"] = bool(section.get("enabled", result["enabled"]))
@@ -295,6 +311,10 @@ def _validate_temp_settings(section: dict, errors: list[str]):
     """
     Validate temperature monitoring settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid temp_settings section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
 
     if "poll_interval" in section:
@@ -337,6 +357,10 @@ def _validate_logging(section: dict, errors: list[str]):
     """
     Validate data logging settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid logging section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["logging"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
 
     if "interval" in section:
@@ -366,6 +390,10 @@ def _validate_motion(section: dict, errors: list[str]):
     """
     Validate motion configuration settings.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid motion section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["motion"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["motion"])
     for key in ("ramp_up", "ramp_down", "max_accel", "max_jerk"):
         if key in section:
@@ -480,6 +508,10 @@ def _validate_extruder_sequence(section: dict, errors: list[str]):
     """
     Validate the extruder startup/shutdown sequence.
     """
+    if not isinstance(section, dict):
+        errors.append("Invalid extruder_sequence section (expected dict), using defaults")
+        return copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
+
     result = copy.deepcopy(SYSTEM_DEFAULTS["extruder_sequence"])
 
     if "check_temp_before_start" in section:
@@ -543,7 +575,20 @@ def validate_config(raw_cfg: dict):
         dict: A validated configuration dictionary with defaults applied where necessary.
     """
     errors: list[str] = []
+    if not isinstance(raw_cfg, dict):
+        errors.append("Config root must be a dictionary")
+        # Use an empty dict to allow validation of individual sections to proceed
+        # (they will all receive defaults due to get(..., {}) defaulting to empty dict
+        # or due to the keys missing in the empty dict)
+        raw_cfg = {}
+
     cfg = copy.deepcopy(SYSTEM_DEFAULTS)
+
+    # Use .get() with default None first to let the validator see if it's missing ({} default there)
+    # or explicitly None.
+    # Actually, we pass {} as default to get(), so if key is missing, it passes {}.
+    # If key is present but value is None (from JSON null), get returns None.
+    # The validators now handle None via isinstance(section, dict).
 
     cfg["z1"] = _validate_pid_section(raw_cfg.get("z1", {}), "z1", errors)
     cfg["z2"] = _validate_pid_section(raw_cfg.get("z2", {}), "z2", errors)
@@ -552,24 +597,29 @@ def validate_config(raw_cfg: dict):
     cfg["pwm"] = _validate_pwm(raw_cfg.get("pwm", {}), errors)
     cfg["sensors"] = _validate_sensors(raw_cfg.get("sensors", {}), errors)
     cfg["adc"] = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
+
     if "adc" in raw_cfg:
-        try:
-            result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
-            if "enabled" in raw_cfg["adc"]:
-                result["enabled"] = bool(raw_cfg["adc"].get("enabled", result["enabled"]))
-            if "bus" in raw_cfg["adc"]:
-                result["bus"] = int(raw_cfg["adc"]["bus"])
-            if "address" in raw_cfg["adc"]:
-                result["address"] = int(raw_cfg["adc"]["address"])
-            if "fsr" in raw_cfg["adc"]:
-                fsr = float(raw_cfg["adc"]["fsr"])
-                if fsr > 0:
-                    result["fsr"] = fsr
-                else:
-                    raise ValueError
-            cfg["adc"] = result
-        except (TypeError, ValueError):
-            errors.append("Invalid adc configuration, using defaults")
+        adc_section = raw_cfg["adc"]
+        if isinstance(adc_section, dict):
+            try:
+                result = copy.deepcopy(SYSTEM_DEFAULTS["adc"])
+                if "enabled" in adc_section:
+                    result["enabled"] = bool(adc_section.get("enabled", result["enabled"]))
+                if "bus" in adc_section:
+                    result["bus"] = int(adc_section["bus"])
+                if "address" in adc_section:
+                    result["address"] = int(adc_section["address"])
+                if "fsr" in adc_section:
+                    fsr = float(adc_section["fsr"])
+                    if fsr > 0:
+                        result["fsr"] = fsr
+                    else:
+                        raise ValueError
+                cfg["adc"] = result
+            except (TypeError, ValueError):
+                errors.append("Invalid adc configuration, using defaults")
+        else:
+            errors.append("Invalid adc section (expected dict), using defaults")
 
     cfg["temp_settings"] = _validate_temp_settings(raw_cfg.get("temp_settings", {}), errors)
     cfg["logging"] = _validate_logging(raw_cfg.get("logging", {}), errors)
@@ -621,6 +671,7 @@ def load_config():
             return validate_config({})
 
         except Exception as e:
+            # Catch-all for unexpected errors (should be rare with hardened validation)
             ts = datetime.now().strftime("%Y%m%d%H%M%S")
             backup_path = f"{CONFIG_FILE}.bak.{ts}"
             app_logger.error(f"Failed to load config.json: {e}")
