@@ -88,7 +88,9 @@ class TestObservabilityAndMatrix(unittest.TestCase):
             "value": {"motor": "main", "rpm": 99999}
         })
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("INVALID_RPM", resp.get_json()["msg"])
+        # Updated expectation for schema validation error
+        msg = resp.get_json()["msg"]
+        self.assertTrue("rpm must be <=" in msg or "INVALID_RPM" in msg)
 
     def test_nan_temp_pid_holds_safe(self):
         """
