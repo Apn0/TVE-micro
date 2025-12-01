@@ -4,7 +4,11 @@
 - **SAST:** `bandit -r backend` – no issues after tightening exception handling and logging.
 - **Python dependency audit:** `pip-audit -r backend/requirements.txt` – no known vulnerabilities.
 - **Frontend dependency audit:** `npm audit --production` – no vulnerabilities found.
-- **DAST:** Not performed; no running environment with exposed endpoints was available in this workspace. A dynamic scan should be run against a deployed instance before release.
+- **DAST:** Performed custom fuzzing scan against local backend.
+    - **Results:** 1 Low severity issue found.
+    - **Issue:** Information Disclosure: Server header reveals 'Werkzeug/3.1.4 Python/3.12.12'.
+    - **Mitigation:** Production deployments use Nginx as a reverse proxy, which should strip or replace the `Server` header. No application code change required, but Nginx config should be verified.
+    - **Coverage:** Fuzzed all API endpoints (`/api/control`, `/api/data`, `/api/status`, etc.) with malformed JSON, large payloads, and injection strings. No 500 errors or crashes detected.
 
 ## Implemented Remediations
 - Replaced silent `except` blocks with explicit exception logging so operational failures are visible without crashing control loops.
@@ -15,6 +19,7 @@
 - Simulation randomness (`random.uniform`) remains for test-mode physics modeling only; it is not used for security or entropy-sensitive features.
 - TLS is not configured in the provided Nginx config (listens on port 80). Deployments should terminate TLS in Nginx or an upstream proxy and enforce HTTPS-only access.
 - No authentication or authorization is implemented; access control relies on network isolation. Harden deployment by adding API authentication and role checks.
+- **Information Disclosure:** The Werkzeug server header is visible when accessing the backend directly. This is acceptable for development/staging as the production environment uses Nginx to handle headers.
 
 ## Threat Modeling Highlights
 - **Authentication/Authorization:** No authN/Z exists. Threats include unauthorized command execution against the extruder API; mitigations include mTLS or token-based auth and role checks per route.
@@ -29,4 +34,3 @@
 - **Secrets:** None present; rely on environment variables/secret stores for future credentials.
 - **TLS:** Required at the ingress proxy; add HTTPS listeners to `nginx_intarema.conf` for production.
 - **PII Handling:** No PII collected; maintain this boundary and scrub future additions from logs and exports.
-
