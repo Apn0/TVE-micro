@@ -3,10 +3,15 @@ import json
 import os
 import tempfile
 from unittest.mock import patch
+import logging
 
 # Import app. This will execute module-level code, so we need to ensure it passes.
 # It will load existing config.json or defaults.
 from backend import app
+
+# Disable logging during tests to keep output clean,
+# or keep it to see what happens.
+logging.getLogger("tve.backend.app").setLevel(logging.CRITICAL)
 
 class TestConfigHardening(unittest.TestCase):
     def setUp(self):
@@ -79,6 +84,75 @@ class TestConfigHardening(unittest.TestCase):
         # Should fallback to defaults for invalid fields
         self.assertEqual(cfg['z1']['kp'], 5.0) # Default
         self.assertEqual(cfg['logging']['interval'], 0.25) # Default (assuming 0.25 is default)
+
+    def test_null_root(self):
+        # config.json containing just "null"
+        with open(self.config_path, 'w') as f:
+            f.write("null")
+
+        cfg = app.load_config()
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg["z1"]["kp"], 5.0)
+
+    def test_list_root(self):
+        with open(self.config_path, 'w') as f:
+            f.write("[]")
+
+        cfg = app.load_config()
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg["z1"]["kp"], 5.0)
+
+    def test_null_section_preserves_others(self):
+        config = {
+            "z1": None,
+            "z2": {"kp": 123.0}
+        }
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+
+        cfg = app.load_config()
+
+        # z1 should be defaults
+        self.assertEqual(cfg["z1"]["kp"], 5.0)
+
+        # z2 should be custom
+        self.assertEqual(cfg["z2"]["kp"], 123.0)
+
+    def test_string_section(self):
+        config = {
+            "z1": "invalid",
+            "z2": {"kp": 123.0}
+        }
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+
+        cfg = app.load_config()
+        self.assertEqual(cfg["z1"]["kp"], 5.0)
+        self.assertEqual(cfg["z2"]["kp"], 123.0)
+
+    def test_adc_null(self):
+        config = {
+            "adc": None,
+            "z1": {"kp": 123.0}
+        }
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+
+        cfg = app.load_config()
+        self.assertEqual(cfg["z1"]["kp"], 123.0)
+        # adc defaults
+        self.assertIn("enabled", cfg["adc"])
+
+    def test_sensors_null(self):
+        config = {
+            "sensors": None,
+            "z1": {"kp": 123.0}
+        }
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+
+        cfg = app.load_config()
+        self.assertEqual(cfg["z1"]["kp"], 123.0)
 
 if __name__ == '__main__':
     unittest.main()
