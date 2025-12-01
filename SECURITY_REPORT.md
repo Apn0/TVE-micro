@@ -30,7 +30,3 @@
 - **TLS:** Required at the ingress proxy; add HTTPS listeners to `nginx_intarema.conf` for production.
 - **PII Handling:** No PII collected; maintain this boundary and scrub future additions from logs and exports.
 
-## Next Steps
-- Run DAST against a deployed staging environment.
-- Add authentication/authorization to control endpoints and enforce HTTPS in deployment configs.
-- Monitor dependency updates via scheduled `pip-audit`/`npm audit` in CI.
