@@ -1465,91 +1465,119 @@ def log_stop():
 @app.route("/api/history/sensors", methods=["GET"])
 def history_sensors():
     """
-    Retrieve sensor history from the log file.
-    Returns the last 1000 records from the current or most recent log file.
+    Retrieve sensor history from the log file AND the in-memory buffer.
+    Returns the last 1000 records.
     """
-    # Determine which file to read
-    log_file = logger.current_file
+    data = []
 
+    # Helper to parse a raw row (list or dict) into the frontend format
+    def parse_entry(entry):
+        # We need "Timestamp" to be present and a number
+        ts_val = entry.get("Timestamp")
+        if ts_val is None:
+            # Fallback: try "timestamp" lowercase if it exists
+            ts_val = entry.get("timestamp", 0)
+
+        try:
+            ts_float = float(ts_val)
+        except (ValueError, TypeError):
+            ts_float = 0.0
+
+        mapped = {
+            "t": int(ts_float * 1000), # JS uses ms
+            "temps": {},
+            "relays": {},
+            "motors": {},
+            "pwm": {},
+            "status": entry.get("Status", entry.get("status", "UNKNOWN")),
+            "mode": entry.get("Mode", entry.get("mode", "AUTO")) # Log doesn't have mode yet, but safe default
+        }
+
+        # Map known columns
+        # entry keys come from CSV header (e.g. "T1_Feed") or buffer logic
+        mapping = {
+            "T1_Feed": ("temps", "t1"),
+            "T2_Mid": ("temps", "t2"),
+            "T3_Nozzle": ("temps", "t3"),
+            "T_Motor": ("temps", "motor"),
+            "RPM_Main": ("motors", "main"),
+            "RPM_Feed": ("motors", "feed"),
+            "Target_Z1": (None, "target_z1"),
+            "Target_Z2": (None, "target_z2"),
+            "Pwr_Z1_%": (None, "heater_duty_z1"),
+            "Pwr_Z2_%": (None, "heater_duty_z2"),
+            # Legacy/Fallback keys just in case
+            "t1": ("temps", "t1"),
+            "main_rpm": ("motors", "main"),
+            "ssr_fan": ("relays", "fan"),
+            "ssr_pump": ("relays", "pump")
+        }
+
+        for key, val in entry.items():
+            if val == "NAN" or val is None:
+                continue
+
+            # Convert numeric if possible
+            try:
+                num_val = float(val)
+            except (ValueError, TypeError):
+                num_val = val
+
+            if key in mapping:
+                cat, target = mapping[key]
+                if cat:
+                    mapped[cat][target] = num_val
+                else:
+                    mapped[target] = num_val
+            # Fallback heuristics for other fields
+            elif key.startswith("Pwr_") and "%" in key:
+                # e.g. Pwr_Z1_% -> heater_duty_z1
+                zone = key.split("_")[1].lower()
+                mapped[f"heater_duty_{zone}"] = num_val
+
+        return mapped
+
+    # 1. Read from Disk (Current or Recent)
+    log_file = logger.current_file
     if not log_file:
-        # If not currently recording, find the most recent log in logs/
         log_dir = logger.log_dir
         if os.path.exists(log_dir):
             files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".csv")]
             if files:
                 log_file = max(files, key=os.path.getctime)
 
-    if not log_file or not os.path.exists(log_file):
-        return jsonify([])
+    if log_file and os.path.exists(log_file):
+        try:
+            with open(log_file, "r") as f:
+                lines = f.readlines()
+            if len(lines) > 1:
+                header = lines[0].strip().split(",")
+                # Read last 1000 lines max
+                content = lines[1:][-1000:]
+                for line in content:
+                    parts = line.strip().split(",")
+                    if len(parts) != len(header): continue
+                    entry = {header[i]: parts[i] for i in range(len(header))}
+                    data.append(parse_entry(entry))
+        except Exception as e:
+            app_logger.error(f"Failed to read history file: {e}")
 
-    try:
-        data = []
-        # Basic CSV reading - optimization: read only last N lines or by timestamp
-        # For now, we'll return the last 1000 lines to avoid payload explosion
-        with open(log_file, "r") as f:
-            lines = f.readlines()
+    # 2. Read from In-Memory Buffer (if active)
+    # logger.buffer contains lists of raw values. We need logger.headers to map them.
+    if logger.recording and logger.buffer:
+        # Buffer format matches header order
+        headers = logger.headers
+        for row in logger.buffer:
+            if len(row) != len(headers): continue
+            entry = {headers[i]: row[i] for i in range(len(headers))}
+            data.append(parse_entry(entry))
 
-        header = lines[0].strip().split(",")
-        # Skip header, take last 1000
-        content_lines = lines[1:][-1000:]
+    # Deduplicate by timestamp (rare case of overlap) and sort
+    # Convert to dict by time to dedupe
+    deduped = {d["t"]: d for d in data}
+    sorted_data = sorted(deduped.values(), key=lambda x: x["t"])
 
-        for line in content_lines:
-            parts = line.strip().split(",")
-            if len(parts) != len(header):
-                continue
-            entry = {}
-            for i, col in enumerate(header):
-                # Try to convert to float/int if possible
-                val = parts[i]
-                try:
-                    if "." in val:
-                        entry[col] = float(val)
-                    else:
-                        entry[col] = int(val)
-                except ValueError:
-                    entry[col] = val
-
-            # Map CSV columns to the format frontend expects in 'history'
-            # Frontend expects: { t, temps: {t1, t2...}, ... }
-            # The CSV likely has flattened structure like timestamp, t1, t2, z1_duty, etc.
-            # We need to reconstruct the structure or let frontend parse it.
-            # However, existing frontend code for history uses specific object structure.
-            # Let's map it here to match what App.jsx expects in `setHistory`.
-
-            mapped = {
-                "t": int(entry.get("timestamp", 0) * 1000), # JS uses ms
-                "temps": {},
-                "relays": {},
-                "motors": {},
-                "pwm": {},
-                "status": entry.get("status", "UNKNOWN"),
-                "mode": entry.get("mode", "AUTO")
-            }
-
-            # Helper to extract potential keys
-            for key, val in entry.items():
-                if key in ("t1", "t2", "t3", "motor_temp", "motor"): # sensor names
-                    if key == "motor": mapped["temps"]["motor"] = val # disambiguate
-                    else: mapped["temps"][key] = val
-                elif key.startswith("temp_"):
-                    mapped["temps"][key.replace("temp_", "")] = val
-                elif key in ("fan", "pump", "ssr_z1", "ssr_z2"):
-                    mapped["relays"][key] = bool(val)
-                elif key.startswith("relay_"):
-                    mapped["relays"][key.replace("relay_", "")] = bool(val)
-                elif key in ("main_rpm", "feed_rpm"):
-                    mapped["motors"][key.replace("_rpm", "")] = val
-                elif key.startswith("motor_"):
-                    mapped["motors"][key.replace("motor_", "")] = val
-                elif key in ("manual_duty_z1", "manual_duty_z2", "target_z1", "target_z2"):
-                    mapped[key] = val
-
-            data.append(mapped)
-
-        return jsonify(data)
-    except Exception as e:
-        app_logger.error(f"Failed to read history: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify(sorted_data[-1000:])
 
 @app.route("/api/gpio", methods=["GET", "POST"])
 def gpio_control():
