@@ -741,6 +741,7 @@ safety = SafetyMonitor()
 logger = DataLogger()
 logger.configure(sys_config.get("logging", {}))
 
+
 pid_z1 = PID(**sys_config["z1"], output_limits=(0, 100))
 pid_z2 = PID(**sys_config["z2"], output_limits=(0, 100))
 
@@ -925,7 +926,10 @@ def _latch_alarm(reason: str):
 
     # Determine severity
     severity = "WARNING"
-    if "EMERGENCY" in reason or "CRITICAL" in reason:
+    # LOGGING_DISK_FULL should also be CRITICAL or just WARNING?
+    # Usually disk full is critical for data integrity but maybe not safety.
+    # However, if we can't log, we shouldn't run blind.
+    if "EMERGENCY" in reason or "CRITICAL" in reason or "DISK_FULL" in reason:
         severity = "CRITICAL"
 
     running_event.clear()
@@ -948,6 +952,17 @@ def _latch_alarm(reason: str):
             save_alarms_to_disk(state["alarm_history"])
 
         state["status"] = "ALARM"
+
+def _handle_logger_error(payload: dict):
+    """
+    Callback for DataLogger errors.
+    """
+    event = payload.get("event")
+    if event == "disk_full":
+        app_logger.critical("Disk full detected by logger. Latching alarm.")
+        _latch_alarm("LOGGING_DISK_FULL")
+
+logger.set_error_handler(_handle_logger_error)
 
 startup_lock = threading.Lock()
 

@@ -2,6 +2,7 @@ import csv
 import time
 import os
 import math
+import errno
 import json
 import logging
 from datetime import datetime
@@ -213,6 +214,15 @@ class DataLogger:
                 os.fsync(self.file_handle.fileno())
                 return True
             except OSError as exc:
+                if exc.errno == errno.ENOSPC:
+                    self._emit_event(
+                        "CRITICAL",
+                        "disk_full",
+                        {"file": self.current_file, "buffer_size": len(self.buffer)},
+                    )
+                    self.stop(flush=False)
+                    return False
+
                 LOGGER_WRITE_FAILURES_TOTAL.inc()
                 self._emit_event(
                     "ERROR",
@@ -459,14 +469,18 @@ class DataLogger:
         elif (now - self.last_flush_time) >= self.flush_interval:
             self.flush()
 
-    def stop(self):
+    def stop(self, flush=True):
         """
         Stop the logger and close the file.
 
         Flushes any remaining buffered data and closes the file handle.
+
+        Args:
+            flush (bool): Whether to attempt flushing the buffer before closing.
+                          Should be False if stopping due to write errors (e.g. disk full).
         """
-        # Flush remaining data
-        self.flush()
+        if flush:
+            self.flush()
 
         if self.file_handle:
             self.file_handle.close()
