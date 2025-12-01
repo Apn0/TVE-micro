@@ -1015,7 +1015,7 @@ def _set_status(new_status: str):
     try:
         SYSTEM_STATE.state(new_status)
     except Exception:
-        pass
+        app_logger.warning("Failed to update prometheus metric for system state", exc_info=True)
 
 
 def _latch_alarm(reason: str):
