@@ -50,8 +50,3 @@ Each major subsystem (Heaters, Motors, I/O) gets a distinct panel.
     *   Sensor calibration points.
     *   LED status behavior.
 
-## Future Components
-To maintain consistency, we should eventually create reusable React components:
-*   `<ConfigSection title="" description="">`
-*   `<SettingRow label="" unit="">`
-*   `<ActionRow>`
