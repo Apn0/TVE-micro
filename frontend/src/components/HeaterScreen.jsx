@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { styles } from "../styles";
 import { validateSetpoint } from "../utils/validation";
+import HeaterSettingsScreen from "./HeaterSettingsScreen";
 
 /**
  * HeaterScreen Component.
@@ -31,9 +32,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const [targetZ2, setTargetZ2] = useState(validateSetpoint(data.state?.target_z2));
   const [expandedZone, setExpandedZone] = useState(null);
   const [tuneZone, setTuneZone] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const setpointRef = useRef(null);
-  const dutyRef = useRef(null);
   const peltierDutyRef = useRef(null);
 
   // Extract Autotune state
@@ -390,10 +391,9 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
 
     const handleClick = (event) => {
       const insideSetpoint = setpointRef.current && setpointRef.current.contains(event.target);
-      const insideDuty = dutyRef.current && dutyRef.current.contains(event.target);
       const insidePeltier = peltierDutyRef.current && peltierDutyRef.current.contains(event.target);
 
-      if (!insideSetpoint && !insideDuty && !insidePeltier) {
+      if (!insideSetpoint && !insidePeltier) {
         setExpandedZone(null);
         keypad?.closeKeypad?.();
       }
@@ -423,22 +423,6 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
       if (zoneKey === "z1") setTargetZ1(validated);
       if (zoneKey === "z2") setTargetZ2(validated);
       sendCmd("SET_TARGET", { z1: zoneKey === "z1" ? validated : targetZ1, z2: zoneKey === "z2" ? validated : targetZ2 });
-      setExpandedZone(null);
-      keypad?.closeKeypad?.();
-    });
-  };
-
-  const handleDutyClick = (zoneKey, currentDuty, event) => {
-    event.stopPropagation();
-    if (data.state?.mode !== "MANUAL") return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const initial = Number.isFinite(currentDuty) ? String(currentDuty) : "";
-
-    keypad?.openKeypad?.(initial, rect, (val) => {
-      const num = parseFloat(val);
-      if (!Number.isNaN(num) && num >= 0 && num <= 100) {
-        sendCmd("SET_HEATER", { zone: zoneKey, duty: num });
-      }
       setExpandedZone(null);
       keypad?.closeKeypad?.();
     });
@@ -654,10 +638,6 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
               <div style={styles.cardHint}>
                 Duty: {heaterDuty.toFixed(1)}% {relayOn && "🔥"}
               </div>
-              {/* Optional PID display on main card */}
-              <div style={{fontSize: '0.7em', color: '#444'}}>
-                 P: {pidParams.kp} I: {pidParams.ki} D: {pidParams.kd}
-              </div>
           </div>
         </div>
 
@@ -683,53 +663,19 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
               </div>
             </div>
 
-            {/* Duty Cycle Editor (Manual Mode Only) */}
-            <div
-              ref={(node) => { if (expandedZone === zoneKey) dutyRef.current = node; }}
-              style={{
-                ...styles.metricCard,
-                minHeight: 'auto',
-                background: "#0c0f15",
-                border: isManual ? "1px solid #e67e22" : "1px solid #444",
-                cursor: isManual ? "pointer" : "default",
-                opacity: isManual ? 1 : 0.6,
-              }}
-              onClick={(e) => handleDutyClick(zoneKey, heaterDuty, e)}
-              data-testid={`duty-dropdown-${zoneKey}`}
+            {/* Advanced Settings Link */}
+            <button
+                onClick={() => setShowSettings(true)}
+                style={{
+                    ...styles.buttonSecondary,
+                    width: "100%",
+                    marginTop: "5px",
+                    background: "#2c3e50",
+                    border: "1px solid #444"
+                }}
             >
-              <div style={styles.metricLabel}>Duty Cycle (%)</div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#ecf0f1" }}>
-                <span style={{ fontSize: "1.4em", fontWeight: "bold" }}>{heaterDuty.toFixed(1)}</span>
-                <span style={{ fontSize: "0.85em", color: isManual ? "#e67e22" : "#8c9fb1" }}>
-                  {isManual ? "Tap to edit" : "Auto controlled"}
-                </span>
-              </div>
-            </div>
-
-            {/* PID Info Card */}
-             <div style={{
-                ...styles.metricCard,
-                minHeight: 'auto',
-                background: "#151920",
-                borderColor: "#333",
-                padding: 10
-             }}>
-                <div style={styles.metricLabel}>PID Parameters</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, marginTop: 5 }}>
-                    <div style={{textAlign: "center", background: "#000", padding: 4, borderRadius: 4}}>
-                        <div style={{color: "#666", fontSize: "0.7em"}}>Kp</div>
-                        <div style={{fontWeight: "bold", color: "#ddd"}}>{pidParams.kp}</div>
-                    </div>
-                     <div style={{textAlign: "center", background: "#000", padding: 4, borderRadius: 4}}>
-                        <div style={{color: "#666", fontSize: "0.7em"}}>Ki</div>
-                        <div style={{fontWeight: "bold", color: "#ddd"}}>{pidParams.ki}</div>
-                    </div>
-                     <div style={{textAlign: "center", background: "#000", padding: 4, borderRadius: 4}}>
-                        <div style={{color: "#666", fontSize: "0.7em"}}>Kd</div>
-                        <div style={{fontWeight: "bold", color: "#ddd"}}>{pidParams.kd}</div>
-                    </div>
-                </div>
-             </div>
+                Advanced Settings (PID / Duty)
+            </button>
 
             {/* Tuning UI */}
             <div style={{marginTop: 5, borderTop: '1px solid #333', paddingTop: 10}}>
@@ -773,6 +719,17 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     );
   };
 
+  if (showSettings) {
+    return (
+        <HeaterSettingsScreen
+            data={data}
+            sendCmd={sendCmd}
+            onBack={() => setShowSettings(false)}
+            keypad={keypad}
+        />
+    );
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.panel}>
@@ -780,7 +737,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           <div>
             <h2>Mica heater zones</h2>
             <p style={{ fontSize: "0.9em", color: "#aaa" }}>
-              Set temperature targets for each zone. Toggle mode to control duty cycle manually.
+              Set temperature targets for each zone. Use Advanced Settings for PID and Manual Duty Cycle.
             </p>
           </div>
           <button
