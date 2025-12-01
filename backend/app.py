@@ -71,6 +71,8 @@ def _validate_pid_section(section: dict, name: str, errors: list[str]):
                 value = float(section[param])
                 if not math.isfinite(value) or value < 0:
                     raise ValueError("PID parameters must be non-negative")
+                if value > 1000:
+                    raise ValueError("PID parameters must be <= 1000")
                 result[param] = value
             except (TypeError, ValueError):
                 errors.append(f"Invalid {name}.{param}, using default")
@@ -258,25 +260,40 @@ def _validate_temp_settings(section: dict, errors: list[str]):
     Validate temperature monitoring settings.
     """
     result = copy.deepcopy(SYSTEM_DEFAULTS["temp_settings"])
-    for key in ("poll_interval", "avg_window"):
-        if key in section:
-            try:
-                value = float(section[key])
-                if value > 0 and math.isfinite(value):
-                    result[key] = value
-                else:
-                    raise ValueError
-            except (TypeError, ValueError):
-                errors.append(f"Invalid temp_settings.{key}, using default")
+
+    if "poll_interval" in section:
+        try:
+            value = float(section["poll_interval"])
+            if 0.01 <= value <= 60.0:
+                result["poll_interval"] = value
+            else:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("Invalid temp_settings.poll_interval (must be 0.01-60.0), using default")
+
+    if "avg_window" in section:
+        try:
+            value = float(section["avg_window"])
+            if 0.01 <= value <= 600.0:
+                result["avg_window"] = value
+            else:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("Invalid temp_settings.avg_window (must be 0.01-600.0), using default")
+
     if "use_average" in section:
         result["use_average"] = bool(section.get("use_average", result["use_average"]))
+
     if "decimals_default" in section:
         try:
             dec = int(section["decimals_default"])
-            if dec >= 0:
+            if 0 <= dec <= 5:
                 result["decimals_default"] = dec
+            else:
+                raise ValueError
         except (TypeError, ValueError):
-            errors.append("Invalid temp_settings.decimals_default, using default")
+            errors.append("Invalid temp_settings.decimals_default (must be 0-5), using default")
+
     return result
 
 
@@ -285,16 +302,27 @@ def _validate_logging(section: dict, errors: list[str]):
     Validate data logging settings.
     """
     result = copy.deepcopy(SYSTEM_DEFAULTS["logging"])
-    for key in ("interval", "flush_interval"):
-        if key in section:
-            try:
-                value = float(section[key])
-                if value > 0 and math.isfinite(value):
-                    result[key] = value
-                else:
-                    raise ValueError
-            except (TypeError, ValueError):
-                errors.append(f"Invalid logging.{key}, using default")
+
+    if "interval" in section:
+        try:
+            value = float(section["interval"])
+            if 0.01 <= value <= 3600.0:
+                result["interval"] = value
+            else:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("Invalid logging.interval (must be 0.01-3600.0), using default")
+
+    if "flush_interval" in section:
+        try:
+            value = float(section["flush_interval"])
+            if 0.1 <= value <= 3600.0:
+                result["flush_interval"] = value
+            else:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("Invalid logging.flush_interval (must be 0.1-3600.0), using default")
+
     return result
 
 
@@ -1779,29 +1807,14 @@ def control():
         params = req.get("params", {})
         if zone not in ("z1", "z2") or not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_ZONE_OR_PARAMS"}), 400
-        sanitized_params: dict[str, float] = {}
-        pid_errors: list[str] = []
-        for name in ("kp", "ki", "kd"):
-            if name not in params:
-                continue
-            coerced = _coerce_finite(params.get(name))
-            if coerced is None:
-                pid_errors.append(f"{name} must be a finite number")
-                continue
-            if coerced < 0:
-                pid_errors.append(f"{name} must be non-negative")
-                continue
-            if coerced > 1000:
-                pid_errors.append(f"{name} exceeds maximum allowed value of 1000")
-                continue
-            sanitized_params[name] = coerced
-        if pid_errors:
-            return jsonify({"success": False, "msg": "; ".join(pid_errors)}), 400
+
         validation_errors: list[str] = []
         current = sys_config.get(zone, SYSTEM_DEFAULTS[zone])
+        # _validate_pid_section now handles non-finite, negative, and >1000 checks
         validated = _validate_pid_section(
-            {**current, **sanitized_params}, zone, validation_errors
+            {**current, **params}, zone, validation_errors
         )
+
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),
@@ -1901,37 +1914,12 @@ def control():
         params = req.get("params", {})
         if not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_TEMP_SETTINGS"}), 400
-        temp_errors: list[str] = []
-        sanitized: dict[str, float | int | bool] = {}
-        if "poll_interval" in params:
-            value = _coerce_finite(params.get("poll_interval"))
-            if value is None or not (0.01 <= value <= 60.0):
-                temp_errors.append("poll_interval must be between 0.01 and 60 seconds")
-            else:
-                sanitized["poll_interval"] = value
-        if "avg_window" in params:
-            value = _coerce_finite(params.get("avg_window"))
-            if value is None or not (0.01 <= value <= 600.0):
-                temp_errors.append("avg_window must be between 0.01 and 600 seconds")
-            else:
-                sanitized["avg_window"] = value
-        if "decimals_default" in params:
-            try:
-                dec = int(params.get("decimals_default"))
-            except (TypeError, ValueError):
-                dec = None
-            if dec is None or dec < 0 or dec > 5:
-                temp_errors.append("decimals_default must be an integer between 0 and 5")
-            else:
-                sanitized["decimals_default"] = dec
-        if "use_average" in params:
-            sanitized["use_average"] = bool(params.get("use_average"))
 
-        if temp_errors:
-            return jsonify({"success": False, "msg": "; ".join(temp_errors)}), 400
         validation_errors: list[str] = []
         current = sys_config.get("temp_settings", SYSTEM_DEFAULTS["temp_settings"])
-        validated = _validate_temp_settings({**current, **sanitized}, validation_errors)
+        # _validate_temp_settings now handles ranges and types
+        validated = _validate_temp_settings({**current, **params}, validation_errors)
+
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),
@@ -1950,29 +1938,12 @@ def control():
         params = req.get("params", {})
         if not isinstance(params, dict):
             return jsonify({"success": False, "msg": "INVALID_LOGGING_PARAMS"}), 400
-        logging_errors: list[str] = []
-        sanitized_logging: dict[str, float] = {}
-        if "interval" in params:
-            val = _coerce_finite(params.get("interval"))
-            if val is None or not (0.01 <= val <= 3600.0):
-                logging_errors.append("interval must be between 0.01 and 3600 seconds")
-            else:
-                sanitized_logging["interval"] = val
-        if "flush_interval" in params:
-            val = _coerce_finite(params.get("flush_interval"))
-            if val is None or not (0.1 <= val <= 3600.0):
-                logging_errors.append("flush_interval must be between 0.1 and 3600 seconds")
-            else:
-                sanitized_logging["flush_interval"] = val
 
-        if logging_errors:
-            return (
-                jsonify({"success": False, "msg": "; ".join(logging_errors)}),
-                400,
-            )
         validation_errors: list[str] = []
         current = sys_config.get("logging", SYSTEM_DEFAULTS["logging"])
-        validated = _validate_logging({**current, **sanitized_logging}, validation_errors)
+        # _validate_logging now handles ranges and types
+        validated = _validate_logging({**current, **params}, validation_errors)
+
         if validation_errors:
             return (
                 jsonify({"success": False, "msg": "; ".join(validation_errors)}),
