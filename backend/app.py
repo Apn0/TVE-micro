@@ -60,6 +60,42 @@ MAX_MOTOR_RPM = 5000.0
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger("tve.backend.app")
 
+
+def _coerce_finite(value: object) -> float | None:
+    """
+    Safely convert object to finite float or None.
+    Unified helper for config loading and API validation.
+    """
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(num):
+        return None
+    return num
+
+
+def _parse_float_with_suffix(value: object) -> float | None:
+    """Coerce a value to float, allowing engineering suffixes like 'k' or 'M'."""
+
+    multiplier = 1.0
+
+    if isinstance(value, str):
+        trimmed = value.strip().lower()
+        if trimmed.endswith("k"):
+            multiplier = 1e3
+            trimmed = trimmed[:-1]
+        elif trimmed.endswith("m"):
+            multiplier = 1e6
+            trimmed = trimmed[:-1]
+        value = trimmed
+
+    coerced = _coerce_finite(value)
+    if coerced is None:
+        return None
+    return coerced * multiplier
+
+
 def _validate_pid_section(section: dict, name: str, errors: list[str]):
     """
     Validate PID configuration section.
@@ -613,20 +649,6 @@ def load_config():
             return validate_config({})
 
 
-def _coerce_finite(value: object) -> float | None:
-    """
-    Safely convert object to finite float or None.
-    Unified helper for config loading and API validation.
-    """
-    try:
-        num = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(num):
-        return None
-    return num
-
-
 def _validate_payload(payload: dict, schema: dict) -> tuple[dict, list[str]]:
     """
     Validate and clean a payload against a schema.
@@ -706,26 +728,6 @@ def _validate_payload(payload: dict, schema: dict) -> tuple[dict, list[str]]:
     return cleaned, errors
 
 
-def _parse_float_with_suffix(value: object) -> float | None:
-    """Coerce a value to float, allowing engineering suffixes like 'k' or 'M'."""
-
-    multiplier = 1.0
-
-    if isinstance(value, str):
-        trimmed = value.strip().lower()
-        if trimmed.endswith("k"):
-            multiplier = 1e3
-            trimmed = trimmed[:-1]
-        elif trimmed.endswith("m"):
-            multiplier = 1e6
-            trimmed = trimmed[:-1]
-        value = trimmed
-
-    coerced = _coerce_finite(value)
-    if coerced is None:
-        return None
-    return coerced * multiplier
-
 sys_config = load_config()
 sensor_cfg = {int(k): v for k, v in sys_config.get("sensors", {}).items()}
 
@@ -787,11 +789,6 @@ app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
 
 
 # _safe_float removed in favor of unified _coerce_finite
-
-
-def _clamp(value: float, min_value: float, max_value: float) -> float:
-    """Clamp a float between min and max."""
-    return max(min_value, min(max_value, value))
 
 
 def _temps_fresh(now: float) -> tuple[bool, str | None]:
@@ -1170,10 +1167,6 @@ def control_loop():
 
         if stop_requested:
             _set_status("STOPPING")
-        elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
-             # Fallback for invalid state
-             app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
-             _set_status("READY")
         elif status not in ("READY", "STARTING", "RUNNING", "STOPPING", "ALARM", "OFF"):
              # Fallback for invalid state
              app_logger.warning(f"Invalid state detected: {status}. Resetting to READY.")
