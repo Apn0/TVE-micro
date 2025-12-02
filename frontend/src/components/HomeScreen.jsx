@@ -16,10 +16,9 @@ import { validateSetpoint } from "../utils/validation";
  * @param {object} props.data - The current system state data (temperatures, motors, etc.).
  * @param {function} props.sendCmd - Function to send commands to the backend API.
  * @param {object} props.keypad - The keypad hook object for handling numeric input.
- * @param {function} props.setView - Function to switch between main views.
  * @param {Array} props.history - Rolling history of sensor data.
  */
-function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
+function HomeScreen({ data, sendCmd, keypad, history = [] }) {
   const status = data.state?.status || "UNKNOWN";
   const mode = data.state?.mode || "AUTO";
   const temps = data.state?.temps || {};
@@ -144,10 +143,11 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
     cursor: "pointer",
   };
 
-  const renderSchematicCard = ({ key, label, value, color, position, tab, setpoint, onClick, setpointRefKey }) => {
+  const renderSchematicCard = ({ key, label, value, color, position, setpoint, onClick, setpointRefKey }) => {
     const hasSetpoint = setpoint !== undefined && setpoint !== null;
     const isExpanded = expandedCard === key;
-    const highlightSetpoint = isExpanded && keypad?.visible;
+    const highlightSetpoint = isExpanded;
+    const cardValueColor = hasSetpoint ? color ?? "#000" : "#555";
     const setpointBadgeStyle = {
       ...styles.setpointBadge,
       fontSize: "1.0em",
@@ -179,10 +179,6 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
           }
 
           setExpandedCard((prev) => (prev === key ? null : key));
-
-          if (setView && tab) {
-            setView(tab);
-          }
         }}
       >
         {/* Title Section */}
@@ -211,7 +207,7 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
           justifyContent: "center",
           padding: "8px"
         }}>
-          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: color ?? "#000" }}>
+          <div style={{ ...styles.metricValue, fontSize: "1.3em", color: cardValueColor }}>
             {value}
           </div>
         </div>
