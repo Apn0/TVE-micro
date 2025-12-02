@@ -32,9 +32,18 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 if ! git config --get remote."$REMOTE".url >/dev/null 2>&1; then
+    read -r -a AVAILABLE_REMOTES <<< "$(git remote | tr '\n' ' ')"
     if [[ -n "${REMOTE_URL:-}" ]]; then
         echo "Adding remote '$REMOTE' -> $REMOTE_URL"
         git remote add "$REMOTE" "$REMOTE_URL"
+    elif [[ "$REMOTE" == "origin" && ${#AVAILABLE_REMOTES[@]} -eq 1 ]]; then
+        REMOTE="${AVAILABLE_REMOTES[0]}"
+        echo "Remote 'origin' not configured; defaulting to existing remote '$REMOTE'."
+        echo "Set REMOTE to override or REMOTE_URL to add 'origin'."
+    elif [[ "$REMOTE" == "origin" && ${#AVAILABLE_REMOTES[@]} -gt 1 ]]; then
+        echo "Remote '$REMOTE' not configured. Available remotes: ${AVAILABLE_REMOTES[*]}"
+        echo "Set REMOTE to choose one or provide REMOTE_URL to add '$REMOTE'."
+        exit 1
     else
         echo "Remote '$REMOTE' not configured. Set REMOTE or REMOTE_URL."
         exit 1
