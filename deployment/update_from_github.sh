@@ -113,10 +113,13 @@ detect_remote_head() {
     # Example output line: "ref: refs/heads/main\tHEAD" -> extract "main".
     # Some git versions emit spaces instead of tabs, so match any whitespace.
     local ls_remote_head
-    ls_remote_head="$(git ls-remote --symref "$REMOTE" HEAD 2>/dev/null | awk '$NF=="HEAD" {print $(NF-1)}' | head -n1 | xargs || true)"
-    if [[ -n "$ls_remote_head" && "$ls_remote_head" == refs/heads/* ]]; then
+    ls_remote_head="$(
+        git ls-remote --symref "$REMOTE" HEAD 2>/dev/null \
+            | awk '$1=="ref:" && $NF=="HEAD" {print $(NF-1); exit}' || true
+    )"
+    if [[ -n "$ls_remote_head" ]]; then
         ls_remote_head="${ls_remote_head#refs/heads/}"
-        if [[ -n "$ls_remote_head" ]]; then
+        if [[ -n "$ls_remote_head" && "$ls_remote_head" != "HEAD" ]]; then
             echo "$ls_remote_head"
             return 0
         fi
