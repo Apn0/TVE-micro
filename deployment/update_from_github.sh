@@ -122,16 +122,34 @@ detect_remote_head() {
     return 1
 }
 
+choose_remote_default_branch() {
+    local candidate
+
+    if candidate="$(detect_remote_head || true)" && [[ -n "$candidate" ]]; then
+        echo "$candidate"
+        return 0
+    fi
+
+    for candidate in main master; do
+        if git rev-parse --verify "$REMOTE/$candidate" >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 if [[ -z "${BRANCH:-}" ]]; then
     CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
     if [[ -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "HEAD" ]]; then
         BRANCH="$CURRENT_BRANCH"
     else
         if [[ "$LOCAL_ONLY" -eq 0 ]]; then
-            REMOTE_HEAD="$(detect_remote_head || true)"
+            REMOTE_HEAD="$(choose_remote_default_branch || true)"
             if [[ -n "$REMOTE_HEAD" ]]; then
                 BRANCH="$REMOTE_HEAD"
-                echo "No local branch detected; defaulting to remote HEAD '$BRANCH'."
+                echo "No local branch detected; defaulting to remote default branch '$BRANCH'."
             else
                 echo "Unable to detect a branch. Set BRANCH explicitly."
                 exit 1
@@ -154,7 +172,7 @@ if [[ "$LOCAL_ONLY" -eq 0 ]]; then
         fi
 
         if [[ -z "$REMOTE_HEAD" ]]; then
-            REMOTE_HEAD="$(detect_remote_head || true)"
+            REMOTE_HEAD="$(choose_remote_default_branch || true)"
         fi
 
         if [[ -n "$REMOTE_HEAD" ]]; then
