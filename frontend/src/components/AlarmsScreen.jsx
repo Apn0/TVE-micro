@@ -139,7 +139,6 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
             {displayHistory.length === 0 && (
               <div style={{
                 ...styles.metricCard,
-                minHeight: 'auto',
                 padding: "40px",
                 textAlign: "center",
                 color: "#7f8c8d",
@@ -163,7 +162,6 @@ function AlarmsScreen({ activeAlarms, alarmHistory, sendCmd }) {
             {displayActive.length === 0 && (
               <div style={{
                 ...styles.metricCard,
-                minHeight: 'auto',
                 padding: "40px",
                 textAlign: "center",
                 color: "#2ecc71",

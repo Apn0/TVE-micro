@@ -115,7 +115,6 @@ function TestScreen({ data, sendCmd }) {
     <div
       style={{
         ...styles.metricCard,
-        minHeight: '120px',
       }}
     >
       <div style={{ color: "#d7e0ea", fontWeight: "bold" }}>{title}</div>
@@ -321,7 +320,6 @@ function TestScreen({ data, sendCmd }) {
                 key={name}
                 style={{
                   ...styles.metricCard,
-                  minHeight: 'auto',
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", color: "#d7e0ea", fontWeight: "bold" }}>
@@ -365,7 +363,6 @@ function TestScreen({ data, sendCmd }) {
                 key={entry}
                 style={{
                   ...styles.metricCard,
-                  minHeight: 'auto',
                   padding: "10px",
                   color: "#d7e0ea",
                 }}

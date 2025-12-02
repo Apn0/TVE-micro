@@ -197,21 +197,21 @@ function SensorsScreen({ data, sendCmd }) {
             fontSize: "0.9em",
           }}
         >
-          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
+          <div style={styles.metricCard}>
             <div style={styles.metricLabel}>ADC enabled</div>
             <div style={styles.metricValueReadOnly}>{adc.enabled ? "Yes" : "No"}</div>
           </div>
-          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
+          <div style={styles.metricCard}>
             <div style={styles.metricLabel}>Bus</div>
             <div style={styles.metricValueReadOnly}>{adc.bus ?? "-"}</div>
           </div>
-          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
+          <div style={styles.metricCard}>
             <div style={styles.metricLabel}>Address</div>
             <div style={styles.metricValueReadOnly}>
               {adc.address !== undefined ? `0x${adc.address.toString(16)}` : "-"}
             </div>
           </div>
-          <div style={{ ...styles.metricCard, minHeight: 'auto' }}>
+          <div style={styles.metricCard}>
             <div style={styles.metricLabel}>FSR (read-only)</div>
             <div style={styles.metricValueReadOnly}>{adc.fsr ?? "-"} V</div>
           </div>
