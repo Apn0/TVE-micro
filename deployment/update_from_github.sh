@@ -97,15 +97,40 @@ if [[ "$LOCAL_ONLY" -eq 0 ]]; then
     fi
 fi
 
+detect_remote_head() {
+    # Try the locally tracked remote HEAD first.
+    local head_ref
+    head_ref="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
+    if [[ -n "$head_ref" ]]; then
+        echo "${head_ref#${REMOTE}/}"
+        return 0
+    fi
+
+    # Fallback: query the remote directly for its HEAD symbolic ref.
+    # Example output line: "ref: refs/heads/main\tHEAD" -> extract "main".
+    local ls_remote_head
+    ls_remote_head="$(git ls-remote --symref "$REMOTE" HEAD 2>/dev/null | awk '/\tHEAD$/ {print $1}' || true)"
+    if [[ -n "$ls_remote_head" ]]; then
+        ls_remote_head="${ls_remote_head#ref: }"
+        ls_remote_head="${ls_remote_head#refs/heads/}"
+        if [[ -n "$ls_remote_head" ]]; then
+            echo "$ls_remote_head"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 if [[ -z "${BRANCH:-}" ]]; then
     CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
     if [[ -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "HEAD" ]]; then
         BRANCH="$CURRENT_BRANCH"
     else
         if [[ "$LOCAL_ONLY" -eq 0 ]]; then
-            REMOTE_HEAD="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
+            REMOTE_HEAD="$(detect_remote_head || true)"
             if [[ -n "$REMOTE_HEAD" ]]; then
-                BRANCH="${REMOTE_HEAD#${REMOTE}/}"
+                BRANCH="$REMOTE_HEAD"
                 echo "No local branch detected; defaulting to remote HEAD '$BRANCH'."
             else
                 echo "Unable to detect a branch. Set BRANCH explicitly."
@@ -129,11 +154,11 @@ if [[ "$LOCAL_ONLY" -eq 0 ]]; then
         fi
 
         if [[ -z "$REMOTE_HEAD" ]]; then
-            REMOTE_HEAD="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
+            REMOTE_HEAD="$(detect_remote_head || true)"
         fi
 
         if [[ -n "$REMOTE_HEAD" ]]; then
-            FALLBACK_BRANCH="${REMOTE_HEAD#${REMOTE}/}"
+            FALLBACK_BRANCH="$REMOTE_HEAD"
             echo "Branch '$BRANCH' not found on remote '$REMOTE'."
             if [[ -t 0 && -t 1 ]]; then
                 read -r -p "Use remote default branch '$FALLBACK_BRANCH' instead? [Y/n]: " FALLBACK_REPLY
