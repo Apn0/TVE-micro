@@ -209,6 +209,7 @@ elif ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
 fi
 
 DIRTY=0
+STASHED=0
 if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
     DIRTY=1
 fi
