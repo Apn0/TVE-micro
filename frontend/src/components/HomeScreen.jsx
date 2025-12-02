@@ -147,7 +147,7 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
   const renderSchematicCard = ({ key, label, value, color, position, tab, setpoint, onClick, setpointRefKey }) => {
     const hasSetpoint = setpoint !== undefined && setpoint !== null;
     const isExpanded = expandedCard === key;
-    const highlightSetpoint = isExpanded;
+    const highlightSetpoint = isExpanded && keypad?.visible;
     const setpointBadgeStyle = {
       ...styles.setpointBadge,
       fontSize: "1.0em",
