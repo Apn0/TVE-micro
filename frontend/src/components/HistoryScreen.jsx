@@ -809,8 +809,8 @@ function SummaryTile({ label, value }) {
         // Implicitly uses padding: 14px from styles.metricCard
       }}
     >
-      <div style={{ fontSize: "0.75em", color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-      <div style={{ fontSize: "1.3em", fontWeight: "bold", color: "#eaeaea" }}>{value}</div>
+      <div style={{ fontSize: "0.75em", color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+      <div style={{ fontSize: "1.3em", fontWeight: "bold", color: "#0f172a" }}>{value}</div>
     </div>
   );
 }

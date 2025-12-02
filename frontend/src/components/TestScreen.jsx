@@ -117,8 +117,8 @@ function TestScreen({ data, sendCmd }) {
         ...styles.metricCard,
       }}
     >
-      <div style={{ color: "#d7e0ea", fontWeight: "bold" }}>{title}</div>
-      <div style={{ color: "#c9d6e2", flex: 1 }}>{body}</div>
+      <div style={{ color: "#0f172a", fontWeight: "bold" }}>{title}</div>
+      <div style={{ color: "#1f2937", flex: 1 }}>{body}</div>
       {footer && <div>{footer}</div>}
     </div>
   );
@@ -322,9 +322,9 @@ function TestScreen({ data, sendCmd }) {
                   ...styles.metricCard,
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", color: "#d7e0ea", fontWeight: "bold" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "#0f172a", fontWeight: "bold" }}>
                   <span>{name}</span>
-                  <span style={{ color: "#8c9fb1" }}>CH {channel}</span>
+                  <span style={{ color: "#475569" }}>CH {channel}</span>
                 </div>
                 <div style={{ fontSize: "1.6em", fontWeight: "bold" }}>{(localPwm?.[name] ?? 0).toFixed?.(1) ?? "0.0"}%</div>
                 <input
@@ -364,7 +364,7 @@ function TestScreen({ data, sendCmd }) {
                 style={{
                   ...styles.metricCard,
                   padding: "10px",
-                  color: "#d7e0ea",
+                  color: "#0f172a",
                 }}
               >
                 {entry}
