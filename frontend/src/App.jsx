@@ -16,6 +16,7 @@ import HistoryScreen from "./components/HistoryScreen";
 import TestScreen from "./components/TestScreen";
 import SensorsScreen from "./components/SensorsScreen";
 import SettingsScreen from "./components/SettingsScreen";
+import SettingsHub from "./components/SettingsHub";
 import EngineeringScreen from "./components/EngineeringScreen";
 import GPIOControlScreen from "./components/GPIOControlScreen";
 import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
@@ -248,9 +249,11 @@ function App() {
   );
   const showCriticalOverlay = !!criticalAlarm && view !== "ALARMS";
 
+  const navView = view.startsWith("SETTINGS") ? "SETTINGS" : view;
+
   return (
     <div style={styles.layout}>
-      <Nav current={view} setView={setView} hasActiveAlarms={activeAlarms.length > 0} />
+      <Nav current={navView} setView={setView} hasActiveAlarms={activeAlarms.length > 0} />
 
       {data ? (
         <div style={styles.content}>
@@ -287,7 +290,8 @@ function App() {
           {view === "SENSORS" && <SensorsScreen data={data} sendCmd={sendCmd} />}
           {view === "GPIO" && <GPIOControlScreen />}
           {view === "WIRING CALIBRATION" && <WiringCalibrationScreen />}
-          {view === "SETTINGS" && <SettingsScreen data={data} sendCmd={sendCmd} setView={setView} />}
+          {view === "SETTINGS" && <SettingsHub setView={setView} />}
+          {view === "SETTINGS_CONFIG" && <SettingsScreen data={data} sendCmd={sendCmd} setView={setView} />}
           {view === "ENGINEERING" && <EngineeringScreen data={data} sendCmd={sendCmd} setView={setView} />}
         </div>
       ) : (
