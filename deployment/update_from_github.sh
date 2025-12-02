@@ -218,6 +218,7 @@ if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
     HAS_HEAD=0
 fi
 
+STASHED=0
 TEMP_STASH_BASE_CREATED=0
 if [[ "$DIRTY" -eq 1 ]]; then
     if [[ "$HAS_HEAD" -eq 0 ]]; then
@@ -231,6 +232,7 @@ if [[ "$DIRTY" -eq 1 ]]; then
     STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
     echo "Stashing local changes as '$STASH_NAME'..."
     git stash push -u -m "$STASH_NAME" >/dev/null
+    STASHED=1
 fi
 
 if [[ "$LOCAL_ONLY" -eq 0 ]]; then
