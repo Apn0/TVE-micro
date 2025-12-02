@@ -39,7 +39,11 @@ fi
 
 if ! git config --get remote."$REMOTE".url >/dev/null 2>&1; then
     read -r -a AVAILABLE_REMOTES <<< "$(git remote | tr '\n' ' ')"
-    if [[ -n "${REMOTE_URL:-}" ]]; then
+
+    if [[ ( "${ALLOW_LOCAL_ONLY:-}" == "1" || "${ALLOW_LOCAL_ONLY:-}" == "true" ) && ${#AVAILABLE_REMOTES[@]} -eq 0 && -z "${REMOTE_URL:-}" ]]; then
+        echo "Remote '$REMOTE' not configured. Proceeding in local-only mode (no fetch)."
+        LOCAL_ONLY=1
+    elif [[ -n "${REMOTE_URL:-}" ]]; then
         echo "Adding remote '$REMOTE' -> $REMOTE_URL"
         git remote add "$REMOTE" "$REMOTE_URL"
     elif [[ "$REMOTE" == "origin" && ${#AVAILABLE_REMOTES[@]} -eq 1 ]]; then
