@@ -23,40 +23,14 @@ import WiringCalibrationScreen from "./components/WiringCalibrationScreen";
 import AlarmsScreen from "./components/AlarmsScreen";
 
 // 1. Create this hook function OUTSIDE of your App component (or inside, but above return)
-function useHybridData(mode, showError) {
+function useSocketData(showError) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const socketRef = useRef(null);
 
-  // Poll Mode Effect
-  useEffect(() => {
-    if (mode !== 'POLLING') return;
-    console.log("Switched to POLLING mode");
-
-    let stop = false;
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/status");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const json = await res.json();
-        if (!stop) setData(json);
-      } catch (e) {
-        if (!stop) {
-            setError("Poll error: " + e.message);
-            showError("Poll error: " + e.message);
-        }
-      } finally {
-        if (!stop) setTimeout(poll, 1000);
-      }
-    };
-    poll();
-    return () => { stop = true; };
-  }, [mode, showError]);
-
   // Socket Mode Effect
   useEffect(() => {
-    if (mode !== 'SOCKET') return;
-    console.log("Switched to SOCKET mode");
+    console.log("Using SOCKET mode");
 
     // 1. Fetch full state ONCE to initialize
     fetch("/api/status")
@@ -130,7 +104,7 @@ function useHybridData(mode, showError) {
     });
 
     return () => socket.disconnect();
-  }, [mode, showError]);
+  }, [showError]);
 
   return { data, error };
 }
@@ -139,24 +113,22 @@ function useHybridData(mode, showError) {
  * App Component.
  *
  * The root component of the frontend application.
- * Manages global state (polling, history, alarms, navigation) and routes to specific screens.
+ * Manages global state (real-time updates, history, alarms, navigation) and routes to specific screens.
  * Handles API communication and global error/status display.
  */
 function App() {
   const [view, setView] = useState("HOME");
-  // NEW: State for the toggle
-  const [commMode, setCommMode] = useState("SOCKET");
   const { showError } = useError();
 
   // NEW: Use the hook instead of the old useEffect
-  const { data, error: pollError } = useHybridData(commMode, showError);
+  const { data, error: socketError } = useSocketData(showError);
 
   const [message, setMessage] = useState("");
-  // We can merge pollError into a general error display or keep them separate.
+  // We can merge socketError into a general error display or keep them separate.
   // The original app had a single `error` state.
-  // Let's use `pollError` if `error` is empty, or manage it locally.
+  // Let's use `socketError` if `error` is empty, or manage it locally.
   const [cmdError, setCmdError] = useState("");
-  const error = cmdError || pollError;
+  const error = cmdError || socketError;
 
   const [history, setHistory] = useState([]);
   const HISTORY_RETENTION_MS = 1000 * 60 * 60 * 24 * 7; // keep a rolling 7-day window
@@ -332,22 +304,6 @@ function App() {
           {error ? <span style={{ color: "#e74c3c" }}>{error}</span> :
           message ? <span style={{ color: "#2ecc71" }}>{message}</span> :
           "Backend: " + (data ? "connected" : "connecting…")}
-        </div>
-
-        {/* Toggle Button */}
-        <div style={{ zIndex: 2000 }}>
-            <button
-                onClick={() => setCommMode(prev => prev === 'POLLING' ? 'SOCKET' : 'POLLING')}
-                style={{
-                  ...styles.buttonSecondary,
-                  padding: "4px 10px",
-                  fontSize: "0.8em",
-                  background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
-                  marginLeft: "10px"
-                }}
-            >
-                {commMode === 'SOCKET' ? '⚡ REAL-TIME' : '🐢 POLLING 1s'}
-            </button>
         </div>
 
         <div>Mini Hackstruder HMI · v0.4</div>
