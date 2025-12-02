@@ -15,5 +15,6 @@
 
 ## Updating the deployment from GitHub
 - Run `deployment/update_from_github.sh` from anywhere inside the repository to fast-forward to the latest code on the configured remote without touching ignored directories like `frontend/node_modules` or `frontend/dist`.
+- If you see `Permission denied` when executing the script directly (for example on a filesystem mounted without the exec flag), invoke it with `bash deployment/update_from_github.sh` or mark it executable with `chmod +x deployment/update_from_github.sh`.
 - Set `REMOTE` or `BRANCH` environment variables to override the default remote/branch. Provide `REMOTE_URL` if the remote is not already configured (useful on fresh devices).
 - If you want to delete untracked files while keeping ignored folders intact, set `CLEAN_UNTRACKED=true` before running the script.
