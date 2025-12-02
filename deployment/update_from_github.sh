@@ -16,6 +16,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 REMOTE="${REMOTE:-origin}"
+LOCAL_ONLY=0
 IGNORED_TARGETS=(
   "frontend/node_modules"
   "node_modules"
@@ -51,39 +52,63 @@ if ! git config --get remote."$REMOTE".url >/dev/null 2>&1; then
             exit 1
         fi
     elif [[ -t 0 && -t 1 ]]; then
-        read -r -p "Remote '$REMOTE' missing. Enter URL to add as '$REMOTE': " REMOTE_URL_INPUT
+        read -r -p "Remote '$REMOTE' missing. Enter URL to add as '$REMOTE' (leave empty to continue without a remote): " REMOTE_URL_INPUT
         if [[ -n "$REMOTE_URL_INPUT" ]]; then
             REMOTE_URL="$REMOTE_URL_INPUT"
             echo "Adding remote '$REMOTE' -> $REMOTE_URL"
             git remote add "$REMOTE" "$REMOTE_URL"
+        elif [[ "${ALLOW_LOCAL_ONLY:-}" == "1" || "${ALLOW_LOCAL_ONLY:-}" == "true" ]]; then
+            echo "Remote '$REMOTE' not configured. Proceeding in local-only mode (no fetch)."
+            LOCAL_ONLY=1
         else
-            echo "Remote '$REMOTE' not configured. Set REMOTE or REMOTE_URL."
-            exit 1
+            read -r -p "Proceed without a remote? [y/N]: " LOCAL_ONLY_REPLY
+            if [[ "$LOCAL_ONLY_REPLY" =~ ^[Yy]$ ]]; then
+                echo "Proceeding in local-only mode (no fetch). Set ALLOW_LOCAL_ONLY=true to skip this prompt."
+                LOCAL_ONLY=1
+            else
+                echo "Remote '$REMOTE' not configured. Set REMOTE, REMOTE_URL, or ALLOW_LOCAL_ONLY=true."
+                exit 1
+            fi
         fi
     elif [[ "$REMOTE" == "origin" && ${#AVAILABLE_REMOTES[@]} -gt 1 ]]; then
         echo "Remote '$REMOTE' not configured. Available remotes: ${AVAILABLE_REMOTES[*]}"
-        echo "Set REMOTE to choose one or provide REMOTE_URL to add '$REMOTE'."
+        echo "Set REMOTE to choose one, provide REMOTE_URL to add '$REMOTE', or set ALLOW_LOCAL_ONLY=true to skip using a remote."
         exit 1
     else
-        echo "Remote '$REMOTE' not configured. Set REMOTE or REMOTE_URL."
+        if [[ "${ALLOW_LOCAL_ONLY:-}" == "1" || "${ALLOW_LOCAL_ONLY:-}" == "true" ]]; then
+            echo "Remote '$REMOTE' not configured. Proceeding in local-only mode (no fetch)."
+            LOCAL_ONLY=1
+        else
+            echo "Remote '$REMOTE' not configured. Set REMOTE, REMOTE_URL, or ALLOW_LOCAL_ONLY=true."
+            exit 1
+        fi
+    fi
+fi
+
+if [[ "$LOCAL_ONLY" -eq 0 ]]; then
+    if ! git fetch "$REMOTE" --prune; then
+        echo "Failed to fetch from $REMOTE."
         exit 1
     fi
 fi
 
-if ! git fetch "$REMOTE" --prune; then
-    echo "Failed to fetch from $REMOTE."
-    exit 1
-fi
-
 if [[ -z "${BRANCH:-}" ]]; then
     CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
-    if [[ -n "$CURRENT_BRANCH" ]]; then
+    if [[ -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "HEAD" ]]; then
         BRANCH="$CURRENT_BRANCH"
     else
-        REMOTE_HEAD="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
-        if [[ -n "$REMOTE_HEAD" ]]; then
-            BRANCH="${REMOTE_HEAD#${REMOTE}/}"
-            echo "No local branch detected; defaulting to remote HEAD '$BRANCH'."
+        if [[ "$LOCAL_ONLY" -eq 0 ]]; then
+            REMOTE_HEAD="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
+            if [[ -n "$REMOTE_HEAD" ]]; then
+                BRANCH="${REMOTE_HEAD#${REMOTE}/}"
+                echo "No local branch detected; defaulting to remote HEAD '$BRANCH'."
+            else
+                echo "Unable to detect a branch. Set BRANCH explicitly."
+                exit 1
+            fi
+        elif git rev-parse --verify HEAD >/dev/null 2>&1; then
+            BRANCH="HEAD"
+            echo "No branch or remote found; using current HEAD in local-only mode."
         else
             echo "Unable to detect a branch. Set BRANCH explicitly."
             exit 1
@@ -91,8 +116,13 @@ if [[ -z "${BRANCH:-}" ]]; then
     fi
 fi
 
-if ! git rev-parse --verify "$REMOTE/$BRANCH" >/dev/null 2>&1; then
-    echo "Branch '$BRANCH' not found on remote '$REMOTE'."
+if [[ "$LOCAL_ONLY" -eq 0 ]]; then
+    if ! git rev-parse --verify "$REMOTE/$BRANCH" >/dev/null 2>&1; then
+        echo "Branch '$BRANCH' not found on remote '$REMOTE'."
+        exit 1
+    fi
+elif ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
+    echo "Local branch or ref '$BRANCH' not found. Set BRANCH explicitly."
     exit 1
 fi
 
@@ -117,11 +147,19 @@ if [[ "$DIRTY" -eq 1 ]]; then
     git stash push -u -m "$STASH_NAME" >/dev/null
 fi
 
-echo "Checking out '$BRANCH'..."
-git checkout -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
+if [[ "$LOCAL_ONLY" -eq 0 ]]; then
+    echo "Checking out '$BRANCH'..."
+    git checkout -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
 
-echo "Resetting working tree to '$REMOTE/$BRANCH'..."
-git reset --hard "$REMOTE/$BRANCH" >/dev/null
+    echo "Resetting working tree to '$REMOTE/$BRANCH'..."
+    git reset --hard "$REMOTE/$BRANCH" >/dev/null
+else
+    TARGET_REF="$BRANCH"
+    echo "Checking out local '$TARGET_REF' (no remote fetch)..."
+    git checkout "$TARGET_REF" >/dev/null
+    echo "Resetting working tree to '$TARGET_REF'..."
+    git reset --hard "$TARGET_REF" >/dev/null
+fi
 
 if [[ "${CLEAN_UNTRACKED:-}" == "1" || "${CLEAN_UNTRACKED:-}" == "true" ]]; then
     echo "Cleaning untracked files (ignored paths remain untouched)..."
