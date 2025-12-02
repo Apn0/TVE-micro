@@ -144,8 +144,7 @@ function useHybridData(mode, showError) {
  */
 function App() {
   const [view, setView] = useState("HOME");
-  // NEW: State for the toggle
-  const [commMode, setCommMode] = useState("SOCKET");
+  const commMode = "SOCKET";
   const { showError } = useError();
 
   // NEW: Use the hook instead of the old useEffect
@@ -332,22 +331,6 @@ function App() {
           {error ? <span style={{ color: "#e74c3c" }}>{error}</span> :
           message ? <span style={{ color: "#2ecc71" }}>{message}</span> :
           "Backend: " + (data ? "connected" : "connecting…")}
-        </div>
-
-        {/* Toggle Button */}
-        <div style={{ zIndex: 2000 }}>
-            <button
-                onClick={() => setCommMode(prev => prev === 'POLLING' ? 'SOCKET' : 'POLLING')}
-                style={{
-                  ...styles.buttonSecondary,
-                  padding: "4px 10px",
-                  fontSize: "0.8em",
-                  background: commMode === 'SOCKET' ? "#27ae60" : "#7f8c8d",
-                  marginLeft: "10px"
-                }}
-            >
-                {commMode === 'SOCKET' ? '⚡ REAL-TIME' : '🐢 POLLING 1s'}
-            </button>
         </div>
 
         <div>Mini Hackstruder HMI · v0.4</div>
