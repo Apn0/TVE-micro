@@ -118,6 +118,7 @@ function useSocketData(showError) {
  */
 function App() {
   const [view, setView] = useState("HOME");
+  const commMode = "SOCKET";
   const { showError } = useError();
 
   // NEW: Use the hook instead of the old useEffect

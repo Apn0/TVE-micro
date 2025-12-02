@@ -1,5 +1,5 @@
 // file: frontend/src/tabs/HomeScreen.jsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { styles } from "../styles";
 import { validateSetpoint } from "../utils/validation";
 
@@ -28,6 +28,9 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
   const hasAlarm = status === "ALARM";
   const [targetZ1, setTargetZ1] = useState(null);
   const [targetZ2, setTargetZ2] = useState(null);
+  const [expandedCard, setExpandedCard] = useState(null);
+  const setpointRefs = useRef({});
+  const cardRefs = useRef({});
 
   useEffect(() => {
     setTargetZ1(validateSetpoint(data.state?.target_z1));
@@ -62,6 +65,20 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
     relays.heater_z2 ??
     (data.state?.manual_duty_z2 ?? 0) > 0
   );
+
+  useEffect(() => {
+    if (!expandedCard) return undefined;
+
+    const handleClickOutside = (event) => {
+      const cardEl = cardRefs.current[expandedCard];
+      if (cardEl && cardEl.contains(event.target)) return;
+      setExpandedCard(null);
+      keypad?.closeKeypad?.();
+    };
+
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [expandedCard, keypad]);
 
   // Calculated averages
   const z1 = (Number.isFinite(t1) && Number.isFinite(t2)) ? (t1 + t2) / 2 : null;
@@ -127,8 +144,17 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
     cursor: "pointer",
   };
 
-  const renderSchematicCard = ({ key, label, value, color, position, tab, setpoint }) => {
+  const renderSchematicCard = ({ key, label, value, color, position, tab, setpoint, onClick, setpointRefKey }) => {
     const hasSetpoint = setpoint !== undefined && setpoint !== null;
+    const isExpanded = expandedCard === key;
+    const highlightSetpoint = isExpanded && keypad?.visible;
+    const setpointBadgeStyle = {
+      ...styles.setpointBadge,
+      fontSize: "1.0em",
+      ...(highlightSetpoint
+        ? { background: "#3498db", color: "#fff", boxShadow: "0 0 0 2px #2980b9" }
+        : {}),
+    };
 
     return (
       <div
@@ -139,10 +165,24 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
           top: position.top,
           transform: "translate(-50%, -50%)",
           pointerEvents: "auto",
+          borderColor: isExpanded ? "#3498db" : schematicCardStyle.borderColor,
+          boxShadow: isExpanded ? "0 0 0 2px #3498db, 0 10px 30px rgba(0,0,0,0.35)" : "none",
+        }}
+        ref={(el) => {
+          cardRefs.current[key] = el;
         }}
         onClick={(e) => {
           e.stopPropagation(); // prevent closing overlay if any
-          if (setView && tab) setView(tab);
+          if (onClick) {
+            onClick(e);
+            return;
+          }
+
+          setExpandedCard((prev) => (prev === key ? null : key));
+
+          if (setView && tab) {
+            setView(tab);
+          }
         }}
       >
         {/* Title Section */}
@@ -186,7 +226,12 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
                 borderTop: "1px solid #000",
                 background: "#fff"
             }}>
-                <span style={{...styles.setpointBadge, fontSize: "1.0em"}}>
+                <span
+                  ref={(el) => {
+                    if (setpointRefKey) setpointRefs.current[setpointRefKey] = el;
+                  }}
+                  style={setpointBadgeStyle}
+                >
                     {setpoint.replace ? setpoint.replace(/[^0-9.]/g, '') : setpoint}
                 </span>
                 <span style={{color: "#555"}}>
@@ -194,8 +239,56 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
                 </span>
             </div>
         )}
+        {hasSetpoint && isExpanded && (
+          <div style={{
+            background: "#f8f9fa",
+            color: "#2c3e50",
+            padding: "8px 10px 12px",
+            borderTop: "1px solid #d0d7de",
+            width: "100%",
+            boxSizing: "border-box",
+          }}>
+            <div style={{ fontSize: "0.85em", lineHeight: 1.4 }}>
+              Tap the setpoint to edit. The keypad opens with the current value highlighted for quick entry.
+            </div>
+          </div>
+        )}
       </div>
     );
+  };
+
+  const handleHeaterCardClick = (cardKey, event) => {
+    event.stopPropagation();
+    const zoneKey = cardKey === "heater-z1" ? "z1" : "z2";
+    const currentTarget = zoneKey === "z1" ? targetZ1 : targetZ2;
+
+    setExpandedCard((prev) => {
+      const opening = prev !== cardKey;
+
+      if (opening) {
+        const anchorEl = setpointRefs.current[cardKey] || event.currentTarget;
+        const rect = anchorEl.getBoundingClientRect();
+        const initial = Number.isFinite(currentTarget) ? String(currentTarget) : "";
+
+        keypad?.openKeypad?.(initial, rect, (val) => {
+          const validated = validateSetpoint(val);
+          if (validated !== null) {
+            if (zoneKey === "z1") setTargetZ1(validated);
+            if (zoneKey === "z2") setTargetZ2(validated);
+            sendCmd("SET_TARGET", {
+              z1: zoneKey === "z1" ? validated : targetZ1,
+              z2: zoneKey === "z2" ? validated : targetZ2,
+            });
+          }
+          setExpandedCard(null);
+          keypad?.closeKeypad?.();
+        });
+      } else {
+        keypad?.closeKeypad?.();
+      }
+
+      return opening ? cardKey : null;
+    });
   };
 
   return (
@@ -327,6 +420,8 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
               position: { left: "55%", top: "25%" },
               tab: "HEATERS",
               setpoint: targetZ1?.toFixed?.(0) ? `${targetZ1.toFixed(0)} °C` : "-- °C",
+              onClick: (event) => handleHeaterCardClick("heater-z1", event),
+              setpointRefKey: "heater-z1",
             })}
 
             {/* Heater Z2: Top Right */}
@@ -338,6 +433,8 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
               position: { left: "80%", top: "25%" },
               tab: "HEATERS",
               setpoint: targetZ2?.toFixed?.(0) ? `${targetZ2.toFixed(0)} °C` : "-- °C",
+              onClick: (event) => handleHeaterCardClick("heater-z2", event),
+              setpointRefKey: "heater-z2",
             })}
 
 
