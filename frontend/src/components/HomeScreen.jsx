@@ -133,10 +133,10 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
   const schematicCardStyle = {
     ...styles.metricCard,
     minHeight: 80,
-    width: 140,
+    width: "100%",
+    height: "100%",
     padding: 0,
     gap: 0,
-    position: "absolute",
     justifyContent: "flex-start",
     flexDirection: "column",
     overflow: "hidden",
@@ -161,9 +161,7 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
         key={key}
         style={{
           ...schematicCardStyle,
-          left: position.left,
-          top: position.top,
-          transform: "translate(-50%, -50%)",
+          ...position,
           pointerEvents: "auto",
           borderColor: isExpanded ? "#3498db" : schematicCardStyle.borderColor,
           boxShadow: isExpanded ? "0 0 0 2px #3498db, 0 10px 30px rgba(0,0,0,0.35)" : "none",
@@ -378,21 +376,41 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
             <polygon points="550,65 570,75 550,85" fill="#f1c40f" />
           </svg>
 
-          {/* Overlay Cards */}
-          <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
-
-            {/* Main Motor: Top Left */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+              gridTemplateRows: "repeat(6, minmax(0, 1fr))",
+              gap: 12,
+              padding: 6,
+              pointerEvents: "none",
+            }}
+          >
+            {/* Main motor RPM at drive */}
             {renderSchematicCard({
               key: "motor",
               label: "Main motor",
               value: `${rpmDisplay(mainRpm)} RPM`,
               color: "#2ecc71",
-              position: { left: "12%", top: "25%" },
+              position: { gridColumn: "1 / span 2", gridRow: "1 / span 2" },
               tab: "MOTOR",
-              setpoint: `${rpmDisplay(mainRpm)} RPM`, // Using current as setpoint proxy since target not separated in API yet
+              setpoint: `${rpmDisplay(mainRpm)} RPM`,
             })}
 
-              {/* Cooling Fan: Top Left-ish */}
+            {/* Feeder motor RPM by hopper */}
+            {renderSchematicCard({
+              key: "feeder",
+              label: "Feeder motor",
+              value: `${rpmDisplay(feedRpm)} RPM`,
+              color: "#2ecc71",
+              position: { gridColumn: "4 / span 2", gridRow: "1 / span 2" },
+              tab: "MOTOR",
+              setpoint: `${rpmDisplay(feedRpm)} RPM`,
+            })}
+
+            {/* Cooling fan */}
             {renderSchematicCard({
               key: "fan",
               label: "Cooling fan",
@@ -403,100 +421,97 @@ function HomeScreen({ data, sendCmd, keypad, history = [] }) {
                   ? "ON"
                   : "OFF",
               color: fanActive ? "#2ecc71" : "#7f8c8d",
-              position: { left: "30%", top: "25%" },
+              position: { gridColumn: "2 / span 2", gridRow: "1 / span 2" },
               tab: "MOTOR",
             })}
 
-            {/* Heater Z1: Top Right */}
+            {/* Motor load near motor body */}
+            {renderSchematicCard({
+              key: "motor-load",
+              label: "Motor Load",
+              value: "-- %",
+              position: { gridColumn: "1 / span 2", gridRow: "3 / span 2" },
+              tab: "MOTOR",
+            })}
+
+            {/* Motor temp near motor body */}
+            {renderSchematicCard({
+              key: "tm",
+              label: "Motor temp",
+              value: tm !== null && tm !== undefined ? `${tm.toFixed(1)} °C` : "--.- °C",
+              position: { gridColumn: "1 / span 2", gridRow: "5 / span 2" },
+              tab: "MOTOR",
+            })}
+
+            {/* Motor current at base of motor */}
+            {renderSchematicCard({
+              key: "motor-amps",
+              label: "Motor Current",
+              value: "-- A",
+              position: { gridColumn: "4 / span 2", gridRow: "5 / span 2" },
+              tab: "MOTOR",
+            })}
+
+            {/* Valve state near outlet */}
+            {renderSchematicCard({
+              key: "valve",
+              label: "Valve Pos",
+              value: "-- %",
+              position: { gridColumn: "6 / span 2", gridRow: "5 / span 2" },
+              tab: "SENSORS",
+            })}
+
+            {/* Heater Z1 aligned with first heater block */}
             {renderSchematicCard({
               key: "heater-z1",
               label: "Heater Z1",
               value: t2 !== null && t2 !== undefined ? `${t2.toFixed(1)} °C` : "--.- °C",
               color: heaterZ1On ? "#e74c3c" : "#7f8c8d",
-              position: { left: "55%", top: "25%" },
+              position: { gridColumn: "7 / span 2", gridRow: "1 / span 2" },
               tab: "HEATERS",
               setpoint: targetZ1?.toFixed?.(0) ? `${targetZ1.toFixed(0)} °C` : "-- °C",
               onClick: (event) => handleHeaterCardClick("heater-z1", event),
               setpointRefKey: "heater-z1",
             })}
 
-            {/* Heater Z2: Top Right */}
+            {/* Heater Z2 aligned with second heater block */}
             {renderSchematicCard({
               key: "heater-z2",
               label: "Heater Z2",
               value: t3 !== null && t3 !== undefined ? `${t3.toFixed(1)} °C` : "--.- °C",
               color: heaterZ2On ? "#e74c3c" : "#7f8c8d",
-              position: { left: "80%", top: "25%" },
+              position: { gridColumn: "10 / span 2", gridRow: "1 / span 2" },
               tab: "HEATERS",
               setpoint: targetZ2?.toFixed?.(0) ? `${targetZ2.toFixed(0)} °C` : "-- °C",
               onClick: (event) => handleHeaterCardClick("heater-z2", event),
               setpointRefKey: "heater-z2",
             })}
 
-
-            {/* T1: Bottom Center */}
+            {/* Temperature at feed barrel inlet */}
             {renderSchematicCard({
               key: "t1",
               label: "T1 barrel",
               value: t1 !== null && t1 !== undefined ? `${t1.toFixed(1)} °C` : "--.- °C",
-              position: { left: "35%", top: "65%" },
+              position: { gridColumn: "5 / span 2", gridRow: "3 / span 2" },
               tab: "HEATERS",
             })}
 
-            {/* T2: Bottom Right */}
+            {/* Temperature at mid barrel */}
             {renderSchematicCard({
               key: "t2",
               label: "T2 barrel",
               value: t2 !== null && t2 !== undefined ? `${t2.toFixed(1)} °C` : "--.- °C",
-              position: { left: "55%", top: "65%" },
+              position: { gridColumn: "7 / span 2", gridRow: "3 / span 2" },
               tab: "HEATERS",
             })}
 
-              {/* T3: Bottom Right */}
+            {/* Temperature near nozzle */}
             {renderSchematicCard({
               key: "t3",
               label: "T3 barrel",
               value: t3 !== null && t3 !== undefined ? `${t3.toFixed(1)} °C` : "--.- °C",
-              position: { left: "75%", top: "65%" },
+              position: { gridColumn: "9 / span 2", gridRow: "3 / span 2" },
               tab: "HEATERS",
-            })}
-
-            {/* Motor Temp: Bottom Left */}
-            {renderSchematicCard({
-              key: "tm",
-              label: "Motor temp",
-              value: tm !== null && tm !== undefined ? `${tm.toFixed(1)} °C` : "--.- °C",
-              position: { left: "15%", top: "65%" },
-              tab: "MOTOR",
-            })}
-
-            {/* NEW PLACEHOLDERS */}
-
-            {/* Load %: Near Motor (Middle Left) */}
-            {renderSchematicCard({
-              key: "motor-load",
-              label: "Motor Load",
-              value: "-- %",
-              position: { left: "12%", top: "45%" },
-              tab: "MOTOR",
-            })}
-
-            {/* Amps: Near Motor (Middle Left) */}
-            {renderSchematicCard({
-              key: "motor-amps",
-              label: "Motor Current",
-              value: "-- A",
-              position: { left: "12%", top: "85%" },
-              tab: "MOTOR",
-            })}
-
-              {/* Valve: Top Left? */}
-            {renderSchematicCard({
-              key: "valve",
-              label: "Valve Pos",
-              value: "-- %",
-              position: { left: "30%", top: "85%" },
-              tab: "SENSORS",
             })}
           </div>
         </div>
