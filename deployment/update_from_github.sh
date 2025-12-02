@@ -72,14 +72,24 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     DIRTY=1
 fi
 
+HAS_HEAD=1
+if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+    HAS_HEAD=0
+fi
+
 if [[ "$DIRTY" -eq 1 ]]; then
+    if [[ "$HAS_HEAD" -eq 0 ]]; then
+        echo "Working tree has changes but the repository has no commits to stash."
+        echo "Please commit or remove changes before running this script."
+        exit 1
+    fi
     STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
     echo "Stashing local changes as '$STASH_NAME'..."
     git stash push -u -m "$STASH_NAME" >/dev/null
 fi
 
 echo "Checking out '$BRANCH'..."
-git checkout "$BRANCH" >/dev/null
+git checkout -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
 
 echo "Resetting working tree to '$REMOTE/$BRANCH'..."
 git reset --hard "$REMOTE/$BRANCH" >/dev/null
