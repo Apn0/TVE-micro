@@ -231,14 +231,14 @@ fi
 
 if [[ "$LOCAL_ONLY" -eq 0 ]]; then
     echo "Checking out '$BRANCH'..."
-    git checkout -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
+    git checkout -f -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
 
     echo "Resetting working tree to '$REMOTE/$BRANCH'..."
     git reset --hard "$REMOTE/$BRANCH" >/dev/null
 else
     TARGET_REF="$BRANCH"
     echo "Checking out local '$TARGET_REF' (no remote fetch)..."
-    git checkout "$TARGET_REF" >/dev/null
+    git checkout -f "$TARGET_REF" >/dev/null
     echo "Resetting working tree to '$TARGET_REF'..."
     git reset --hard "$TARGET_REF" >/dev/null
 fi
@@ -248,7 +248,7 @@ if [[ "${CLEAN_UNTRACKED:-}" == "1" || "${CLEAN_UNTRACKED:-}" == "true" ]]; then
     git clean -fd
 fi
 
-if [[ "$DIRTY" -eq 1 ]]; then
+if [[ "$STASHED" -eq 1 ]]; then
     echo "Local changes were stashed. Run 'git stash list' to review and"
     echo "'git stash pop' to reapply if needed."
 fi
