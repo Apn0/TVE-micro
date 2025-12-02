@@ -16,6 +16,11 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 REMOTE="${REMOTE:-origin}"
+REMOTE_HEAD=""
+EXPLICIT_BRANCH=0
+if [[ -n "${BRANCH+x}" ]]; then
+    EXPLICIT_BRANCH=1
+fi
 LOCAL_ONLY=0
 IGNORED_TARGETS=(
   "frontend/node_modules"
@@ -118,8 +123,32 @@ fi
 
 if [[ "$LOCAL_ONLY" -eq 0 ]]; then
     if ! git rev-parse --verify "$REMOTE/$BRANCH" >/dev/null 2>&1; then
-        echo "Branch '$BRANCH' not found on remote '$REMOTE'."
-        exit 1
+        if [[ "$EXPLICIT_BRANCH" -eq 1 ]]; then
+            echo "Branch '$BRANCH' not found on remote '$REMOTE'."
+            exit 1
+        fi
+
+        if [[ -z "$REMOTE_HEAD" ]]; then
+            REMOTE_HEAD="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
+        fi
+
+        if [[ -n "$REMOTE_HEAD" ]]; then
+            FALLBACK_BRANCH="${REMOTE_HEAD#${REMOTE}/}"
+            echo "Branch '$BRANCH' not found on remote '$REMOTE'."
+            if [[ -t 0 && -t 1 ]]; then
+                read -r -p "Use remote default branch '$FALLBACK_BRANCH' instead? [Y/n]: " FALLBACK_REPLY
+                if [[ "$FALLBACK_REPLY" =~ ^[Nn]$ ]]; then
+                    echo "Set BRANCH to an existing remote branch and rerun."
+                    exit 1
+                fi
+            fi
+            BRANCH="$FALLBACK_BRANCH"
+            echo "Falling back to remote default branch '$BRANCH'."
+        else
+            echo "Branch '$BRANCH' not found on remote '$REMOTE', and no remote default branch detected."
+            echo "Set BRANCH to an existing remote branch and rerun."
+            exit 1
+        fi
     fi
 elif ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
     echo "Local branch or ref '$BRANCH' not found. Set BRANCH explicitly."
