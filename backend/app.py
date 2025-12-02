@@ -15,6 +15,7 @@ import threading
 import copy
 import math
 import logging
+from numbers import Real
 import atexit
 import shutil
 from datetime import datetime
@@ -1102,11 +1103,17 @@ def emit_change(category, key, value, state_obj):
     # If value changed, push to WebSocket clients
     # (We use a small epsilon for floats to avoid noise)
     changed = False
+    numeric_current = isinstance(value, Real) and not isinstance(value, bool)
+    numeric_previous = isinstance(old_val, Real) and not isinstance(old_val, bool)
+
     if old_val is None:
-        changed = True
-    elif isinstance(value, float) and isinstance(old_val, float):
-        if abs(value - old_val) > 0.001:
-            changed = True
+        changed = value is not None
+    elif numeric_current and numeric_previous:
+        try:
+            # Avoid emitting for tiny numeric drifts regardless of int/float type
+            changed = abs(float(value) - float(old_val)) > 0.001
+        except (TypeError, ValueError):
+            changed = value != old_val
     elif value != old_val:
         changed = True
 

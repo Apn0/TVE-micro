@@ -53,5 +53,17 @@ class TestStateFix(unittest.TestCase):
         app_module.emit_change("status", "current", "RUNNING", self.state)
         app_module.socketio.emit.assert_called_once()
 
+    def test_emit_change_numeric_type_noise(self):
+        # Store initial numeric state as int and update with small float drift
+        self.state["temps"]["t1"] = 20
+        app_module.emit_change("temps", "t1", 20.0005, self.state)
+        # Should dampen tiny drift even though types differ
+        app_module.socketio.emit.assert_not_called()
+        self.assertEqual(self.state["temps"]["t1"], 20.0005)
+
+        # A larger numeric change should still emit
+        app_module.emit_change("temps", "t1", 20.1, self.state)
+        app_module.socketio.emit.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main()
