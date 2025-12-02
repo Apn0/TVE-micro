@@ -97,6 +97,40 @@ const FeedControlContent = ({ rpm, setRpm, sendCmd, mainRpm }) => (
     </div>
 );
 
+const FillControlContent = ({ level, setLevel, sendCmd }) => (
+    <div>
+      <h4 style={{ color: "#dfe6ec", margin: "0 0 6px 0" }}>Target Fill Level</h4>
+      <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={level}
+          onChange={(e) => setLevel(parseFloat(e.target.value))}
+          onMouseUp={(e) => sendCmd("SET_FILL_TARGET", { level: parseFloat(e.target.value) })}
+          onTouchEnd={(e) => sendCmd("SET_FILL_TARGET", { level: parseFloat(e.target.value) })}
+          style={{ width: "100%", marginBottom: "10px" }}
+      />
+      <div style={{ textAlign: "center", marginBottom: "10px", fontSize: "1.2em", fontWeight: "bold", color: "#fff" }}>
+          {level?.toFixed(1) ?? 0} cm
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+           {[20, 40, 60, 80].map((preset) => (
+              <button
+                key={preset}
+                style={styles.buttonSecondary}
+                onClick={() => {
+                    setLevel(preset);
+                    sendCmd("SET_FILL_TARGET", { level: preset });
+                }}
+              >
+                {preset}
+              </button>
+            ))}
+      </div>
+    </div>
+);
+
 /**
  * MotorScreen Component.
  *
@@ -112,11 +146,14 @@ const FeedControlContent = ({ rpm, setRpm, sendCmd, mainRpm }) => (
 function MotorScreen({ data, sendCmd, keypad }) {
   const motors = data.state?.motors || {};
   const temps = data.state?.temps || {};
+  const fillLevel = data.state?.fill_level ?? 0;
+  const targetFillLevel = data.state?.target_fill_level ?? 0;
   const motionConfig = data.config?.motion || data.config?.motors || {};
 
   // Local state for controls
   const [mainRpm, setMainRpm] = useState(motors.main ?? 0);
   const [feedRpm, setFeedRpm] = useState(motors.feed ?? 0);
+  const [fillTarget, setFillTarget] = useState(targetFillLevel);
 
   // Local state for manual jog settings
   const [mainManualSteps, setMainManualSteps] = useState(100);
@@ -145,8 +182,9 @@ function MotorScreen({ data, sendCmd, keypad }) {
     if (expandedCard === null) {
         setMainRpm(motors.main ?? 0);
         setFeedRpm(motors.feed ?? 0);
+        setFillTarget(targetFillLevel);
     }
-  }, [motors.main, motors.feed, expandedCard]);
+  }, [motors.main, motors.feed, targetFillLevel, expandedCard]);
 
   const dmFromConfig = data.config?.dm556;
   useEffect(() => {
@@ -491,7 +529,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
              {/* Cards */}
              {renderSchematicCard({
                  key: "feed",
-                 label: "Feeder",
+                 label: "Feeder motor",
                  value: rpmDisplay(motors.feed ?? 0),
                  color: motors.feed > 0 ? "#2ecc71" : "#000",
                  position: { left: "20%", top: "15%" },
@@ -503,6 +541,22 @@ function MotorScreen({ data, sendCmd, keypad }) {
                      setRpm={setFeedRpm}
                      sendCmd={sendCmd}
                      mainRpm={motors.main ?? 0}
+                 />
+             })}
+
+             {renderSchematicCard({
+                 key: "fill",
+                 label: "Fill level",
+                 value: `${fillLevel.toFixed(1)} cm`,
+                 color: "#3498db",
+                 position: { left: "20%", top: "-15%" }, // Above feeder
+                 onClick: (e) => toggleCardExpansion("fill", e),
+                 setpoint: fillTarget.toFixed(1),
+                 unit: "cm",
+                 expandedContent: <FillControlContent
+                     level={fillTarget}
+                     setLevel={setFillTarget}
+                     sendCmd={sendCmd}
                  />
              })}
 

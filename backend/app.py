@@ -18,6 +18,7 @@ import logging
 from numbers import Real
 import atexit
 import shutil
+import random
 from datetime import datetime
 
 # Ensure the repository root is on the import path when the file is executed
@@ -865,6 +866,8 @@ state = {
     "motors": {"main": 0.0, "feed": 0.0},
     "relays": {"fan": False, "pump": False},
     "peltier_duty": 0.0,
+    "fill_level": 42.5,
+    "target_fill_level": 45.0,
     "pwm": {k: 0.0 for k in sys_config.get("pwm", {}).get("channels", {})},
     "seq_start_time": 0.0,
 }
@@ -1222,6 +1225,18 @@ def control_loop():
                 for ch_name, duty in hal.pwm_outputs.items():
                     emit_change("pwm", ch_name, duty, state)
 
+                # 5. Mock Fill Level Physics (Simple approach to target)
+                cur_fill = state.get("fill_level", 0.0)
+                tgt_fill = state.get("target_fill_level", 0.0)
+                if abs(cur_fill - tgt_fill) > 0.1:
+                    step = 0.1 if cur_fill < tgt_fill else -0.1
+                    new_fill = cur_fill + step
+                    # Noise
+                    if random.random() < 0.2:
+                        new_fill += (random.random() - 0.5) * 0.2
+                    state["fill_level"] = new_fill
+                    emit_change("misc", "fill_level", new_fill, state)
+
                 # Standard status updates
                 status = state["status"]
                 mode = state["mode"]
@@ -1554,6 +1569,8 @@ def api_data():
         "motors": snap.get("motors", {}),
         "relays": snap.get("relays", {}),
         "peltier_duty": snap.get("peltier_duty", 0.0),
+        "fill_level": snap.get("fill_level", 0.0),
+        "target_fill_level": snap.get("target_fill_level", 0.0),
         "status": snap.get("status", "READY"),
         "mode": snap.get("mode", "AUTO"),
     })
@@ -1799,6 +1816,7 @@ def control():
         "SAVE_CONFIG",
         "GPIO_CONFIG",
         "GPIO_WRITE",
+        "SET_FILL_TARGET",
     )
 
     if alarm:
@@ -1955,6 +1973,21 @@ def control():
         hal.set_peltier_duty(duty)
         with state_lock:
             state["peltier_duty"] = duty
+
+    elif cmd == "SET_FILL_TARGET":
+        schema = {
+            "level": {"type": float, "min": 0.0, "max": 1000.0, "required": True}
+        }
+        cleaned, errors = _validate_payload(req, schema)
+        if errors:
+             API_VALIDATION_ERRORS_TOTAL.inc()
+             app_logger.warning(f"api_validation_failed: {'; '.join(errors)}")
+             return jsonify({"success": False, "msg": "; ".join(errors)}), 400
+
+        level = cleaned["level"]
+        with state_lock:
+            state["target_fill_level"] = level
+            emit_change("misc", "target_fill_level", level, state)
 
     elif cmd == "SET_PWM_OUTPUT":
         schema = {
