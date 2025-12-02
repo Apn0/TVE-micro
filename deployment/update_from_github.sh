@@ -205,7 +205,8 @@ elif ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
 fi
 
 DIRTY=0
-if ! git diff --quiet || ! git diff --cached --quiet; then
+# Check for any changes: modified, staged, or untracked
+if [[ -n "$(git status --porcelain)" ]]; then
     DIRTY=1
 fi
 
@@ -214,27 +215,33 @@ if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
     HAS_HEAD=0
 fi
 
+STASHED=0
 if [[ "$DIRTY" -eq 1 ]]; then
     if [[ "$HAS_HEAD" -eq 0 ]]; then
-        echo "Working tree has changes but the repository has no commits to stash."
-        echo "Please commit or remove changes before running this script."
-        exit 1
+        echo "Warning: Working tree has changes but the repository has no commits to stash."
+        echo "Proceeding with force update (untracked files will be overwritten)..."
+    else
+        STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
+        echo "Stashing local changes as '$STASH_NAME'..."
+        # Attempt to stash. If identity is not configured, this might fail, but we'll try to proceed.
+        if git stash push -u -m "$STASH_NAME" >/dev/null; then
+            STASHED=1
+        else
+            echo "Warning: Stash failed (possibly due to missing git config). Proceeding..."
+        fi
     fi
-    STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
-    echo "Stashing local changes as '$STASH_NAME'..."
-    git stash push -u -m "$STASH_NAME" >/dev/null
 fi
 
 if [[ "$LOCAL_ONLY" -eq 0 ]]; then
     echo "Checking out '$BRANCH'..."
-    git checkout -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
+    git checkout -f -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
 
     echo "Resetting working tree to '$REMOTE/$BRANCH'..."
     git reset --hard "$REMOTE/$BRANCH" >/dev/null
 else
     TARGET_REF="$BRANCH"
     echo "Checking out local '$TARGET_REF' (no remote fetch)..."
-    git checkout "$TARGET_REF" >/dev/null
+    git checkout -f "$TARGET_REF" >/dev/null
     echo "Resetting working tree to '$TARGET_REF'..."
     git reset --hard "$TARGET_REF" >/dev/null
 fi
@@ -244,7 +251,7 @@ if [[ "${CLEAN_UNTRACKED:-}" == "1" || "${CLEAN_UNTRACKED:-}" == "true" ]]; then
     git clean -fd
 fi
 
-if [[ "$DIRTY" -eq 1 ]]; then
+if [[ "$STASHED" -eq 1 ]]; then
     echo "Local changes were stashed. Run 'git stash list' to review and"
     echo "'git stash pop' to reapply if needed."
 fi
