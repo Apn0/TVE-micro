@@ -175,7 +175,12 @@ function HomeScreen({ data, sendCmd, keypad, setView, history = [] }) {
           e.stopPropagation(); // prevent closing overlay if any
           if (onClick) {
             onClick(e);
-          } else if (setView && tab) {
+            return;
+          }
+
+          setExpandedCard((prev) => (prev === key ? null : key));
+
+          if (setView && tab) {
             setView(tab);
           }
         }}
