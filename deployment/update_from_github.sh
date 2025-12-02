@@ -40,6 +40,26 @@ if ! git config --get remote."$REMOTE".url >/dev/null 2>&1; then
         REMOTE="${AVAILABLE_REMOTES[0]}"
         echo "Remote 'origin' not configured; defaulting to existing remote '$REMOTE'."
         echo "Set REMOTE to override or REMOTE_URL to add 'origin'."
+    elif [[ ${#AVAILABLE_REMOTES[@]} -gt 0 && -t 0 && -t 1 ]]; then
+        echo "Remote '$REMOTE' not configured. Available remotes: ${AVAILABLE_REMOTES[*]}"
+        read -r -p "Select remote to use [${AVAILABLE_REMOTES[*]}]: " CHOSEN_REMOTE
+        if [[ -n "$CHOSEN_REMOTE" && " ${AVAILABLE_REMOTES[*]} " == *" $CHOSEN_REMOTE "* ]]; then
+            REMOTE="$CHOSEN_REMOTE"
+            echo "Using remote '$REMOTE'. Set REMOTE to skip the prompt next time."
+        else
+            echo "Invalid selection. Set REMOTE or REMOTE_URL explicitly."
+            exit 1
+        fi
+    elif [[ -t 0 && -t 1 ]]; then
+        read -r -p "Remote '$REMOTE' missing. Enter URL to add as '$REMOTE': " REMOTE_URL_INPUT
+        if [[ -n "$REMOTE_URL_INPUT" ]]; then
+            REMOTE_URL="$REMOTE_URL_INPUT"
+            echo "Adding remote '$REMOTE' -> $REMOTE_URL"
+            git remote add "$REMOTE" "$REMOTE_URL"
+        else
+            echo "Remote '$REMOTE' not configured. Set REMOTE or REMOTE_URL."
+            exit 1
+        fi
     elif [[ "$REMOTE" == "origin" && ${#AVAILABLE_REMOTES[@]} -gt 1 ]]; then
         echo "Remote '$REMOTE' not configured. Available remotes: ${AVAILABLE_REMOTES[*]}"
         echo "Set REMOTE to choose one or provide REMOTE_URL to add '$REMOTE'."
