@@ -98,6 +98,9 @@ if [[ "$LOCAL_ONLY" -eq 0 ]]; then
 fi
 
 detect_remote_head() {
+    # Try to auto-detect and set the remote HEAD locally.
+    git remote set-head "$REMOTE" --auto >/dev/null 2>&1 || true
+
     # Try the locally tracked remote HEAD first.
     local head_ref
     head_ref="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
