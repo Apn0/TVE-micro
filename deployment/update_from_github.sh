@@ -214,12 +214,16 @@ if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
     HAS_HEAD=0
 fi
 
+TEMP_STASH_BASE_CREATED=0
 if [[ "$DIRTY" -eq 1 ]]; then
     if [[ "$HAS_HEAD" -eq 0 ]]; then
-        echo "Working tree has changes but the repository has no commits to stash."
-        echo "Please commit or remove changes before running this script."
-        exit 1
+        echo "No commits found; creating a temporary empty commit to allow stashing..."
+        git -c user.name="temporary-stash" -c user.email="temporary-stash@local" \
+            commit --allow-empty --quiet -m "temporary-stash-base"
+        HAS_HEAD=1
+        TEMP_STASH_BASE_CREATED=1
     fi
+
     STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
     echo "Stashing local changes as '$STASH_NAME'..."
     git stash push -u -m "$STASH_NAME" >/dev/null
