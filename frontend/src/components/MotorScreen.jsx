@@ -245,7 +245,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
     return `${ratio.toFixed(0)}%`;
   }, [motors.feed, motors.main]);
 
-  const motorTemp = temps.motor !== undefined ? `${temps.motor.toFixed(1)} °C` : "--.- °C";
+  const motorTemp = Number.isFinite(temps.motor) ? `${temps.motor.toFixed(1)} °C` : "--.- °C";
 
   // --- UI Helpers ---
 
@@ -497,7 +497,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
                  color: motors.feed > 0 ? "#2ecc71" : "#000",
                  position: { left: "20%", top: "15%" },
                  onClick: (e) => toggleCardExpansion("feed", e),
-                 setpoint: feedRpm.toFixed(0),
+                 setpoint: (feedRpm ?? 0).toFixed(0),
                  unit: "rpm",
                  expandedContent: <FeedControlContent
                      rpm={feedRpm}
@@ -514,7 +514,7 @@ function MotorScreen({ data, sendCmd, keypad }) {
                  color: motors.main > 0 ? "#2ecc71" : "#000",
                  position: { left: "15%", top: "75%" },
                  onClick: (e) => toggleCardExpansion("main", e),
-                 setpoint: mainRpm.toFixed(0),
+                 setpoint: (mainRpm ?? 0).toFixed(0),
                  unit: "rpm",
                  expandedContent: <MainControlContent
                      rpm={mainRpm}
