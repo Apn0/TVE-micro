@@ -17,7 +17,6 @@ The system is designed to run on a Raspberry Pi but includes a simulation mode f
 The system now uses a **Hybrid WebSocket + Polling Architecture**:
 -   **Live Monitoring:** Sensors and motor states update in real-time (push-based) via WebSockets, eliminating UI lag.
 -   **Resilience:** Automatically falls back to standard HTTP polling if the WebSocket connection is interrupted.
--   **Toggle:** Operators can switch between "REAL-TIME" and "POLLING" modes via the status bar.
 
 ### 🌡️ PID Auto-Tuning
 Includes a built-in **Relay Feedback Auto-Tuner** to automatically calculate optimal PID coefficients for the extruder's specific thermal mass.
