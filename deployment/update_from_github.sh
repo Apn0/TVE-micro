@@ -39,7 +39,11 @@ fi
 
 if ! git config --get remote."$REMOTE".url >/dev/null 2>&1; then
     read -r -a AVAILABLE_REMOTES <<< "$(git remote | tr '\n' ' ')"
-    if [[ -n "${REMOTE_URL:-}" ]]; then
+
+    if [[ ( "${ALLOW_LOCAL_ONLY:-}" == "1" || "${ALLOW_LOCAL_ONLY:-}" == "true" ) && ${#AVAILABLE_REMOTES[@]} -eq 0 && -z "${REMOTE_URL:-}" ]]; then
+        echo "Remote '$REMOTE' not configured. Proceeding in local-only mode (no fetch)."
+        LOCAL_ONLY=1
+    elif [[ -n "${REMOTE_URL:-}" ]]; then
         echo "Adding remote '$REMOTE' -> $REMOTE_URL"
         git remote add "$REMOTE" "$REMOTE_URL"
     elif [[ "$REMOTE" == "origin" && ${#AVAILABLE_REMOTES[@]} -eq 1 ]]; then
@@ -205,6 +209,7 @@ elif ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
 fi
 
 DIRTY=0
+STASHED=0
 if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
     DIRTY=1
 fi
@@ -223,6 +228,7 @@ if [[ "$DIRTY" -eq 1 ]]; then
     STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
     echo "Stashing local changes as '$STASH_NAME'..."
     git stash push -u -m "$STASH_NAME" >/dev/null
+    STASHED=1
 fi
 
 if [[ "$LOCAL_ONLY" -eq 0 ]]; then
@@ -244,7 +250,7 @@ if [[ "${CLEAN_UNTRACKED:-}" == "1" || "${CLEAN_UNTRACKED:-}" == "true" ]]; then
     git clean -fd
 fi
 
-if [[ "$DIRTY" -eq 1 ]]; then
+if [[ "$STASHED" -eq 1 ]]; then
     echo "Local changes were stashed. Run 'git stash list' to review and"
     echo "'git stash pop' to reapply if needed."
 fi
