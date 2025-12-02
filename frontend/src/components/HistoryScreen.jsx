@@ -633,6 +633,20 @@ function HistoryScreen({ history, config }) {
     localStorage.setItem("history_live_mode", liveMode ? "true" : "false");
   }, [liveMode]);
 
+  const viewHistory = useMemo(() => {
+    if (!viewRange) return sanitizedHistory;
+    return sanitizedHistory.filter((h) => h.t >= viewRange.start && h.t <= viewRange.end);
+  }, [sanitizedHistory, viewRange]);
+
+  const stats = useMemo(() => computeStats(viewHistory, seriesDefs), [viewHistory, seriesDefs]);
+  const sampleCount = viewHistory.length;
+  const timeSpanMs = sanitizedHistory.length
+    ? viewRange
+      ? viewRange.end - viewRange.start
+      : sanitizedHistory[sanitizedHistory.length - 1].t - sanitizedHistory[0].t
+    : 0;
+  const lastSampleAge = sanitizedHistory.length ? Date.now() - sanitizedHistory[sanitizedHistory.length - 1].t : 0;
+
   if (!sanitizedHistory.length) {
     return (
       <div style={styles.panel}>
@@ -644,16 +658,6 @@ function HistoryScreen({ history, config }) {
       </div>
     );
   }
-
-  const viewHistory = useMemo(() => {
-    if (!viewRange) return sanitizedHistory;
-    return sanitizedHistory.filter((h) => h.t >= viewRange.start && h.t <= viewRange.end);
-  }, [sanitizedHistory, viewRange]);
-
-  const stats = useMemo(() => computeStats(viewHistory, seriesDefs), [viewHistory, seriesDefs]);
-  const sampleCount = viewHistory.length;
-  const timeSpanMs = viewRange ? viewRange.end - viewRange.start : sanitizedHistory[sanitizedHistory.length - 1].t - sanitizedHistory[0].t;
-  const lastSampleAge = Date.now() - sanitizedHistory[sanitizedHistory.length - 1].t;
 
   const exportHistory = () => {
     const headers = ["timestamp"].concat(seriesDefs.map((s) => s.key));
