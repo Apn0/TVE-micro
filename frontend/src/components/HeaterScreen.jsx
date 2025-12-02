@@ -461,6 +461,18 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     zIndex: 1 // Default z
   };
 
+  const renderCardFooter = (value, unit, visible) => (
+    <div
+      style={{
+        ...styles.metricFooter,
+        visibility: visible ? "visible" : "hidden",
+      }}
+    >
+      <span style={styles.setpointBadge}>{value}</span>
+      <span style={{ color: "#555" }}>{unit}</span>
+    </div>
+  );
+
   const renderSchematic = () => {
     // 600px width viewBox
     // Barrel length: 400px (x=50 to x=450)
@@ -550,6 +562,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
   const renderPeltierCard = () => {
     const duty = data.state?.peltier_duty ?? 0.0;
     const isExpanded = expandedZone === "peltier";
+    const formattedDuty = duty.toFixed(0);
 
     return (
       <div style={{ position: "relative" }}>
@@ -571,11 +584,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
           <div style={{ ...styles.metricValue, color: duty > 0 ? "#3498db" : "#000" }}>
             {duty.toFixed(1)} %
           </div>
-           {/* Footer style for consistency, though Peltier has no explicit setpoint display in footer usually */}
-           <div style={styles.metricFooter}>
-                <span style={styles.setpointBadge}>{duty.toFixed(0)}</span>
-                <span style={{color: "#555"}}>%</span>
-           </div>
+          {renderCardFooter(formattedDuty, "%", isExpanded)}
         </div>
 
         {isExpanded && (
@@ -618,6 +627,8 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
     const heaterDuty = data.state?.[`heater_duty_${zoneKey}`] ?? 0.0;
     const isManual = data.state?.mode === "MANUAL";
     const pidParams = config[zoneKey] || {};
+    const formattedSetpoint = Number.isFinite(target) ? target.toFixed(0) : "--";
+    const showSetpoint = expandedZone === zoneKey;
 
     let color = "#7f8c8d";
     if (tempIsValid) {
@@ -646,10 +657,7 @@ function HeaterScreen({ data, sendCmd, history = [], keypad }) {
             {tempIsValid ? `${temp.toFixed(1)} °C` : "--.- °C"}
           </div>
 
-          <div style={styles.metricFooter}>
-              <span style={styles.setpointBadge}>{target?.toFixed(0)}</span>
-              <span style={{color: "#555"}}>°C</span>
-          </div>
+          {renderCardFooter(formattedSetpoint, "°C", showSetpoint)}
         </div>
 
         {expandedZone === zoneKey && (
