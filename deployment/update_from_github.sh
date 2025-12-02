@@ -109,28 +109,17 @@ detect_remote_head() {
         return 0
     fi
 
-    # Fallback: query the remote directly using ls-remote.
-    # We parse the symref line: "ref: refs/heads/BRANCH\tHEAD"
-    local output
-    output="$(git ls-remote --symref "$REMOTE" HEAD 2>/dev/null || true)"
-
-    # Use awk to reliably extract the branch name from the symref line.
-    local branch
-    branch="$(echo "$output" | awk '/^ref: refs\/heads\// { sub(/^ref: refs\/heads\//, ""); sub(/[ \t]+HEAD$/, ""); print; exit }')"
-
-    if [[ -n "$branch" ]]; then
-        echo "$branch"
-        return 0
-    fi
-
-    # Last resort: check explicitly for 'main' or 'master' on remote.
-    if git ls-remote --exit-code --heads "$REMOTE" main >/dev/null 2>&1; then
-        echo "main"
-        return 0
-    fi
-    if git ls-remote --exit-code --heads "$REMOTE" master >/dev/null 2>&1; then
-        echo "master"
-        return 0
+    # Fallback: query the remote directly for its HEAD symbolic ref.
+    # Example output line: "ref: refs/heads/main\tHEAD" -> extract "main".
+    # Some git versions emit spaces instead of tabs, so match any whitespace.
+    local ls_remote_head
+    ls_remote_head="$(git ls-remote --symref "$REMOTE" HEAD 2>/dev/null | awk '$NF=="HEAD" {print $(NF-1)}' | head -n1 | xargs || true)"
+    if [[ -n "$ls_remote_head" && "$ls_remote_head" == refs/heads/* ]]; then
+        ls_remote_head="${ls_remote_head#refs/heads/}"
+        if [[ -n "$ls_remote_head" ]]; then
+            echo "$ls_remote_head"
+            return 0
+        fi
     fi
 
     return 1
