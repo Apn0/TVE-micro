@@ -16,8 +16,6 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 REMOTE="${REMOTE:-origin}"
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-BRANCH="${BRANCH:-$CURRENT_BRANCH}"
 IGNORED_TARGETS=(
   "frontend/node_modules"
   "node_modules"
@@ -43,9 +41,25 @@ if ! git config --get remote."$REMOTE".url >/dev/null 2>&1; then
     fi
 fi
 
-if ! git fetch "$REMOTE" "$BRANCH" --prune; then
-    echo "Failed to fetch from $REMOTE/$BRANCH."
+if ! git fetch "$REMOTE" --prune; then
+    echo "Failed to fetch from $REMOTE."
     exit 1
+fi
+
+if [[ -z "${BRANCH:-}" ]]; then
+    CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
+    if [[ -n "$CURRENT_BRANCH" ]]; then
+        BRANCH="$CURRENT_BRANCH"
+    else
+        REMOTE_HEAD="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)"
+        if [[ -n "$REMOTE_HEAD" ]]; then
+            BRANCH="${REMOTE_HEAD#${REMOTE}/}"
+            echo "No local branch detected; defaulting to remote HEAD '$BRANCH'."
+        else
+            echo "Unable to detect a branch. Set BRANCH explicitly."
+            exit 1
+        fi
+    fi
 fi
 
 if ! git rev-parse --verify "$REMOTE/$BRANCH" >/dev/null 2>&1; then
@@ -58,14 +72,24 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     DIRTY=1
 fi
 
+HAS_HEAD=1
+if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+    HAS_HEAD=0
+fi
+
 if [[ "$DIRTY" -eq 1 ]]; then
+    if [[ "$HAS_HEAD" -eq 0 ]]; then
+        echo "Working tree has changes but the repository has no commits to stash."
+        echo "Please commit or remove changes before running this script."
+        exit 1
+    fi
     STASH_NAME="pre-update-$(date +%Y%m%d%H%M%S)"
     echo "Stashing local changes as '$STASH_NAME'..."
     git stash push -u -m "$STASH_NAME" >/dev/null
 fi
 
 echo "Checking out '$BRANCH'..."
-git checkout "$BRANCH" >/dev/null
+git checkout -B "$BRANCH" "$REMOTE/$BRANCH" >/dev/null
 
 echo "Resetting working tree to '$REMOTE/$BRANCH'..."
 git reset --hard "$REMOTE/$BRANCH" >/dev/null
