@@ -12,3 +12,8 @@
 ## Nginx configuration
 - `deployment/nginx_intarema.conf` serves the built frontend bundle from `frontend/dist` at the site root and proxies `/api` requests to the backend on `http://127.0.0.1:5000`.
 - Update the `root` path if your deployment directory differs from the default so that Nginx can find `index.html` and static assets.
+
+## Updating the deployment from GitHub
+- Run `deployment/update_from_github.sh` from anywhere inside the repository to fast-forward to the latest code on the configured remote without touching ignored directories like `frontend/node_modules` or `frontend/dist`.
+- Set `REMOTE` or `BRANCH` environment variables to override the default remote/branch. Provide `REMOTE_URL` if the remote is not already configured (useful on fresh devices).
+- If you want to delete untracked files while keeping ignored folders intact, set `CLEAN_UNTRACKED=true` before running the script.
