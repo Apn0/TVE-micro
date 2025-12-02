@@ -205,7 +205,7 @@ elif ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
 fi
 
 DIRTY=0
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if ! git diff --quiet || ! git diff --cached --quiet || (( $(git status --porcelain --untracked-files=normal | wc -l) > 0 )); then
     DIRTY=1
 fi
 
