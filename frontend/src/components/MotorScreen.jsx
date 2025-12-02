@@ -415,7 +415,6 @@ function MotorScreen({ data, sendCmd, keypad }) {
                     boxShadow: isExpanded ? "0 0 0 1px #3498db" : "0 8px 16px rgba(0,0,0,0.25)",
                     transition: "box-shadow 0.2s ease",
                     borderColor: isExpanded ? "#3498db" : "#1f2a36",
-                    minHeight: "120px"
                 }}
                 onClick={(e) => toggleCardExpansion(key, e)}
                 data-testid={`motion-card-${key}`}
